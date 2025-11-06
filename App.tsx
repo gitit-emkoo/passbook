@@ -1,20 +1,20 @@
+import React, { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import AppNavigator from './src/navigation/AppNavigator';
+import { useAuthStore } from './src/store/useStore';
 
 export default function App() {
+  const loadAuth = useAuthStore((state) => state.loadAuth);
+
+  useEffect(() => {
+    // 앱 시작 시 저장된 인증 정보 로드
+    loadAuth();
+  }, [loadAuth]);
+
   return (
-    <View style={styles.container}>
-      <Text>Open up App.tsx to start working on your app!</Text>
+    <>
+      <AppNavigator />
       <StatusBar style="auto" />
-    </View>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
