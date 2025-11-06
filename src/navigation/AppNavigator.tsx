@@ -82,24 +82,6 @@ function SettlementStack() {
 }
 
 /**
- * 하단 탭 네비게이션 설정
- * 홈 / 수강생 / 정산 / 설정
- */
-export default function AppNavigator() {
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-
-  // 인증되지 않은 경우 로그인 화면 표시
-  if (!isAuthenticated) {
-    return (
-      <NavigationContainer>
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="Auth" component={AuthScreen} />
-        </Stack.Navigator>
-      </NavigationContainer>
-    );
-  }
-
-/**
  * 메인 앱 스택 (알림 포함)
  */
 function MainAppStack() {

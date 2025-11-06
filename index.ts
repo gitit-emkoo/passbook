@@ -1,3 +1,4 @@
+import 'react-native-gesture-handler'; // 최상단에 import 필수
 import { registerRootComponent } from 'expo';
 
 import App from './App';

@@ -9,7 +9,7 @@ export default ({ config }) => ({
     orientation: 'portrait',
     icon: './assets/icon.png',
     userInterfaceStyle: 'light',
-    newArchEnabled: true,
+    newArchEnabled: false, // 기준선 테스트: New Architecture 비활성화
     splash: {
       image: './assets/splash-icon.png',
       resizeMode: 'contain',
@@ -32,14 +32,15 @@ export default ({ config }) => ({
     },
     plugins: [
       'expo-dev-client',
-      [
-        'react-native-google-mobile-ads',
-        {
-          androidAppId: process.env.ANDROID_ADMOB_APP_ID,
-          iosAppId: process.env.IOS_ADMOB_APP_ID,
-        },
-      ],
-      './app.plugin.js',
+      // 임시 주석 처리: 네이티브 크래시 원인 확인용
+      // [
+      //   'react-native-google-mobile-ads',
+      //   {
+      //     androidAppId: process.env.ANDROID_ADMOB_APP_ID,
+      //     iosAppId: process.env.IOS_ADMOB_APP_ID,
+      //   },
+      // ],
+      // './app.plugin.js', // 기준선 테스트: 플러그인 임시 비활성화
     ],
     extra: {
       eas: {

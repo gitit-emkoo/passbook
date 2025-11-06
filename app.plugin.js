@@ -1,4 +1,4 @@
-const { withGradleProperties, withProjectBuildGradle, withDangerousMod } = require('@expo/config-plugins');
+const { withGradleProperties, withProjectBuildGradle, withAppBuildGradle, withDangerousMod } = require('@expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
 
@@ -209,31 +209,67 @@ const withKotlinVersion = (config) => {
       );
       
       // 4) react-native-google-mobile-ads가 끌어오는 play-services-ads 24.x를 23.4.0으로 강제 고정
-      // 루트 build.gradle에 configurations.all { resolutionStrategy { force ... } } 추가/보정
-      const configurationsAllRegex = /configurations\s*\.all\s*\{[\s\S]*?\n\}/g;
-      const forceLine = "force 'com.google.android.gms:play-services-ads:23.4.0'";
+      // 모든 Kotlin 아티팩트를 1.9.25로 강제 고정
+      // allprojects 블록에 configurations.configureEach 추가
+      const allprojectsRegex = /allprojects\s*\{([\s\S]*?)\n\}/g;
+      const allprojectsConfigBlock = `
+    // 모든 서브프로젝트의 컴파일 클래스패스에서 Kotlin 2.1.0 제거
+    configurations.configureEach {
+        resolutionStrategy {
+            // ★ Google Ads 계열 전체 잠금 (서브 아티팩트까지)
+            force 'com.google.android.gms:play-services-ads:23.4.0',
+                  'com.google.android.gms:play-services-ads-lite:23.4.0',
+                  'com.google.android.gms:play-services-ads-base:23.4.0'
 
-      if (contents.match(configurationsAllRegex)) {
-        // 기존 블록이 있으면 force 라인이 포함되는지 확인하고 없으면 추가
-        contents = contents.replace(configurationsAllRegex, (block) => {
-          if (block.includes(forceLine)) {
-            return block; // 이미 존재
+            // ★ Kotlin 전 패밀리 1.9.25로 강제
+            force 'org.jetbrains.kotlin:kotlin-bom:1.9.25',
+                  'org.jetbrains.kotlin:kotlin-stdlib:1.9.25',
+                  'org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.25',
+                  'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.25',
+                  'org.jetbrains.kotlin:kotlin-stdlib-common:1.9.25',
+                  'org.jetbrains.kotlin:kotlin-reflect:1.9.25',
+                  'org.jetbrains.kotlin:kotlin-annotations-jvm:1.9.25'
+
+            eachDependency { d ->
+                if (d.requested.group == 'org.jetbrains.kotlin') {
+                    d.useVersion '1.9.25'
+                    d.because 'Align all Kotlin libs to 1.9.25 for RN/Compose compatibility'
+                }
+            }
+        }
+    }`;
+
+      if (contents.match(allprojectsRegex)) {
+        // allprojects 블록이 있으면 configurations.configureEach 추가
+        contents = contents.replace(allprojectsRegex, (match, inner) => {
+          if (inner.includes('configurations.configureEach')) {
+            return match; // 이미 존재
           }
-          // resolutionStrategy 블록이 있으면 그 안에 force 추가, 없으면 새로 생성
-          if (/resolutionStrategy\s*\{[\s\S]*?\n\}/.test(block)) {
-            return block.replace(/resolutionStrategy\s*\{([\s\S]*?)\n\}/, (m, inner) => {
-              if (inner.includes(forceLine)) return m;
-              return `resolutionStrategy {${inner}\n        ${forceLine}\n    }`;
-            });
-          }
-          // resolutionStrategy 자체가 없는 경우 추가
-          return block.replace(/configurations\s*\.all\s*\{/, (m) => `${m}\n    resolutionStrategy {\n        ${forceLine}\n    }`);
+          // repositories 블록 뒤에 추가
+          return `allprojects {${inner}${allprojectsConfigBlock}\n}`;
         });
-      } else {
-        // 블록이 없으면 새로 추가
-        const injected = `\nconfigurations.all {\n    resolutionStrategy {\n        ${forceLine}\n    }\n}\n`;
-        // 가능한 안전한 위치에 삽입: 파일 끝에 추가
-        contents = `${contents}\n${injected}`;
+      }
+
+      // buildscript 블록에 configurations.classpath 추가
+      const buildscriptConfigRegex = /buildscript\s*\{([\s\S]*?)\n\}/g;
+      const buildscriptConfigBlock = `
+    // 빌드스크립트 클래스패스도 동일 강제(컴파일러/그레이들 플러그인 경로)
+    configurations.classpath {
+        resolutionStrategy {
+            force 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.25',
+                  'org.jetbrains.kotlin:kotlin-stdlib:1.9.25',
+                  'org.jetbrains.kotlin:kotlin-stdlib-common:1.9.25'
+        }
+    }`;
+
+      if (contents.match(buildscriptConfigRegex)) {
+        contents = contents.replace(buildscriptConfigRegex, (match, inner) => {
+          if (inner.includes('configurations.classpath')) {
+            return match; // 이미 존재
+          }
+          // dependencies 블록 뒤에 추가
+          return `buildscript {${inner}${buildscriptConfigBlock}\n}`;
+        });
       }
 
       // subprojects/allprojects 블록에서 직접 추가한 커스텀 코드 제거

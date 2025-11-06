@@ -36,7 +36,7 @@
     "zustand": "^5.0.8"
   },
   "devDependencies": {
-    "@types/react": "~18.3.12",
+    "@types/react": "~18.3.0",
     "@types/react-native-dotenv": "^0.2.2",
     "@types/styled-components": "^5.1.35",
     "@types/styled-components-react-native": "^5.2.5",

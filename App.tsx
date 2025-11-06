@@ -1,20 +1,27 @@
-import React, { useEffect } from 'react';
+import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import AppNavigator from './src/navigation/AppNavigator';
-import { useAuthStore } from './src/store/useStore';
 
+// 최소 테스트 버전 - 네비게이션 없이 단순 화면만 표시
 export default function App() {
-  const loadAuth = useAuthStore((state) => state.loadAuth);
-
-  useEffect(() => {
-    // 앱 시작 시 저장된 인증 정보 로드
-    loadAuth();
-  }, [loadAuth]);
-
   return (
-    <>
-      <AppNavigator />
+    <View style={styles.container}>
+      <Text style={styles.text}>앱이 실행되었습니다!</Text>
       <StatusBar style="auto" />
-    </>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  text: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#000',
+  },
+});
