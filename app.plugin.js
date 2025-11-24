@@ -165,13 +165,54 @@ allprojects {
     return config;
   });
   
-  // 3. 모든 서브프로젝트에서 1.9.24 잔재 제거 및 버전 직접 지정 제거
+  // 3. 모든 서브프로젝트 및 node_modules의 expo-modules-core에서 kotlinVersion 설정
   config = withDangerousMod(config, [
     'android',
     async (config) => {
+      const projectRoot = config.modRequest.projectRoot;
       const androidRoot = config.modRequest.platformProjectRoot;
       
-      // 모든 build.gradle 파일 검색
+      // expo-modules-core의 build.gradle 파일 수정
+      const expoModulesCorePath = path.join(projectRoot, 'node_modules', 'expo-modules-core', 'android', 'build.gradle');
+      if (fs.existsSync(expoModulesCorePath)) {
+        let content = fs.readFileSync(expoModulesCorePath, 'utf8');
+        const originalContent = content;
+        
+        // kotlinVersion 참조를 rootProject.ext.kotlinVersion으로 변경
+        // ext 블록이 있으면 kotlinVersion 추가 또는 수정
+        const extMatch = content.match(/(ext\s*\{)([\s\S]*?)(\n\s*\})/);
+        if (extMatch) {
+          // ext 블록이 있으면 kotlinVersion 추가 또는 수정
+          if (extMatch[2].includes('kotlinVersion')) {
+            // 이미 kotlinVersion이 있으면 rootProject.ext.kotlinVersion으로 변경
+            content = content.replace(
+              /kotlinVersion\s*=\s*[^,\n}]+/g,
+              'kotlinVersion = rootProject.ext.kotlinVersion ?: "1.9.25"'
+            );
+          } else {
+            // kotlinVersion이 없으면 추가
+            content = content.replace(
+              /(ext\s*\{)([\s\S]*?)(\n\s*\})/,
+              `$1$2    kotlinVersion = rootProject.ext.kotlinVersion ?: "1.9.25"\n$3`
+            );
+          }
+        } else {
+          // ext 블록이 없으면 파일 시작 부분에 추가
+          content = `ext {\n    kotlinVersion = rootProject.ext.kotlinVersion ?: "1.9.25"\n}\n\n${content}`;
+        }
+        
+        // kotlinVersion 변수 사용 부분을 rootProject.ext.kotlinVersion으로 변경 (할당 제외)
+        content = content.replace(
+          /\bkotlinVersion\b(?!\s*[=:])/g,
+          '(rootProject.ext.kotlinVersion ?: "1.9.25")'
+        );
+        
+        if (content !== originalContent) {
+          fs.writeFileSync(expoModulesCorePath, content, 'utf8');
+        }
+      }
+      
+      // 모든 build.gradle 파일 검색 (android 폴더 내)
       const findGradleFiles = (dir) => {
         const files = [];
         const entries = fs.readdirSync(dir, { withFileTypes: true });
