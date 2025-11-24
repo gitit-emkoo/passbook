@@ -1,4 +1,4 @@
-rootProject.name = '김쌤'
+rootProject.name = 'kimsaem'
 
 // 전역 kotlinVersion 설정 (모든 프로젝트 평가 전에 설정)
 // expo-modules-core가 평가되기 전에 반드시 설정되어야 함

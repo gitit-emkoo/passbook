@@ -3,7 +3,7 @@ import 'dotenv/config';
 export default ({ config }) => ({
   ...config,
   expo: {
-    name: '김쌤',
+    name: 'KimSaem',
     slug: 'kimssam',
     version: '1.0.0',
     orientation: 'portrait',
