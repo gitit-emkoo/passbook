@@ -2,7 +2,8 @@
 
 // 전역 ext 설정 (모든 서브프로젝트가 평가되기 전에 설정되어야 함)
 // expo-modules-core가 평가되기 전에 반드시 설정되어야 함
-ext.kotlinVersion = findProperty('expo.kotlin.version') ?: findProperty('android.kotlinVersion') ?: findProperty('kotlinVersion') ?: '1.9.25'
+// 모든 형태의 Kotlin 버전 속성을 확인
+ext.kotlinVersion = findProperty('expo.kotlin.version') ?: findProperty('KOTLIN_VERSION') ?: findProperty('android.kotlinVersion') ?: findProperty('kotlinVersion') ?: '1.9.25'
 
 buildscript {
     ext {

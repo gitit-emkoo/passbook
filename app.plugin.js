@@ -194,43 +194,34 @@ allprojects {
         const originalContent = content;
         
         // expo-modules-core의 build.gradle에서 kotlinVersion 참조를 수정
-        // 파일 시작 부분에 ext 블록 추가 (가장 확실한 방법)
+        // 가장 확실한 방법: 파일 시작 부분에 ext 블록 추가하고 모든 kotlinVersion 참조를 안전하게 변경
+        const kotlinVersionDef = `rootProject.ext.has('kotlinVersion') ? rootProject.ext.kotlinVersion : (findProperty('expo.kotlin.version') ?: findProperty('KOTLIN_VERSION') ?: findProperty('android.kotlinVersion') ?: findProperty('kotlinVersion') ?: '1.9.25')`;
+        
+        // 파일 시작 부분에 ext 블록이 없으면 추가
         if (!content.includes('ext {')) {
-          // ext 블록이 없으면 파일 시작 부분에 추가
-          content = `ext {\n    kotlinVersion = rootProject.ext.kotlinVersion ?: findProperty('expo.kotlin.version') ?: findProperty('kotlinVersion') ?: "1.9.25"\n}\n\n${content}`;
+          content = `ext {\n    kotlinVersion = ${kotlinVersionDef}\n}\n\n${content}`;
         } else {
           // ext 블록이 있으면 kotlinVersion 추가 또는 수정
           if (content.includes('kotlinVersion')) {
-            // kotlinVersion이 이미 있으면 rootProject.ext.kotlinVersion으로 변경
+            // kotlinVersion이 이미 있으면 안전한 참조로 변경
             content = content.replace(
               /kotlinVersion\s*=\s*[^,\n}]+/g,
-              'kotlinVersion = rootProject.ext.kotlinVersion ?: findProperty("expo.kotlin.version") ?: findProperty("kotlinVersion") ?: "1.9.25"'
+              `kotlinVersion = ${kotlinVersionDef}`
             );
           } else {
             // ext 블록은 있지만 kotlinVersion이 없으면 추가
             content = content.replace(
               /(ext\s*\{)/,
-              `$1\n    kotlinVersion = rootProject.ext.kotlinVersion ?: findProperty('expo.kotlin.version') ?: findProperty('kotlinVersion') ?: "1.9.25"`
+              `$1\n    kotlinVersion = ${kotlinVersionDef}`
             );
           }
         }
         
-        // kotlinVersion 변수 사용 부분을 rootProject.ext.kotlinVersion으로 변경
-        // 단, 할당문(kotlinVersion = ...)과 ext 블록 내부는 제외
+        // kotlinVersion 변수 사용 부분을 안전한 참조로 변경 (할당문 제외)
+        // ext 블록 내부의 할당문은 이미 위에서 처리했으므로, 사용 부분만 변경
         content = content.replace(
           /([^=])\bkotlinVersion\b(?!\s*[=:])/g,
-          (match, prefix) => {
-            // ext 블록 내부인지 확인
-            const beforeMatch = content.substring(0, content.indexOf(match));
-            const extBlocks = (beforeMatch.match(/ext\s*\{/g) || []).length;
-            const extCloses = (beforeMatch.match(/\}/g) || []).length;
-            if (extBlocks > extCloses) {
-              // ext 블록 내부이면 그대로 유지
-              return match;
-            }
-            // ext 블록 외부이면 rootProject.ext.kotlinVersion으로 변경
-            return prefix + '(rootProject.ext.kotlinVersion ?: findProperty("expo.kotlin.version") ?: findProperty("kotlinVersion") ?: "1.9.25")';
-          }
+          `$1(${kotlinVersionDef})`
         );
         
         if (content !== originalContent) {
