@@ -1,27 +1,7 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
+import AppNavigator from './src/navigation/AppNavigator';
 
-// 최소 테스트 버전 - 네비게이션 없이 단순 화면만 표시
+// STEP 1: AppNavigator 복구 (비네이티브 로직만)
 export default function App() {
-  return (
-    <View style={styles.container}>
-      <Text style={styles.text}>앱이 실행되었습니다!</Text>
-      <StatusBar style="auto" />
-    </View>
-  );
+  return <AppNavigator />;
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-  },
-  text: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#000',
-  },
-});

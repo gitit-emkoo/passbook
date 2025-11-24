@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import Modal from 'react-native-modal';
 import styled from 'styled-components/native';
-import { invoicesApi } from '../api/invoices';
+import { invoicesApi } from '../../api/invoices';
 
 const ModalContainer = styled.View`
   background-color: #fff;
@@ -15,6 +15,14 @@ const ModalTitle = styled.Text`
   font-weight: bold;
   margin-bottom: 15px;
   text-align: center;
+`;
+
+const ModalSubtitle = styled.Text`
+  font-size: 13px;
+  color: #6b7280; /* gray-500 */
+  text-align: center;
+  margin-top: -8px;
+  margin-bottom: 12px;
 `;
 
 const InputLabel = styled.Text`
@@ -31,6 +39,26 @@ const StyledTextInput = styled.TextInput`
   padding: 10px;
   font-size: 16px;
   margin-bottom: 10px;
+`;
+
+const SignRow = styled.View`
+  flex-direction: row;
+  justify-content: flex-end;
+  align-items: center;
+  margin-bottom: 8px;
+  gap: 8px;
+`;
+
+const SignToggle = styled.TouchableOpacity<{ $active?: boolean }>`
+  padding: 6px 10px;
+  border-radius: 8px;
+  background-color: ${(p) => (p.$active ? '#ff6b00' : '#f0f0f0')};
+`;
+
+const SignToggleText = styled.Text<{ $active?: boolean }>`
+  color: ${(p) => (p.$active ? '#ffffff' : '#333333')};
+  font-size: 14px;
+  font-weight: 700;
 `;
 
 const AmountInfo = styled.View`
@@ -74,7 +102,7 @@ const ButtonRow = styled.View`
 const ModalButton = styled.TouchableOpacity<{ primary?: boolean }>`
   padding: 12px 20px;
   border-radius: 8px;
-  background-color: ${(props) => (props.primary ? '#007AFF' : '#f0f0f0')};
+  background-color: ${(props) => (props.primary ? '#ff6b00' : '#f0f0f0')};
   margin-horizontal: 5px;
 `;
 
@@ -93,6 +121,7 @@ interface InvoiceAmountModalProps {
   baseAmount: number;
   autoAdjustment: number;
   manualAdjustment: number;
+  autoAdjustmentDetail?: string | null;
 }
 
 /**
@@ -107,19 +136,28 @@ export default function InvoiceAmountModal({
   baseAmount,
   autoAdjustment,
   manualAdjustment,
+  autoAdjustmentDetail,
 }: InvoiceAmountModalProps) {
+  const initialSign = manualAdjustment < 0 ? -1 : 1;
+  const [sign, setSign] = useState<number>(initialSign);
   const [manualAdjustmentInput, setManualAdjustmentInput] = useState(
-    manualAdjustment.toString(),
+    Math.abs(manualAdjustment).toString(),
   );
   const [manualReason, setManualReason] = useState('');
 
   const handleConfirm = async () => {
-    const adjustment = Number(manualAdjustmentInput);
+    const raw = manualAdjustmentInput.replace(/[^0-9]/g, '');
+    const numberOnly = raw.length ? Number(raw) : 0;
+    const adjustment = sign * numberOnly;
     if (isNaN(adjustment)) {
       Alert.alert('알림', '올바른 숫자를 입력해주세요.');
       return;
     }
 
+    if (!manualReason.trim()) {
+      Alert.alert('알림', '수정 사유를 입력해주세요.');
+      return;
+    }
     try {
       await invoicesApi.update(invoiceId, adjustment, manualReason || undefined);
       Alert.alert('완료', '금액이 수정되었습니다.');
@@ -131,20 +169,25 @@ export default function InvoiceAmountModal({
     }
   };
 
-  const calculatedFinalAmount = baseAmount + autoAdjustment + Number(manualAdjustmentInput || 0);
+  const signedManual = sign * Number((manualAdjustmentInput || '0').replace(/[^0-9]/g, ''));
+  const calculatedFinalAmount = baseAmount + autoAdjustment + signedManual;
 
   return (
     <Modal isVisible={visible} onBackdropPress={onClose}>
       <ModalContainer>
-        <ModalTitle>금액 수정</ModalTitle>
+        <ModalTitle>청구금액 확인</ModalTitle>
+        <ModalSubtitle>최종 청구금액을 확인하고 수정할 수 있어요</ModalSubtitle>
 
         <AmountInfo>
           <AmountRow>
-            <AmountLabel>기본 금액</AmountLabel>
+            <AmountLabel>계약금액</AmountLabel>
             <AmountValue>{baseAmount.toLocaleString()}원</AmountValue>
           </AmountRow>
           <AmountRow>
-            <AmountLabel>자동 조정</AmountLabel>
+            <AmountLabel>
+              차감금액
+              {autoAdjustmentDetail ? ` ${autoAdjustmentDetail}` : ''}
+            </AmountLabel>
             <AmountValue>
               {autoAdjustment >= 0 ? '+' : ''}
               {autoAdjustment.toLocaleString()}원
@@ -153,22 +196,30 @@ export default function InvoiceAmountModal({
           <AmountRow>
             <AmountLabel>수동 조정</AmountLabel>
             <AmountValue>
-              {Number(manualAdjustmentInput || 0) >= 0 ? '+' : ''}
-              {Number(manualAdjustmentInput || 0).toLocaleString()}원
+              {signedManual >= 0 ? '+' : ''}
+              {Math.abs(signedManual).toLocaleString()}원
             </AmountValue>
           </AmountRow>
           <FinalAmount>최종 금액: {calculatedFinalAmount.toLocaleString()}원</FinalAmount>
         </AmountInfo>
 
         <InputLabel>수동 조정 금액</InputLabel>
+        <SignRow>
+          <SignToggle $active={sign === 1} onPress={() => setSign(1)}>
+            <SignToggleText $active={sign === 1}>+ 추가</SignToggleText>
+          </SignToggle>
+          <SignToggle $active={sign === -1} onPress={() => setSign(-1)}>
+            <SignToggleText $active={sign === -1}>− 차감</SignToggleText>
+          </SignToggle>
+        </SignRow>
         <StyledTextInput
           value={manualAdjustmentInput}
-          onChangeText={setManualAdjustmentInput}
-          placeholder="예: -5000 (차감) 또는 +5000 (추가)"
-          keyboardType="numeric"
+          onChangeText={(t) => setManualAdjustmentInput(t.replace(/[^0-9]/g, ''))}
+          placeholder="예: 5000 (숫자만)"
+          keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'number-pad'}
         />
 
-        <InputLabel>수정 사유 (선택)</InputLabel>
+        <InputLabel>수정 사유 (필수)</InputLabel>
         <StyledTextInput
           value={manualReason}
           onChangeText={setManualReason}

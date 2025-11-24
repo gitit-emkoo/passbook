@@ -24,6 +24,8 @@ export default ({ config }) => ({
         foregroundImage: './assets/adaptive-icon.png',
         backgroundColor: '#ffffff',
       },
+      useCleartextTraffic: true, // STEP 2: 로컬 API 테스트를 위한 HTTP 허용
+      networkSecurityConfig: './android/network_security_config.xml',
       edgeToEdgeEnabled: true,
       predictiveBackGestureEnabled: false,
     },
@@ -31,16 +33,15 @@ export default ({ config }) => ({
       favicon: './assets/favicon.png',
     },
     plugins: [
-      'expo-dev-client',
-      // 임시 주석 처리: 네이티브 크래시 원인 확인용
-      // [
-      //   'react-native-google-mobile-ads',
-      //   {
-      //     androidAppId: process.env.ANDROID_ADMOB_APP_ID,
-      //     iosAppId: process.env.IOS_ADMOB_APP_ID,
-      //   },
-      // ],
-      // './app.plugin.js', // 기준선 테스트: 플러그인 임시 비활성화
+      // STEP 3: 완전 최소 네이티브 - Kotlin 버전만 강제 (빌드 성공을 위해 필수)
+      './app.plugin.js', // 최소한의 Kotlin 1.9.25 설정만 적용
+      [
+        'expo-notifications',
+        {
+          icon: './assets/icon.png',
+          color: '#ff6b00',
+        },
+      ],
     ],
     extra: {
       eas: {

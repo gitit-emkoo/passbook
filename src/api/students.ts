@@ -7,9 +7,16 @@ export const studentsApi = {
   /**
    * 수강생 목록 조회
    */
-  getAll: async (params?: { search?: string; filter?: string }) => {
-    const response = await apiClient.get('/api/v1/students', { params });
-    return response.data;
+  getAll: async (params?: Record<string, unknown>) => {
+    try {
+      const response = await apiClient.get('/api/v1/students', { params });
+      return response.data;
+    } catch (error: any) {
+      if (error?.response?.status === 404) {
+        return [];
+      }
+      throw error;
+    }
   },
 
   /**
@@ -46,6 +53,9 @@ export const studentsApi = {
     return response.data;
   },
 };
+
+
+
 
 
 

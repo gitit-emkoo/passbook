@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useCallback } from 'react';
 import { Modal, Alert } from 'react-native';
 import styled from 'styled-components/native';
 import Signature from 'react-native-signature-canvas';
@@ -77,15 +77,18 @@ export default function AttendanceSignatureModal({
     signatureRef.current?.clearSignature();
   };
 
+  const handleSignatureOk = useCallback((base64: string) => {
+    if (base64) {
+      onConfirm(base64);
+      onClose();
+    } else {
+      Alert.alert('알림', '서명을 입력해주세요.');
+    }
+  }, [onConfirm, onClose]);
+
   const handleConfirm = () => {
-    signatureRef.current?.readSignature((base64: string) => {
-      if (base64) {
-        onConfirm(base64);
-        onClose();
-      } else {
-        Alert.alert('알림', '서명을 입력해주세요.');
-      }
-    });
+    // Signature 컴포넌트의 내장 확인 버튼을 트리거하기 위해 readSignature 호출
+    signatureRef.current?.readSignature();
   };
 
   return (
@@ -96,7 +99,7 @@ export default function AttendanceSignatureModal({
           <SignatureContainer>
             <Signature
               ref={signatureRef}
-              onOK={handleConfirm}
+              onOK={handleSignatureOk}
               descriptionText="서명해주세요"
               clearText="지우기"
               confirmText="확인"

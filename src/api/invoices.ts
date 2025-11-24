@@ -10,6 +10,16 @@ export const invoicesApi = {
   },
 
   /**
+   * 지난 정산 목록 조회
+   */
+  getHistory: async (months?: number) => {
+    const response = await apiClient.get('/api/v1/invoices/history', {
+      params: months ? { months } : undefined,
+    });
+    return response.data;
+  },
+
+  /**
    * Invoice 수정 (manual_adjustment)
    */
   update: async (id: number, manualAdjustment: number, manualReason?: string) => {
@@ -37,6 +47,13 @@ export const invoicesApi = {
       channel,
     });
     return response.data;
+  },
+  /**
+   * 청구서 링크 생성
+   */
+  getViewLink: (id: number): string => {
+    const baseURL = apiClient.defaults.baseURL || '';
+    return `${baseURL}/api/v1/invoices/${id}/view`;
   },
 };
 
