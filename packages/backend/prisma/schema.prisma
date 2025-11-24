@@ -1,0 +1,213 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// ENUM Types
+// ============================================
+
+enum AttendanceStatus {
+  present
+  absent
+  substitute
+  vanish
+}
+
+enum InvoiceSendStatus {
+  not_sent
+  sent
+  partial
+}
+
+enum BillingType {
+  prepaid
+  postpaid
+}
+
+enum AbsencePolicy {
+  carry_over
+  deduct_next
+  vanish
+}
+
+enum ContractStatus {
+  draft
+  confirmed
+  sent
+}
+
+// ============================================
+// Models
+// ============================================
+
+model User {
+  id        Int      @id @default(autoincrement())
+  phone     String   @unique
+  name      String?
+  org_code  String?
+  settings  Json?    // 계약서 기본값 설정 (계좌정보, 결제방식, 결석처리, 전송대상 등)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  students       Student[]
+  contracts      Contract[]
+  attendance_logs AttendanceLog[]
+  invoices       Invoice[]
+  notifications  Notification[]
+  notices        Notice[]
+
+  @@map("users")
+}
+
+model Student {
+  id            Int      @id @default(autoincrement())
+  user_id       Int
+  name          String
+  phone         String
+  guardian_name String?
+  guardian_phone String?
+  is_active     Boolean  @default(true)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  user            User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  contracts       Contract[]
+  attendance_logs AttendanceLog[]
+  invoices        Invoice[]
+
+  @@map("students")
+}
+
+model Contract {
+  id                    Int      @id @default(autoincrement())
+  user_id               Int
+  student_id            Int
+  subject               String
+  day_of_week           Json     // ["TUE", "THU"] 형식
+  time                  String?  // "16:00" 형식 (HH:MM), 선택 필드
+  billing_type          BillingType
+  absence_policy        AbsencePolicy
+  monthly_amount        Int
+  recipient_policy      String   // student_only | guardian_only | both | custom
+  recipient_targets     Json     // 실제 보낼 번호들
+  policy_snapshot       Json     // 생성 시점 규정 고정 저장
+  planned_count_override Int?    // 월별 횟수 강제 지정 (nullable)
+  attendance_requires_signature Boolean @default(false) // 출석 시 서명 필수 여부
+  teacher_signature     String?
+  student_signature     String?
+  started_at            DateTime? // 계약 시작일 (nullable)
+  ended_at              DateTime? // 계약 종료일 (nullable, 무기한 계약 가능)
+  status                ContractStatus
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
+
+  user            User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  student         Student         @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  attendance_logs AttendanceLog[]
+  invoices        Invoice[]
+
+  @@map("contracts")
+}
+
+model AttendanceLog {
+  id             Int      @id @default(autoincrement())
+  user_id        Int
+  student_id     Int
+  contract_id    Int
+  occurred_at    DateTime
+  status         AttendanceStatus
+  substitute_at  DateTime?
+  memo_public    String?
+  memo_internal  String?
+  recorded_at    DateTime @default(now())
+  recorded_by    Int      // user_id
+  modified_at    DateTime?
+  modified_by    Int?
+  change_reason  String?
+  voided         Boolean  @default(false)
+  void_reason    String?
+
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  student    Student  @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  contract   Contract @relation(fields: [contract_id], references: [id], onDelete: Cascade)
+
+  @@index([student_id])
+  @@index([contract_id])
+  @@index([occurred_at])
+  @@map("attendance_logs")
+}
+
+model Invoice {
+  id                Int      @id @default(autoincrement())
+  user_id           Int
+  student_id        Int
+  contract_id       Int
+  year              Int
+  month             Int
+  base_amount       Int
+  auto_adjustment   Int      @default(0)
+  manual_adjustment Int      @default(0)
+  manual_reason     String?
+  final_amount      Int
+  planned_count      Int?
+  send_status       InvoiceSendStatus @default(not_sent)
+  send_to           Json?
+  send_history      Json?
+  account_snapshot  Json?
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  user      User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  student  Student   @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  contract Contract  @relation(fields: [contract_id], references: [id], onDelete: Cascade)
+
+  @@unique([student_id, contract_id, year, month])
+  @@index([student_id])
+  @@index([contract_id])
+  @@index([year, month])
+  @@map("invoices")
+}
+
+model Notification {
+  id          Int      @id @default(autoincrement())
+  user_id     Int
+  type        String
+  title       String
+  body        String
+  target_route String
+  is_read     Boolean  @default(false)
+  push_sent   Boolean  @default(false)
+  push_sent_at DateTime?
+  created_at  DateTime @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([is_read])
+  @@map("notifications")
+}
+
+model Notice {
+  id          Int      @id @default(autoincrement())
+  title       String
+  content     String   @db.Text
+  is_important Boolean @default(false)
+  user_id     Int?     // null이면 전체 공지, 값이 있으면 특정 사용자 공지
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  user User? @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([is_important])
+  @@index([created_at])
+  @@map("notices")
+}

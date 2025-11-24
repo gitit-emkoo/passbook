@@ -1,0 +1,15 @@
+{
+  "name": "kimssam-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "app:start": "cd packages/app && npm start",
+    "app:android": "cd packages/app && npm run android",
+    "app:ios": "cd packages/app && npm run ios",
+    "backend:start": "cd packages/backend && npm run start:dev",
+    "backend:build": "cd packages/backend && npm run build"
+  },
+  "devDependencies": {
+    "@types/react": "~19.1.10"
+  }
+}
