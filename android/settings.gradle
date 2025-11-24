@@ -3,7 +3,12 @@ rootProject.name = 'kimsaem'
 // 전역 kotlinVersion 설정 (모든 프로젝트 평가 전에 설정)
 // expo-modules-core가 평가되기 전에 반드시 설정되어야 함
 gradle.beforeProject { project ->
-    def kotlinVer = findProperty('expo.kotlin.version') ?: findProperty('KOTLIN_VERSION') ?: findProperty('android.kotlinVersion') ?: findProperty('kotlinVersion') ?: '1.9.25'
+    // project.findProperty()를 사용해야 함 (Settings 컨텍스트에서는 findProperty() 직접 호출 불가)
+    def kotlinVer = project.findProperty('expo.kotlin.version') 
+        ?: project.findProperty('KOTLIN_VERSION') 
+        ?: project.findProperty('android.kotlinVersion') 
+        ?: project.findProperty('kotlinVersion') 
+        ?: '1.9.25'
     project.ext.kotlinVersion = kotlinVer
     // rootProject에도 설정 (expo-modules-core가 rootProject.ext.kotlinVersion을 참조할 수 있도록)
     if (project == project.rootProject) {
