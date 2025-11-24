@@ -178,22 +178,20 @@ allprojects {
         let content = fs.readFileSync(expoModulesCorePath, 'utf8');
         const originalContent = content;
         
-        // kotlinVersion 참조를 rootProject.ext.kotlinVersion으로 변경
-        // ext 블록이 있으면 kotlinVersion 추가 또는 수정
-        const extMatch = content.match(/(ext\s*\{)([\s\S]*?)(\n\s*\})/);
-        if (extMatch) {
-          // ext 블록이 있으면 kotlinVersion 추가 또는 수정
-          if (extMatch[2].includes('kotlinVersion')) {
-            // 이미 kotlinVersion이 있으면 rootProject.ext.kotlinVersion으로 변경
+        // 먼저 ext 블록에 kotlinVersion이 있는지 확인하고 추가/수정
+        if (content.includes('ext {')) {
+          // ext 블록이 있는 경우
+          if (content.includes('kotlinVersion')) {
+            // kotlinVersion이 이미 있으면 rootProject.ext.kotlinVersion으로 변경
             content = content.replace(
               /kotlinVersion\s*=\s*[^,\n}]+/g,
               'kotlinVersion = rootProject.ext.kotlinVersion ?: "1.9.25"'
             );
           } else {
-            // kotlinVersion이 없으면 추가
+            // ext 블록은 있지만 kotlinVersion이 없으면 추가
             content = content.replace(
-              /(ext\s*\{)([\s\S]*?)(\n\s*\})/,
-              `$1$2    kotlinVersion = rootProject.ext.kotlinVersion ?: "1.9.25"\n$3`
+              /(ext\s*\{)/,
+              `$1\n    kotlinVersion = rootProject.ext.kotlinVersion ?: "1.9.25"`
             );
           }
         } else {
@@ -201,15 +199,19 @@ allprojects {
           content = `ext {\n    kotlinVersion = rootProject.ext.kotlinVersion ?: "1.9.25"\n}\n\n${content}`;
         }
         
-        // kotlinVersion 변수 사용 부분을 rootProject.ext.kotlinVersion으로 변경 (할당 제외)
+        // kotlinVersion 변수 사용 부분을 rootProject.ext.kotlinVersion으로 변경
+        // 단, 할당문(kotlinVersion = ...)은 제외
         content = content.replace(
-          /\bkotlinVersion\b(?!\s*[=:])/g,
-          '(rootProject.ext.kotlinVersion ?: "1.9.25")'
+          /([^=])\bkotlinVersion\b(?!\s*[=:])/g,
+          '$1(rootProject.ext.kotlinVersion ?: "1.9.25")'
         );
         
         if (content !== originalContent) {
           fs.writeFileSync(expoModulesCorePath, content, 'utf8');
+          console.log('Modified expo-modules-core/android/build.gradle');
         }
+      } else {
+        console.log('expo-modules-core/android/build.gradle not found at:', expoModulesCorePath);
       }
       
       // 모든 build.gradle 파일 검색 (android 폴더 내)
