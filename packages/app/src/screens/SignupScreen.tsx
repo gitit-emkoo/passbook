@@ -238,7 +238,7 @@ export default function SignupScreen() {
             {/* Step 3: 완료 처리 */}
             {step === 3 && (
               <StepContainer>
-                <ActivityIndicator size="large" color="#ff6b00" />
+                <ActivityIndicator size="large" color="#1d42d8" />
                 <Title style={{ marginTop: 20 }}>회원가입 처리 중...</Title>
               </StepContainer>
             )}
@@ -269,7 +269,7 @@ const LogoImage = styled.Image`
 const AppSlogan = styled.Text`
   font-size: 18px;
   font-weight: 700;
-  color: #ff6b00;
+  color: #1d42d8;
   text-align: center;
 `;
 
@@ -295,11 +295,6 @@ const StepContainer = styled.View`
   background-color: #ffffff;
   border-radius: 16px;
   padding: 24px;
-  shadow-color: #000000;
-  shadow-opacity: 0.05;
-  shadow-offset: 0px 4px;
-  shadow-radius: 10px;
-  elevation: 2;
 `;
 
 const Title = styled.Text`
@@ -337,7 +332,7 @@ const TextInput = styled.TextInput`
 `;
 
 const PrimaryButton = styled.TouchableOpacity<{ disabled?: boolean }>`
-  background-color: #ff6b00;
+  background-color: #1d42d8;
   padding: 16px;
   border-radius: 12px;
   align-items: center;
@@ -363,16 +358,16 @@ const OptionButton = styled.TouchableOpacity<{ $selected: boolean }>`
   min-width: 80px;
   padding: 12px 16px;
   border-width: 1px;
-  border-color: ${(props) => (props.$selected ? '#ff6b00' : '#e0e0e0')};
+  border-color: ${(props) => (props.$selected ? '#1d42d8' : '#e0e0e0')};
   border-radius: 8px;
-  background-color: ${(props) => (props.$selected ? '#fff2e5' : '#ffffff')};
+  background-color: ${(props) => (props.$selected ? '#eef2ff' : '#ffffff')};
   align-items: center;
 `;
 
 const OptionButtonText = styled.Text<{ $selected: boolean }>`
   font-size: 14px;
   font-weight: ${(props) => (props.$selected ? 600 : 500)};
-  color: ${(props) => (props.$selected ? '#ff6b00' : '#333333')};
+  color: ${(props) => (props.$selected ? '#1d42d8' : '#333333')};
 `;
 
 const ButtonRow = styled.View`
@@ -387,7 +382,7 @@ const SkipButton = styled.TouchableOpacity`
   border-radius: 12px;
   align-items: center;
   justify-content: center;
-  background-color: #ff6b00;
+  background-color: #1d42d8;
 `;
 
 const SkipButtonText = styled.Text`

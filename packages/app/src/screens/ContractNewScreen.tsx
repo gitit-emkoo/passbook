@@ -50,6 +50,7 @@ export default function ContractNewScreen() {
 
   // 수업 정보
   const [subject, setSubject] = useState('');
+  const [lessonNotes, setLessonNotes] = useState('');
   const [selectedDays, setSelectedDays] = useState<string[]>([]);
   const [selectedHour, setSelectedHour] = useState<number | null>(null);
   const [selectedMinute, setSelectedMinute] = useState<number | null>(null);
@@ -181,8 +182,30 @@ export default function ContractNewScreen() {
         return false;
       }
     }
+    const trimmedBank = bankName.trim();
+    const trimmedAccountNumber = accountNumber.trim();
+    const trimmedHolder = accountHolder.trim();
+    if (!trimmedBank || !trimmedAccountNumber || !trimmedHolder) {
+      Alert.alert('입력 오류', '은행명, 계좌번호, 예금주를 모두 입력해주세요.');
+      return false;
+    }
     return true;
-  }, [studentName, studentPhone, subject, selectedDays, monthlyAmount, lessonType, pricingMode, perSessionAmount, totalSessions, sessionsTotalAmount, plannedCountOverride]);
+  }, [
+    studentName,
+    studentPhone,
+    subject,
+    selectedDays,
+    monthlyAmount,
+    lessonType,
+    pricingMode,
+    perSessionAmount,
+    totalSessions,
+    sessionsTotalAmount,
+    plannedCountOverride,
+    bankName,
+    accountNumber,
+    accountHolder,
+  ]);
 
   // 전화번호 정규화: 01012345678 -> 010-1234-5678
   // 설정값 불러오기
@@ -306,6 +329,10 @@ export default function ContractNewScreen() {
         };
       }
 
+      if (lessonNotes.trim()) {
+        policySnapshot.lesson_notes = lessonNotes.trim();
+      }
+
       const contractData = {
         student_id: studentId,
         subject: subject.trim(),
@@ -366,6 +393,7 @@ export default function ContractNewScreen() {
     bankName,
     accountNumber,
     accountHolder,
+    lessonNotes,
     navigation,
   ]);
 
@@ -381,14 +409,14 @@ export default function ContractNewScreen() {
         {/* 수강생 정보 */}
         <Section>
           <SectionTitle>수강생 정보</SectionTitle>
-          <InputLabel>이름 *</InputLabel>
+          <FormLabel label="이름" required />
           <TextInput
             value={studentName}
             onChangeText={setStudentName}
             placeholder="수강생 이름을 입력하세요"
             autoCapitalize="none"
           />
-          <InputLabel>연락처 *</InputLabel>
+          <FormLabel label="연락처" required />
           <TextInput
             value={studentPhone}
             onChangeText={(text) => {
@@ -428,12 +456,20 @@ export default function ContractNewScreen() {
         {/* 수업 정보 */}
         <Section>
           <SectionTitle>수업 정보</SectionTitle>
-          <InputLabel>과목명 *</InputLabel>
+          <FormLabel label="과목명" required />
           <TextInput
             value={subject}
             onChangeText={setSubject}
             placeholder="예: 수학, 영어, 피아노"
             autoCapitalize="none"
+          />
+          <FormLabel label="수업 내용 (선택)" />
+          <TextArea
+            value={lessonNotes}
+            onChangeText={setLessonNotes}
+            placeholder="수업 범위, 특약 사항 등을 입력하세요"
+            multiline
+            textAlignVertical="top"
           />
           <InputLabel>수업 시간 (선택)</InputLabel>
           <TimeSelectRow>
@@ -448,7 +484,7 @@ export default function ContractNewScreen() {
             </TimeSelectButton>
           </TimeSelectRow>
           {!!lessonTime && <SelectedTimeHint>선택됨: {lessonTime}</SelectedTimeHint>}
-          <InputLabel>수업 형태 *</InputLabel>
+          <FormLabel label="수업 형태" required />
           <OptionsContainer>
             {[
               { value: 'monthly', label: '월단위' },
@@ -465,7 +501,7 @@ export default function ContractNewScreen() {
               </OptionButton>
             ))}
           </OptionsContainer>
-          <InputLabel>수업 요일 *</InputLabel>
+          <FormLabel label="수업 요일" required />
           <DaysContainer>
             {DAYS_OF_WEEK.map((day, index) => (
               <DayButton
@@ -483,7 +519,7 @@ export default function ContractNewScreen() {
           {/* 계약 기간 */}
           {lessonType === 'monthly' ? (
             <>
-              <InputLabel>계약 시작일 *</InputLabel>
+              <FormLabel label="계약 시작일" required />
               <DatePickerButton onPress={() => setShowStartDatePicker(true)}>
                 <DatePickerText>
                   {startDate.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })}
@@ -509,7 +545,7 @@ export default function ContractNewScreen() {
                 />
               )}
 
-              <InputLabel>계약 종료일 *</InputLabel>
+              <FormLabel label="계약 종료일" required />
               <DatePickerButton onPress={() => setShowEndDatePicker(true)}>
                 <DatePickerText>
                   {endDate.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })}
@@ -537,7 +573,7 @@ export default function ContractNewScreen() {
 
           {lessonType === 'monthly' && (
             <>
-              <InputLabel>월 수업료 (원) *</InputLabel>
+              <FormLabel label="월 수업료 (원)" required />
               <TextInput
                 value={monthlyAmount}
                 onChangeText={setMonthlyAmount}
@@ -549,14 +585,14 @@ export default function ContractNewScreen() {
           )}
           {lessonType === 'sessions' && (
             <>
-              <InputLabel>총 회차 *</InputLabel>
+              <FormLabel label="총 회차" required />
               <TextInput
                 value={totalSessions}
                 onChangeText={setTotalSessions}
                 placeholder="예: 10"
                 keyboardType="number-pad"
               />
-              <InputLabel>전체 금액(원) *</InputLabel>
+              <FormLabel label="전체 금액(원)" required />
               <TextInput
                 value={sessionsTotalAmount}
                 onChangeText={setSessionsTotalAmount}
@@ -635,7 +671,7 @@ export default function ContractNewScreen() {
               />
             </>
           )}
-          <InputLabel>결제 방식 *</InputLabel>
+          <FormLabel label="결제 방식" required />
           <OptionsContainer>
             {BILLING_TYPES.map((type) => (
               <OptionButton
@@ -649,7 +685,7 @@ export default function ContractNewScreen() {
               </OptionButton>
             ))}
           </OptionsContainer>
-          <InputLabel>결석 처리 조건 *</InputLabel>
+          <FormLabel label="결석 처리 조건" required />
           <OptionsContainer>
             {ABSENCE_POLICIES.map((policy) => (
               <OptionButton
@@ -679,7 +715,7 @@ export default function ContractNewScreen() {
         {/* 전송 옵션 */}
         <Section>
           <SectionTitle>전송 옵션</SectionTitle>
-          <InputLabel>청구서 수신자 *</InputLabel>
+          <FormLabel label="청구서 수신자" required />
           <OptionsContainer>
             {RECIPIENT_POLICIES.map((policy) => (
               <OptionButton
@@ -693,23 +729,23 @@ export default function ContractNewScreen() {
               </OptionButton>
             ))}
           </OptionsContainer>
-          <InputLabel>계좌 정보</InputLabel>
-          <HelperText>설정에서 등록한 계좌가 없다면 여기에서 직접 입력할 수 있어요.</HelperText>
-          <InputLabel>은행명</InputLabel>
+          <FormLabel label="계좌 정보" required />
+          <HelperText>설정에서 등록한 계좌가 없다면 여기에서 직접 입력해 주세요.</HelperText>
+          <FormLabel label="은행명" required />
           <TextInput
             value={bankName}
             onChangeText={setBankName}
             placeholder="예: 국민은행"
             autoCapitalize="none"
           />
-          <InputLabel>계좌번호</InputLabel>
+          <FormLabel label="계좌번호" required />
           <TextInput
             value={accountNumber}
             onChangeText={setAccountNumber}
             placeholder="예: 123456-01-123456"
             autoCapitalize="none"
           />
-          <InputLabel>예금주</InputLabel>
+          <FormLabel label="예금주" required />
           <TextInput
             value={accountHolder}
             onChangeText={setAccountHolder}
@@ -722,7 +758,7 @@ export default function ContractNewScreen() {
         <SaveButtonContainer>
           <SaveButton onPress={handleSave} disabled={loading}>
             {loading ? (
-              <ActivityIndicator color="#ff6b00" />
+              <ActivityIndicator color="#ffffff" />
             ) : (
               <SaveButtonText>작성 완료</SaveButtonText>
             )}
@@ -805,12 +841,12 @@ const PickerOption = styled.TouchableOpacity<{ selected?: boolean }>`
   padding: 16px;
   border-bottom-width: 1px;
   border-bottom-color: #f0f0f0;
-  background-color: ${(props) => (props.selected ? '#fff5f0' : '#ffffff')};
+  background-color: ${(props) => (props.selected ? '#eef2ff' : '#ffffff')};
 `;
 
 const PickerOptionText = styled.Text<{ selected?: boolean }>`
   font-size: 16px;
-  color: ${(props) => (props.selected ? '#ff6b00' : '#333333')};
+  color: ${(props) => (props.selected ? '#1d42d8' : '#333333')};
   font-weight: ${(props) => (props.selected ? '600' : '400')};
   text-align: center;
 `;
@@ -873,6 +909,34 @@ const InputLabel = styled.Text`
   margin-top: 12px;
 `;
 
+const LabelWrapper = styled.View`
+  flex-direction: row;
+  align-items: center;
+  margin-top: 12px;
+  margin-bottom: 8px;
+`;
+
+const LabelText = styled(InputLabel)`
+  margin-top: 0px;
+  margin-bottom: 0px;
+`;
+
+const RequiredMark = styled.Text`
+  font-size: 14px;
+  font-weight: 700;
+  color: #ff3b30;
+  margin-left: 4px;
+`;
+
+function FormLabel({ label, required = false }: { label: string; required?: boolean }) {
+  return (
+    <LabelWrapper>
+      <LabelText>{label}</LabelText>
+      {required && <RequiredMark>*</RequiredMark>}
+    </LabelWrapper>
+  );
+}
+
 const HelperText = styled.Text`
   font-size: 12px;
   color: #8e8e93;
@@ -887,6 +951,10 @@ const TextInput = styled.TextInput`
   font-size: 16px;
   color: #111111;
   background-color: #ffffff;
+`;
+
+const TextArea = styled(TextInput)`
+  height: 120px;
 `;
 
 const TimeSelectRow = styled.View`
@@ -964,8 +1032,8 @@ const DayButton = styled.TouchableOpacity<{ selected: boolean }>`
   padding: 10px 16px;
   border-radius: 8px;
   border-width: 1px;
-  border-color: ${(props) => (props.selected ? '#ff6b00' : '#e0e0e0')};
-  background-color: ${(props) => (props.selected ? '#ff6b00' : '#ffffff')};
+  border-color: ${(props) => (props.selected ? '#1d42d8' : '#e0e0e0')};
+  background-color: ${(props) => (props.selected ? '#1d42d8' : '#ffffff')};
 `;
 
 const DayButtonText = styled.Text<{ selected: boolean }>`
@@ -985,8 +1053,8 @@ const OptionButton = styled.TouchableOpacity<{ selected: boolean }>`
   padding: 10px 20px;
   border-radius: 8px;
   border-width: 1px;
-  border-color: ${(props) => (props.selected ? '#ff6b00' : '#e0e0e0')};
-  background-color: ${(props) => (props.selected ? '#ff6b00' : '#ffffff')};
+  border-color: ${(props) => (props.selected ? '#1d42d8' : '#e0e0e0')};
+  background-color: ${(props) => (props.selected ? '#1d42d8' : '#ffffff')};
 `;
 
 const OptionButtonText = styled.Text<{ selected: boolean }>`
@@ -1003,8 +1071,8 @@ const ToggleButton = styled.TouchableOpacity<{ active: boolean }>`
   padding: 10px 20px;
   border-radius: 8px;
   border-width: 1px;
-  border-color: ${(props) => (props.active ? '#ff6b00' : '#e0e0e0')};
-  background-color: ${(props) => (props.active ? '#ff6b00' : '#ffffff')};
+  border-color: ${(props) => (props.active ? '#1d42d8' : '#e0e0e0')};
+  background-color: ${(props) => (props.active ? '#1d42d8' : '#ffffff')};
   align-self: flex-start;
 `;
 
@@ -1020,7 +1088,7 @@ const SaveButtonContainer = styled.View`
 `;
 
 const SaveButton = styled.TouchableOpacity<{ disabled?: boolean }>`
-  background-color: ${(props) => (props.disabled ? '#cccccc' : '#ff6b00')};
+  background-color: ${(props) => (props.disabled ? '#cccccc' : '#1d42d8')};
   border-radius: 12px;
   padding: 16px;
   align-items: center;

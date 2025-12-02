@@ -28,16 +28,16 @@ function SettlementContent() {
   const navigation = useNavigation<SettlementStackNavigationProp>();
   const [refreshing, setRefreshing] = useState(false);
   const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
+  const [expandedYears, setExpandedYears] = useState<Set<number>>(new Set());
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<Set<number>>(new Set()); // 개별 선택 (기본 OFF)
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [amountModalVisible, setAmountModalVisible] = useState(false);
   const [amountTargetInvoice, setAmountTargetInvoice] = useState<InvoiceSummary | null>(null);
   const invoicesRequestedRef = useRef(false);
 
-  const fetchCurrentMonth = useInvoicesStore((state) => state.fetchCurrentMonth);
+  const fetchSections = useInvoicesStore((state) => state.fetchSections);
   const updateInvoice = useInvoicesStore((state) => state.updateInvoice);
-  const currentMonthInvoices = useInvoicesStore((state) => state.currentMonthInvoices);
-  const historyMonths = useInvoicesStore((state) => state.historyMonths);
+  const sections = useInvoicesStore((state) => state.sections);
   const invoicesStatus = useInvoicesStore((state) => state.status);
   const invoicesError = useInvoicesStore((state) => state.errorMessage);
   const invoicesLoaded = useInvoicesStore((state) => state._loadedOnce);
@@ -49,7 +49,7 @@ function SettlementContent() {
   const currentMonth = now.getMonth() + 1;
   const currentMonthKey = `${currentYear}-${currentMonth}`;
 
-  // 초기 로드 시 이번 달은 펼침
+  // 초기 로드
   useFocusEffect(
     useCallback(() => {
       // 인증 상태 확인
@@ -60,25 +60,12 @@ function SettlementContent() {
 
       if (!invoicesLoaded && !invoicesRequestedRef.current) {
         invoicesRequestedRef.current = true;
-        setExpandedMonths(new Set([currentMonthKey]));
-        fetchCurrentMonth({ historyMonths: 3 }).catch((error: any) => {
+        fetchSections(true).catch((error: any) => {
           console.error('[Invoices] error initial', error?.message);
         });
       }
-    }, [invoicesLoaded, currentMonthKey, fetchCurrentMonth]),
+    }, [invoicesLoaded, fetchSections]),
   );
-
-  // 기본 접힘 방지: 현재 달은 기본 펼침으로 보장
-  React.useEffect(() => {
-    setExpandedMonths((prev) => {
-      if (prev.has(currentMonthKey)) return prev;
-      const next = new Set(prev);
-      if (next.size === 0) {
-        next.add(currentMonthKey);
-      }
-      return next;
-    });
-  }, [currentMonthKey]);
 
   const calculateSettlement = useCallback((group: InvoiceHistoryGroup): MonthlySettlement => {
     const invoices = group.invoices ?? [];
@@ -112,39 +99,76 @@ function SettlementContent() {
     };
   }, []);
 
-  const currentSettlement = useMemo<MonthlySettlement>(() => {
-    const invoices = currentMonthInvoices;
+  // 오늘청구 섹션 계산
+  const todayBillingSettlement = useMemo<MonthlySettlement>(() => {
+    const invoices = sections?.todayBilling ?? [];
     const group: InvoiceHistoryGroup = {
-      year: currentMonthInvoices[0]?.year ?? currentYear,
-      month: currentMonthInvoices[0]?.month ?? currentMonth,
+      year: currentYear,
+      month: currentMonth,
       invoices,
     };
     return calculateSettlement(group);
-  }, [calculateSettlement, currentMonthInvoices, currentMonth, currentYear]);
+  }, [calculateSettlement, sections?.todayBilling, currentMonth, currentYear]);
 
-  const historySettlements = useMemo<MonthlySettlement[]>(() => {
-    return historyMonths.map((group) => calculateSettlement(group));
-  }, [calculateSettlement, historyMonths]);
+  // 정산중 섹션 계산
+  const inProgressSettlement = useMemo<MonthlySettlement>(() => {
+    const invoices = sections?.inProgress ?? [];
+    const group: InvoiceHistoryGroup = {
+      year: currentYear,
+      month: currentMonth,
+      invoices,
+    };
+    return calculateSettlement(group);
+  }, [calculateSettlement, sections?.inProgress, currentMonth, currentYear]);
+
+  // 전송한 청구서 섹션 계산 (연도별로 그룹화)
+  const sentSettlementsByYear = useMemo<Map<number, MonthlySettlement[]>>(() => {
+    const settlements = (sections?.sentInvoices ?? []).map((group) => calculateSettlement(group));
+    const grouped = new Map<number, MonthlySettlement[]>();
+    
+    for (const settlement of settlements) {
+      const year = settlement.year;
+      if (!grouped.has(year)) {
+        grouped.set(year, []);
+      }
+      grouped.get(year)!.push(settlement);
+    }
+    
+    // 각 연도 내에서 월별로 정렬 (내림차순)
+    for (const [year, monthSettlements] of grouped.entries()) {
+      monthSettlements.sort((a, b) => {
+        if (a.month !== b.month) return b.month - a.month;
+        return 0;
+      });
+    }
+    
+    return grouped;
+  }, [calculateSettlement, sections?.sentInvoices]);
+  
+  // 연도 목록 (내림차순)
+  const sentYears = useMemo(() => {
+    return Array.from(sentSettlementsByYear.keys()).sort((a, b) => b - a);
+  }, [sentSettlementsByYear]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await fetchCurrentMonth({ historyMonths: 3 });
+      await fetchSections(true);
     } catch (error: any) {
       console.error('[Invoices] refresh error', error?.message);
     } finally {
       setRefreshing(false);
     }
-  }, [fetchCurrentMonth]);
+  }, [fetchSections]);
 
   const handleRetry = useCallback(async () => {
     try {
-      await fetchCurrentMonth();
+      await fetchSections(true);
       Alert.alert('정산', '정산 목록을 다시 불러왔습니다.');
     } catch (error: any) {
       Alert.alert('정산', error?.message ?? '정산 목록을 불러오지 못했습니다.');
     }
-  }, [fetchCurrentMonth]);
+  }, [fetchSections]);
 
   const toggleMonth = useCallback((key: string) => {
     setExpandedMonths((prev) => {
@@ -153,6 +177,18 @@ function SettlementContent() {
         next.delete(key);
       } else {
         next.add(key);
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleYear = useCallback((year: number) => {
+    setExpandedYears((prev) => {
+      const next = new Set(prev);
+      if (next.has(year)) {
+        next.delete(year);
+      } else {
+        next.add(year);
       }
       return next;
     });
@@ -168,9 +204,9 @@ function SettlementContent() {
   }, []);
 
   const handleSendInvoice = useCallback(
-    (monthlySettlement: MonthlySettlement) => {
+    (invoices: InvoiceSummary[]) => {
       // 전송 가능 상태인 인보이스만
-      const sendable = monthlySettlement.invoices.filter(
+      const sendable = invoices.filter(
         (inv) => inv.send_status === 'not_sent' || inv.send_status === 'partial',
       );
       if (sendable.length === 0) {
@@ -209,7 +245,7 @@ function SettlementContent() {
     if (settlement.sendStatus === 'sent') {
       return '#4CAF50'; // 초록색
     } else if (settlement.sendStatus === 'partial') {
-      return '#FFC107'; // 노란색
+      return '#1d42d8'; // 블루
     } else {
       return '#FF9800'; // 주황색
     }
@@ -228,6 +264,18 @@ function SettlementContent() {
       return `청구 예정 ${settlement.totalCount}명 · 합계 ${settlement.totalAmount.toLocaleString()}원`;
     }
   };
+
+  // 뱃지 텍스트 변환
+  const getBillingTypeLabel = useCallback((type: string) => {
+    return type === 'prepaid' ? '선불' : type === 'postpaid' ? '후불' : type;
+  }, []);
+
+  const getAbsencePolicyLabel = useCallback((policy: string) => {
+    if (policy === 'carry_over') return '회차이월';
+    if (policy === 'deduct_next') return '차감';
+    if (policy === 'vanish') return '소멸';
+    return policy;
+  }, []);
 
   const getAutoAdjustmentDetail = useCallback((invoice: InvoiceSummary): string | null => {
     if (!invoice) return null;
@@ -251,37 +299,41 @@ function SettlementContent() {
     const parts: string[] = [];
     const contract = invoice.contract;
 
-    // 계약 정보
+    // 계약 정보 (billing_type과 absence_policy는 뱃지로 표시하므로 제거)
     if (contract?.subject) {
-      const billingLabel = contract.billing_type === 'prepaid' ? '선불' : contract.billing_type === 'postpaid' ? '후불' : '';
-      // 차감으로 통일
-      const absenceLabel = contract.absence_policy === 'carry_over' ? '회차 이월' : 
-                          contract.absence_policy === 'deduct_next' ? '차감' : 
-                          contract.absence_policy === 'vanish' ? '소멸' : '';
-      
-      if (billingLabel && absenceLabel) {
-        parts.push(`월 ${invoice.base_amount.toLocaleString()} · ${billingLabel}/${absenceLabel}`);
-      } else if (billingLabel) {
-        parts.push(`월 ${invoice.base_amount.toLocaleString()} · ${billingLabel}`);
-      } else {
-        parts.push(`월 ${invoice.base_amount.toLocaleString()}`);
-      }
+      parts.push(`월 ${invoice.base_amount.toLocaleString()}`);
     }
 
     return parts.join(' · ');
   };
 
-  const isCurrentEmpty = currentSettlement.totalCount === 0;
-  const isHistoryEmpty = historySettlements.length === 0;
+  // 청구서 기간 포맷팅 (예: "12월분 (11월 15일~12월 15일)")
+  const formatInvoicePeriod = (invoice: InvoiceSummary): string => {
+    if (!invoice.period_start || !invoice.period_end) {
+      return `${invoice.month}월분`;
+    }
+
+    const startDate = new Date(invoice.period_start);
+    const endDate = new Date(invoice.period_end);
+    const startMonth = startDate.getMonth() + 1;
+    const startDay = startDate.getDate();
+    const endMonth = endDate.getMonth() + 1;
+    const endDay = endDate.getDate();
+
+    return `${invoice.month}월분 (${startMonth}월 ${startDay}일~${endMonth}월 ${endDay}일)`;
+  };
+
   const isLoading = invoicesStatus === 'loading' && !invoicesLoaded;
 
-  // 선택된(전송 가능) 인보이스와 합계 계산
+  // 선택된(전송 가능) 인보이스와 합계 계산 (오늘청구 + 정산중에서 선택된 것)
   const selectedSendableInvoices = useMemo(() => {
     const ids = selectedInvoiceIds;
-    return currentSettlement.invoices.filter(
-      (inv) => ids.has(inv.id) && (inv.send_status === 'not_sent' || inv.send_status === 'partial'),
-    );
-  }, [currentSettlement.invoices, selectedInvoiceIds]);
+    const allSendable = [
+      ...(sections?.todayBilling ?? []),
+      ...(sections?.inProgress ?? []),
+    ].filter((inv) => ids.has(inv.id) && (inv.send_status === 'not_sent' || inv.send_status === 'partial'));
+    return allSendable;
+  }, [sections?.todayBilling, sections?.inProgress, selectedInvoiceIds]);
   const selectedCount = selectedSendableInvoices.length;
   const selectedSum = selectedSendableInvoices.reduce((sum, inv) => sum + (inv.final_amount ?? 0), 0);
 
@@ -292,24 +344,11 @@ function SettlementContent() {
     }
     navigation.navigate('SettlementSend', {
       invoiceIds: selectedSendableInvoices.map((inv) => inv.id),
-      year: currentSettlement.year,
-      month: currentSettlement.month,
+      year: currentYear,
+      month: currentMonth,
     });
     setShowConfirmModal(false);
-  }, [navigation, selectedCount, selectedSendableInvoices, currentSettlement.year, currentSettlement.month]);
-
-  // 전송 완료 항목을 하단으로 정렬
-  const orderedCurrentInvoices = useMemo(() => {
-    const list = [...currentSettlement.invoices];
-    return list.sort((a, b) => {
-      const rank = (s: InvoiceSummary['send_status']) =>
-        s === 'sent' ? 2 : s === 'partial' ? 1 : 0; // not_sent(0) < partial(1) < sent(2)
-      const ra = rank(a.send_status);
-      const rb = rank(b.send_status);
-      if (ra !== rb) return ra - rb;
-      return a.id - b.id; // 안정적 정렬
-    });
-  }, [currentSettlement.invoices]);
+  }, [navigation, selectedCount, selectedSendableInvoices, currentYear, currentMonth]);
 
   return (
     <Container
@@ -339,116 +378,99 @@ function SettlementContent() {
         </SkeletonGroup>
       ) : (
         <SettlementsList>
+          {/* 1. 오늘청구 섹션 */}
           <SectionBlock>
             <SectionHeaderBlock>
-              <SectionBlockTitle>이번 달 정산</SectionBlockTitle>
+              <SectionBlockTitle>오늘청구</SectionBlockTitle>
             </SectionHeaderBlock>
 
-            <MonthlyCard>
-              <MonthlyCardHeader onPress={() => toggleMonth(currentMonthKey)}>
-                <MonthlyCardHeaderLeft>
-                  <MonthlyCardTitle>
-                    {formatMonthTitle(currentSettlement.year, currentSettlement.month)}
-                  </MonthlyCardTitle>
-                  <MonthlyCardSummary>{formatSummary(currentSettlement)}</MonthlyCardSummary>
-                </MonthlyCardHeaderLeft>
-                <MonthlyCardHeaderRight>
-                  <StatusTag $color={getStatusColor(currentSettlement)}>
-                    {getStatusLabel(currentSettlement)}
-                  </StatusTag>
-                  <ExpandIcon>{expandedMonths.has(currentMonthKey) ? '▴' : '▾'}</ExpandIcon>
-                </MonthlyCardHeaderRight>
-              </MonthlyCardHeader>
-
-              {expandedMonths.has(currentMonthKey) && (
+            {todayBillingSettlement.totalCount === 0 ? (
+              <EmptyContainerSmall>
+                <EmptyTitle>오늘 청구할 내역이 없습니다.</EmptyTitle>
+                <EmptyDescription>청구일이 도래한 청구서가 여기 표시됩니다.</EmptyDescription>
+              </EmptyContainerSmall>
+            ) : (
+              <MonthlyCard>
+                <MonthlyCardHeader>
+                  <MonthlyCardHeaderLeft>
+                    <MonthlyCardTitle>청구 대상</MonthlyCardTitle>
+                    <MonthlyCardSummary>
+                      {todayBillingSettlement.totalCount}명 · 합계 {todayBillingSettlement.totalAmount.toLocaleString()}원
+                    </MonthlyCardSummary>
+                  </MonthlyCardHeaderLeft>
+                </MonthlyCardHeader>
                 <MonthlyCardContent>
-                  {isCurrentEmpty ? (
-                    <EmptyDescription>
-                      이번 달 정산 대상이 없습니다. 계약서를 생성하고 출결을 입력하면 정산이 생성됩니다.
-                    </EmptyDescription>
-                  ) : (
-                    <>
-                      <SelectToolbar>
-                        <SelectAllButton
-                          onPress={() => {
-                            setSelectedInvoiceIds((prev) => {
-                              // 기본값: 전체선택 OFF. 누르면 전체 토글
-                              const next = new Set<number>(prev);
-                              // 전송 가능한 인보이스만 전체 선택 대상으로 삼음
-                              const allIds = currentSettlement.invoices
-                                .filter((i) => i && (i.send_status === 'not_sent' || i.send_status === 'partial'))
-                                .map((i) => i.id)
-                                .filter((id) => typeof id === 'number');
-                              const allSelected = allIds.every((id) => next.has(id));
-                              if (allSelected) {
-                                // 모두 선택되어 있으면 모두 해제
-                                allIds.forEach((id) => next.delete(id));
-                              } else {
-                                // 모두 선택
-                                allIds.forEach((id) => next.add(id));
-                              }
-                              return next;
-                            });
-                          }}
-                        >
-                          <SelectAllButtonText>
-                            전체 선택/해제
-                          </SelectAllButtonText>
-                        </SelectAllButton>
-                        <SelectedCount>
-                          선택 {selectedInvoiceIds.size}명
-                        </SelectedCount>
-                      </SelectToolbar>
-                      {orderedCurrentInvoices.map((invoice) => {
-                        const isSendable = invoice.send_status === 'not_sent' || invoice.send_status === 'partial';
-                        const checked = selectedInvoiceIds.has(invoice.id);
-                        return (
-                          <StudentItem key={invoice.id}>
-                            <StudentItemLeft>
-                              {isSendable ? (
-                                <SelectCheckbox
-                                  disabled={!isSendable}
-                                  onPress={() => {
-                                    if (!isSendable) return;
-                                    setSelectedInvoiceIds((prev) => {
-                                      const next = new Set(prev);
-                                      if (next.has(invoice.id)) next.delete(invoice.id);
-                                      else next.add(invoice.id);
-                                      return next;
-                                    });
-                                  }}
-                                >
-                                  <CheckboxBox $checked={checked} $disabled={!isSendable}>
-                                    {checked ? <CheckboxMark>✓</CheckboxMark> : null}
-                                  </CheckboxBox>
-                                </SelectCheckbox>
-                              ) : null}
-                              <StudentTexts>
-                                <StudentName>{invoice.student?.name || '이름 없음'}</StudentName>
-                                <StudentInfo>{formatStudentInfo(invoice)}</StudentInfo>
-                              </StudentTexts>
-                            </StudentItemLeft>
-                            <StudentItemRight>
-                              <StudentAmount>{invoice.final_amount.toLocaleString()}원</StudentAmount>
-                              {invoice.send_status === 'sent' ? (
-                                <SmallStatusTag $type="sent">전송 완료</SmallStatusTag>
-                              ) : (
-                                <AmountEditButton onPress={() => handleAmountEdit(invoice)}>
-                                  <AmountEditButtonText>
-                                    {invoice.final_amount === 0 ? '이번 달만 청구' : '정산내역'}
-                                  </AmountEditButtonText>
-                                </AmountEditButton>
-                              )}
-                            </StudentItemRight>
-                          </StudentItem>
-                        );
-                      })}
-                    </>
-                  )}
-
-                  {currentSettlement.sendStatus !== 'sent' && !isCurrentEmpty && (
+                  <SelectToolbar>
+                    <SelectAllButton
+                      onPress={() => {
+                        setSelectedInvoiceIds((prev) => {
+                          const next = new Set<number>(prev);
+                          const allIds = todayBillingSettlement.invoices
+                            .filter((i) => i && (i.send_status === 'not_sent' || i.send_status === 'partial'))
+                            .map((i) => i.id)
+                            .filter((id) => typeof id === 'number');
+                          const allSelected = allIds.every((id) => next.has(id));
+                          if (allSelected) {
+                            allIds.forEach((id) => next.delete(id));
+                          } else {
+                            allIds.forEach((id) => next.add(id));
+                          }
+                          return next;
+                        });
+                      }}
+                    >
+                      <SelectAllButtonText>전체 선택/해제</SelectAllButtonText>
+                    </SelectAllButton>
+                    <SelectedCount>선택 {selectedInvoiceIds.size}명</SelectedCount>
+                  </SelectToolbar>
+                  {todayBillingSettlement.invoices.map((invoice) => {
+                    const isSendable = invoice.send_status === 'not_sent' || invoice.send_status === 'partial';
+                    const checked = selectedInvoiceIds.has(invoice.id);
+                    return (
+                      <StudentItem key={invoice.id}>
+                        <StudentItemLeft>
+                          {isSendable ? (
+                            <SelectCheckbox
+                              disabled={!isSendable}
+                              onPress={() => {
+                                if (!isSendable) return;
+                                setSelectedInvoiceIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(invoice.id)) next.delete(invoice.id);
+                                  else next.add(invoice.id);
+                                  return next;
+                                });
+                              }}
+                            >
+                              <CheckboxBox $checked={checked} $disabled={!isSendable}>
+                                {checked ? <CheckboxMark>✓</CheckboxMark> : null}
+                              </CheckboxBox>
+                            </SelectCheckbox>
+                          ) : null}
+                          <StudentTexts>
+                            <StudentName>{invoice.student?.name || '이름 없음'}</StudentName>
+                            <StudentInfo>{formatStudentInfo(invoice)}</StudentInfo>
+                            {invoice.period_start && invoice.period_end && (
+                              <PeriodText>{formatInvoicePeriod(invoice)}</PeriodText>
+                            )}
+                          </StudentTexts>
+                        </StudentItemLeft>
+                        <StudentItemRight>
+                          <StudentAmount>{invoice.final_amount.toLocaleString()}원</StudentAmount>
+                          {invoice.send_status === 'sent' ? (
+                            <SmallStatusTag $type="sent">전송 완료</SmallStatusTag>
+                          ) : (
+                            <AmountEditButton onPress={() => handleAmountEdit(invoice)}>
+                              <AmountEditButtonText>정산내역</AmountEditButtonText>
+                            </AmountEditButton>
+                          )}
+                        </StudentItemRight>
+                      </StudentItem>
+                    );
+                  })}
+                  {todayBillingSettlement.sendStatus !== 'sent' && (
                     <SendInvoiceButton
-                      onPress={() => handleSendInvoice(currentSettlement)}
+                      onPress={() => handleSendInvoice(todayBillingSettlement.invoices)}
                       disabled={selectedInvoiceIds.size === 0}
                     >
                       <SendInvoiceButtonText>
@@ -456,63 +478,149 @@ function SettlementContent() {
                       </SendInvoiceButtonText>
                     </SendInvoiceButton>
                   )}
-                  {isCurrentEmpty && (
-                    <PrimaryButton onPress={handleRetry}>
-                      <PrimaryButtonText>다시 불러오기</PrimaryButtonText>
-                    </PrimaryButton>
-                  )}
                 </MonthlyCardContent>
-              )}
-            </MonthlyCard>
+              </MonthlyCard>
+            )}
           </SectionBlock>
 
+          {/* 2. 정산중 섹션 */}
           <SectionBlock>
             <SectionHeaderBlock>
-              <SectionBlockTitle>지난달 정산</SectionBlockTitle>
+              <SectionBlockTitle>정산중</SectionBlockTitle>
             </SectionHeaderBlock>
 
-            {isHistoryEmpty ? (
+            {inProgressSettlement.totalCount === 0 ? (
               <EmptyContainerSmall>
-                <EmptyTitle>지난달 정산 내역이 없습니다.</EmptyTitle>
-                <EmptyDescription>최근 전송 완료된 정산 내역이 여기 표시됩니다.</EmptyDescription>
+                <EmptyTitle>정산 중인 내역이 없습니다.</EmptyTitle>
+                <EmptyDescription>출결이 반영되는 진행 중인 청구서가 여기 표시됩니다.</EmptyDescription>
               </EmptyContainerSmall>
             ) : (
-              historySettlements.map((settlement) => {
-                const monthKey = `${settlement.year}-${settlement.month}`;
-                const isExpanded = expandedMonths.has(monthKey);
-                return (
-                  <MonthlyCard key={monthKey}>
-                    <MonthlyCardHeader onPress={() => toggleMonth(monthKey)}>
-                      <MonthlyCardHeaderLeft>
-                        <MonthlyCardTitle>
-                          {formatMonthTitle(settlement.year, settlement.month)}
-                        </MonthlyCardTitle>
-                        <MonthlyCardSummary>{formatSummary(settlement)}</MonthlyCardSummary>
-                      </MonthlyCardHeaderLeft>
-                      <MonthlyCardHeaderRight>
-                        <StatusTag $color={getStatusColor(settlement)}>
-                          {getStatusLabel(settlement)}
-                        </StatusTag>
-                        <ExpandIcon>{isExpanded ? '▴' : '▾'}</ExpandIcon>
-                      </MonthlyCardHeaderRight>
-                    </MonthlyCardHeader>
+              <MonthlyCard>
+                <MonthlyCardHeader>
+                  <MonthlyCardHeaderLeftRight>
+                    <MonthlyCardSummaryRight>
+                      {inProgressSettlement.totalCount}명 · 합계 {inProgressSettlement.totalAmount.toLocaleString()}원
+                    </MonthlyCardSummaryRight>
+                  </MonthlyCardHeaderLeftRight>
+                </MonthlyCardHeader>
+                <MonthlyCardContent>
+                  {inProgressSettlement.invoices.map((invoice) => {
+                    const contract = invoice.contract;
+                    return (
+                    <StudentItem key={invoice.id}>
+                      <StudentItemLeft>
+                        <StudentTexts>
+                          <StudentNameContainer>
+                            <StudentName>{invoice.student?.name || '이름 없음'}</StudentName>
+                            {contract && (
+                              <BadgeContainer>
+                                <Badge billingType>
+                                  <BadgeText>{getBillingTypeLabel(contract.billing_type)}</BadgeText>
+                                </Badge>
+                                {contract.absence_policy && (
+                                  <Badge absencePolicy>
+                                    <BadgeText absencePolicy>
+                                      {getAbsencePolicyLabel(contract.absence_policy)}
+                                    </BadgeText>
+                                  </Badge>
+                                )}
+                              </BadgeContainer>
+                            )}
+                          </StudentNameContainer>
+                          <StudentInfo>{formatStudentInfo(invoice)}</StudentInfo>
+                          {invoice.period_start && invoice.period_end && (
+                            <PeriodText>{formatInvoicePeriod(invoice)}</PeriodText>
+                          )}
+                        </StudentTexts>
+                      </StudentItemLeft>
+                      <StudentItemRight>
+                        <StudentAmount>{invoice.final_amount.toLocaleString()}원</StudentAmount>
+                        <AmountEditButton onPress={() => handleAmountEdit(invoice)}>
+                          <AmountEditButtonText>정산내역</AmountEditButtonText>
+                        </AmountEditButton>
+                      </StudentItemRight>
+                    </StudentItem>
+                    );
+                  })}
+                </MonthlyCardContent>
+              </MonthlyCard>
+            )}
+          </SectionBlock>
 
-                    {isExpanded && (
-                      <MonthlyCardContent>
-                        {settlement.invoices.map((invoice) => (
-                          <StudentItem key={invoice.id}>
-                            <StudentItemLeft>
-                              <StudentName>{invoice.student?.name || '이름 없음'}</StudentName>
-                              <StudentInfo>{formatStudentInfo(invoice)}</StudentInfo>
-                            </StudentItemLeft>
-                            <StudentItemRight>
-                              <StudentAmount>{invoice.final_amount.toLocaleString()}원</StudentAmount>
-                            </StudentItemRight>
-                          </StudentItem>
-                        ))}
-                      </MonthlyCardContent>
+          {/* 3. 전송한 청구서 섹션 */}
+          <SectionBlock>
+            <SectionHeaderBlock>
+              <SectionBlockTitle>전송한 청구서</SectionBlockTitle>
+            </SectionHeaderBlock>
+
+            {sentYears.length === 0 ? (
+              <EmptyContainerSmall>
+                <EmptyTitle>전송한 청구서가 없습니다.</EmptyTitle>
+                <EmptyDescription>전송 완료된 청구서가 여기 표시됩니다.</EmptyDescription>
+              </EmptyContainerSmall>
+            ) : (
+              sentYears.map((year) => {
+                const yearSettlements = sentSettlementsByYear.get(year) ?? [];
+                const isYearExpanded = expandedYears.has(year);
+                return (
+                  <YearCard key={year}>
+                    <YearCardHeader onPress={() => toggleYear(year)}>
+                      <YearCardHeaderLeft>
+                        <YearCardTitle>{year}년</YearCardTitle>
+                      </YearCardHeaderLeft>
+                      <YearCardHeaderRight>
+                        <ExpandIcon>{isYearExpanded ? '▴' : '▾'}</ExpandIcon>
+                      </YearCardHeaderRight>
+                    </YearCardHeader>
+
+                    {isYearExpanded && (
+                      <YearCardContent>
+                        {yearSettlements.map((settlement) => {
+                          const monthKey = `${settlement.year}-${settlement.month}`;
+                          const isExpanded = expandedMonths.has(monthKey);
+                          return (
+                            <MonthlyCard key={monthKey}>
+                              <MonthlyCardHeader onPress={() => toggleMonth(monthKey)}>
+                                <MonthlyCardHeaderLeft>
+                                  <MonthlyCardTitle>
+                                    {settlement.month}월 정산
+                                  </MonthlyCardTitle>
+                                  <MonthlyCardSummary>{formatSummary(settlement)}</MonthlyCardSummary>
+                                </MonthlyCardHeaderLeft>
+                                <MonthlyCardHeaderRight>
+                                  <StatusTag $color={getStatusColor(settlement)}>
+                                    {getStatusLabel(settlement)}
+                                  </StatusTag>
+                                  <ExpandIcon>{isExpanded ? '▴' : '▾'}</ExpandIcon>
+                                </MonthlyCardHeaderRight>
+                              </MonthlyCardHeader>
+
+                              {isExpanded && (
+                                <MonthlyCardContent>
+                                  {settlement.invoices.map((invoice) => (
+                                    <StudentItem key={invoice.id}>
+                                      <StudentItemLeft>
+                                        <StudentTexts>
+                                          <StudentName>{invoice.student?.name || '이름 없음'}</StudentName>
+                                          <StudentInfo>{formatStudentInfo(invoice)}</StudentInfo>
+                                          {invoice.period_start && invoice.period_end && (
+                                            <PeriodText>{formatInvoicePeriod(invoice)}</PeriodText>
+                                          )}
+                                        </StudentTexts>
+                                      </StudentItemLeft>
+                                      <StudentItemRight>
+                                        <StudentAmount>{invoice.final_amount.toLocaleString()}원</StudentAmount>
+                                      </StudentItemRight>
+                                    </StudentItem>
+                                  ))}
+                                </MonthlyCardContent>
+                              )}
+                            </MonthlyCard>
+                          );
+                        })}
+                      </YearCardContent>
                     )}
-                  </MonthlyCard>
+                  </YearCard>
                 );
               })
             )}
@@ -552,7 +660,7 @@ function SettlementContent() {
           visible={amountModalVisible}
           onClose={() => setAmountModalVisible(false)}
           onConfirm={async () => {
-            await fetchCurrentMonth({ historyMonths: 3, force: true });
+            await fetchSections(true);
           }}
           invoiceId={amountTargetInvoice.id}
           currentAmount={amountTargetInvoice.final_amount}
@@ -568,18 +676,18 @@ function SettlementContent() {
 
 const Container = styled.ScrollView`
   flex: 1;
-  background-color: #ffffff;
+  background-color: #f5f5f5;
 `;
 
 const Header = styled.View`
   padding: 20px 16px 16px;
-  background-color: #ffffff;
+  background-color: #0f1b4d;
 `;
 
 const HeaderTitle = styled.Text`
   font-size: 24px;
   font-weight: 700;
-  color: #111111;
+  color: #ffffff;
   margin-bottom: 4px;
 `;
 
@@ -715,9 +823,46 @@ const SectionBlockSubtitle = styled.Text`
   color: #666666;
 `;
 
-const MonthlyCard = styled.View`
+const YearCard = styled.View`
   background-color: #ffffff;
   border-radius: 16px;
+  overflow: hidden;
+  margin-bottom: 12px;
+`;
+
+const YearCardHeader = styled.TouchableOpacity`
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  background-color: #f8f9fa;
+`;
+
+const YearCardHeaderLeft = styled.View`
+  flex: 1;
+  margin-right: 12px;
+`;
+
+const YearCardTitle = styled.Text`
+  font-size: 20px;
+  font-weight: 700;
+  color: #111111;
+`;
+
+const YearCardHeaderRight = styled.View`
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+`;
+
+const YearCardContent = styled.View`
+  padding: 12px;
+  gap: 12px;
+`;
+
+const MonthlyCard = styled.View`
+  background-color: #f8f9fa;
+  border-radius: 12px;
   overflow: hidden;
 `;
 
@@ -733,6 +878,12 @@ const MonthlyCardHeaderLeft = styled.View`
   margin-right: 12px;
 `;
 
+const MonthlyCardHeaderLeftRight = styled.View`
+  flex: 1;
+  margin-right: 12px;
+  align-items: flex-end;
+`;
+
 const MonthlyCardTitle = styled.Text`
   font-size: 18px;
   font-weight: 700;
@@ -743,6 +894,12 @@ const MonthlyCardTitle = styled.Text`
 const MonthlyCardSummary = styled.Text`
   font-size: 14px;
   color: #666666;
+`;
+
+const MonthlyCardSummaryRight = styled.Text`
+  font-size: 18px;
+  font-weight: 700;
+  color: #111111;
 `;
 
 const MonthlyCardHeaderRight = styled.View`
@@ -803,11 +960,11 @@ const SelectToolbar = styled.View`
 const SelectAllButton = styled.TouchableOpacity`
   padding: 6px 10px;
   border-radius: 8px;
-  background-color: #fff2e5;
+  background-color: #eef2ff;
 `;
 
 const SelectAllButtonText = styled.Text`
-  color: #ff6b00;
+  color: #1d42d8;
   font-size: 12px;
   font-weight: 600;
 `;
@@ -827,31 +984,61 @@ const CheckboxBox = styled.View<{ $checked: boolean; $disabled?: boolean }>`
   height: 20px;
   border-radius: 4px;
   border-width: 1px;
-  border-color: ${(props) => (props.$checked ? '#ff6b00' : '#cccccc')};
+  border-color: ${(props) => (props.$checked ? '#1d42d8' : '#cccccc')};
   background-color: ${(props) =>
-    props.$disabled ? '#f0f0f0' : props.$checked ? '#ff6b00' : '#ffffff'};
+    props.$disabled ? '#f0f0f0' : props.$checked ? '#eef2ff' : '#ffffff'};
   align-items: center;
   justify-content: center;
 `;
 
 const CheckboxMark = styled.Text`
-  color: #ffffff;
+  color: #1d42d8;
   font-size: 14px;
   line-height: 20px;
   text-align: center;
+`;
+
+const StudentNameContainer = styled.View`
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
 `;
 
 const StudentName = styled.Text`
   font-size: 16px;
   font-weight: 700;
   color: #111111;
-  margin-bottom: 4px;
+`;
+
+const BadgeContainer = styled.View`
+  flex-direction: row;
+  gap: 6px;
+`;
+
+const Badge = styled.View<{ billingType?: boolean; absencePolicy?: boolean }>`
+  padding: 4px 8px;
+  background-color: ${(props) => (props.billingType ? '#e8f2ff' : '#f0f8f0')};
+  border-radius: 12px;
+`;
+
+const BadgeText = styled.Text<{ absencePolicy?: boolean }>`
+  font-size: 11px;
+  color: ${(props) => (props.absencePolicy ? '#34c759' : '#246bfd')};
+  font-weight: 600;
 `;
 
 const StudentInfo = styled.Text`
   font-size: 13px;
   color: #666666;
   line-height: 18px;
+`;
+
+const PeriodText = styled.Text`
+  font-size: 12px;
+  color: #999999;
+  margin-top: 2px;
 `;
 
 const StudentItemRight = styled.View`
@@ -871,7 +1058,7 @@ const AmountEditButton = styled.TouchableOpacity`
 
 const AmountEditButtonText = styled.Text`
   font-size: 12px;
-  color: #ff6b00;
+  color: #1d42d8;
 `;
 
 const SmallStatusTag = styled.Text<{ $type: 'sent' }>`
@@ -887,7 +1074,7 @@ const SendInvoiceButton = styled.TouchableOpacity<{ disabled?: boolean }>`
   margin-top: 16px;
   padding: 14px;
   border-radius: 10px;
-  background-color: ${(props) => (props.disabled ? '#ffd2ad' : '#ff6b00')};
+  background-color: ${(props) => (props.disabled ? '#c7d2fe' : '#1d42d8')};
   align-items: center;
 `;
 

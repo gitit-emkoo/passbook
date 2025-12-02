@@ -5,12 +5,14 @@ import { UpdateContractStatusDto } from './dto/update-contract-status.dto';
 import { ExtendContractDto } from './dto/extend-contract.dto';
 import { Prisma } from '@prisma/client';
 import { InvoicesService } from '../invoices/invoices.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class ContractsService {
   constructor(
     private prisma: PrismaService,
     private invoicesService: InvoicesService,
+    private notificationsService: NotificationsService,
   ) {}
 
   /**
@@ -45,8 +47,14 @@ export class ContractsService {
       ...(frontendSnapshot.planned_count_override ? { planned_count_override: frontendSnapshot.planned_count_override } : {}),
       // 계좌 정보 포함
       ...(frontendSnapshot.account_info ? { account_info: frontendSnapshot.account_info } : {}),
+      // 수업 내용 특약 포함
+      ...(frontendSnapshot.lesson_notes ? { lesson_notes: frontendSnapshot.lesson_notes } : {}),
       created_at: new Date().toISOString(),
     };
+
+    // billing_day 계산: started_at의 일자 (1-31)
+    const startedAt = dto.started_at ? new Date(dto.started_at) : null;
+    const billingDay = startedAt ? startedAt.getDate() : null;
 
     // 계약서 생성
     const contract = await this.prisma.contract.create({
@@ -66,8 +74,9 @@ export class ContractsService {
         attendance_requires_signature: dto.attendance_requires_signature ?? false,
         teacher_signature: dto.teacher_signature ?? null,
         student_signature: dto.student_signature ?? null,
-        started_at: dto.started_at ? new Date(dto.started_at) : null,
+        started_at: startedAt,
         ended_at: dto.ended_at ? new Date(dto.ended_at) : null,
+        billing_day: billingDay,
         status: (dto.status ?? ContractStatus.draft) as ContractStatus,
       },
       include: {
@@ -352,11 +361,51 @@ export class ContractsService {
     // 선불 계약이고 'sent' 상태로 변경된 경우 청구서 자동 생성
     if (contract.billing_type === 'prepaid' && dto.status === 'sent' && contract.status !== 'sent') {
       try {
-        await this.createPrepaidInvoice(userId, contract);
+        const invoice = await this.createPrepaidInvoice(userId, contract);
         console.log(`[Contracts] Prepaid invoice created for contract ${id}`);
+        
+        // 선불 청구서 전송 완료 알림 (이벤트 기반, 1회만 발송)
+        try {
+          // 다음 달 계산 (청구서는 이전 달로 생성되지만 실제로는 다음 달분)
+          const nextMonth = invoice.month === 12 ? 1 : invoice.month + 1;
+          const nextYear = invoice.month === 12 ? invoice.year + 1 : invoice.year;
+          
+          await this.notificationsService.createAndSendNotification(
+            userId,
+            'settlement',
+            '청구서 전송 완료',
+            `${updatedContract.student.name} 수강생에게 ${invoice.year}년 ${invoice.month}월(${nextYear}년 ${nextMonth}월분) 청구서가 성공적으로 전송되었습니다.`,
+            `/invoices/${invoice.id}`,
+            {
+              relatedId: `invoice-sent:${invoice.id}`,
+            },
+          );
+        } catch (error) {
+          console.error('[Contracts] Failed to send invoice notification:', error);
+          // 알림 실패해도 청구서 생성은 유지
+        }
       } catch (error: any) {
         console.error(`[Contracts] Failed to create prepaid invoice for contract ${id}:`, error?.message);
         // 청구서 생성 실패해도 계약서 상태 업데이트는 유지
+      }
+    }
+
+    // 계약서 전송 완료 알림 (이벤트 기반, 1회만 발송)
+    if (dto.status === 'sent' && contract.status !== 'sent') {
+      try {
+        await this.notificationsService.createAndSendNotification(
+          userId,
+          'contract',
+          '계약서 전송 완료',
+          `${updatedContract.student.name}님의 계약서가 성공적으로 전송되었습니다.`,
+          `/contracts/${id}`,
+          {
+            relatedId: `contract:${id}`,
+          },
+        );
+      } catch (error) {
+        // 알림 실패해도 상태 업데이트는 유지
+        console.error('[Contracts] Failed to send notification:', error);
       }
     }
 
@@ -617,6 +666,9 @@ export class ContractsService {
     };
 
     const policySnapshot = (contract.policy_snapshot ?? {}) as Record<string, any>;
+    const lessonNotes = typeof policySnapshot.lesson_notes === 'string' ? policySnapshot.lesson_notes : '';
+    const formattedLessonNotes = lessonNotes ? lessonNotes.replace(/\n/g, '<br />') : '';
+    const lessonNotesValue = formattedLessonNotes || '-';
     const extensions = Array.isArray(policySnapshot.extensions) ? policySnapshot.extensions : [];
     const extensionHistory = formatExtensionHistory(extensions);
 
@@ -717,7 +769,7 @@ export class ContractsService {
 <body>
   <div class="container">
     <div class="section">
-      <div class="section-title">계약서 정보</div>
+      <div class="section-title">계약 내용</div>
       
       <div class="info-row">
         <div class="info-label">수강생</div>
@@ -743,6 +795,11 @@ export class ContractsService {
       <div class="info-row">
         <div class="info-label">과목</div>
         <div class="info-value">${contract.subject}</div>
+      </div>
+
+      <div class="info-row">
+        <div class="info-label">수업 내용</div>
+        <div class="info-value">${lessonNotesValue}</div>
       </div>
 
       <div class="info-row">

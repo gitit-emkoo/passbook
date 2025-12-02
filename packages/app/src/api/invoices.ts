@@ -49,6 +49,13 @@ export const invoicesApi = {
     return response.data;
   },
   /**
+   * 정산 섹션별 조회 (정산중/오늘청구/전송한청구서)
+   */
+  getBySections: async () => {
+    const response = await apiClient.get('/api/v1/invoices/sections');
+    return response.data;
+  },
+  /**
    * 청구서 링크 생성
    */
   getViewLink: (id: number): string => {

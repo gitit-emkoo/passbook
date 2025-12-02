@@ -1,12 +1,14 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { InvoiceCalculationService } from './invoice-calculation.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class InvoicesService {
   constructor(
     private prisma: PrismaService,
     private calculationService: InvoiceCalculationService,
+    private notificationsService: NotificationsService,
   ) {}
 
   /**
@@ -136,6 +138,55 @@ export class InvoicesService {
     // 계좌 정보를 account_snapshot에 저장 (policy_snapshot에서 가져오기)
     const accountInfo = (policy as any)?.account_info || null;
 
+    // period_start, period_end 계산 (계약 기간과 billing_day 기준)
+    let periodStart: Date | null = null;
+    let periodEnd: Date | null = null;
+    const billingDay = normalizedContract.billing_day;
+    const contractStartDate = normalizedContract.started_at
+      ? new Date(normalizedContract.started_at)
+      : null;
+    const contractEndDate = normalizedContract.ended_at
+      ? new Date(normalizedContract.ended_at)
+      : null;
+
+    if (billingDay && billingDay >= 1 && billingDay <= 31) {
+      // period_start: 이전 달의 billing_day
+      const prevMonth = month === 1 ? 12 : month - 1;
+      const prevYear = month === 1 ? year - 1 : year;
+      const billingDayStart = new Date(prevYear, prevMonth - 1, billingDay);
+      billingDayStart.setHours(0, 0, 0, 0);
+
+      // period_end: 이번 달의 billing_day
+      const billingDayEnd = new Date(year, month - 1, billingDay);
+      billingDayEnd.setHours(23, 59, 59, 999);
+
+      // 계약 시작일이 있으면 period_start는 계약 시작일과 billing_day 중 더 늦은 날짜
+      if (contractStartDate) {
+        contractStartDate.setHours(0, 0, 0, 0);
+        periodStart = contractStartDate > billingDayStart ? contractStartDate : billingDayStart;
+      } else {
+        periodStart = billingDayStart;
+      }
+
+      // 계약 종료일이 있으면 period_end는 계약 종료일과 billing_day 중 더 이른 날짜
+      if (contractEndDate) {
+        contractEndDate.setHours(23, 59, 59, 999);
+        periodEnd = contractEndDate < billingDayEnd ? contractEndDate : billingDayEnd;
+      } else {
+        periodEnd = billingDayEnd;
+      }
+    } else {
+      // billing_day가 없으면 계약 기간을 그대로 사용
+      if (contractStartDate) {
+        periodStart = new Date(contractStartDate);
+        periodStart.setHours(0, 0, 0, 0);
+      }
+      if (contractEndDate) {
+        periodEnd = new Date(contractEndDate);
+        periodEnd.setHours(23, 59, 59, 999);
+      }
+    }
+
     return this.prisma.invoice.create({
       data: {
         user_id: userId,
@@ -148,6 +199,8 @@ export class InvoicesService {
         manual_adjustment: 0,
         final_amount: finalAmount,
         planned_count: plannedCount,
+        period_start: periodStart,
+        period_end: periodEnd,
         send_status: 'not_sent',
         account_snapshot: accountInfo,
       },
@@ -392,6 +445,29 @@ export class InvoicesService {
       results.push(sendResult);
     }
 
+    // 청구서 전송 완료 알림 (각 청구서마다 개별 알림 생성)
+    for (const invoice of invoices) {
+      try {
+        const studentName = invoice.student.name;
+        const year = invoice.year;
+        const month = invoice.month;
+        
+        await this.notificationsService.createAndSendNotification(
+          userId,
+          'settlement',
+          '청구서 전송 완료',
+          `${studentName} 수강생에게 ${year}년 ${month}월 청구서가 전송되었습니다.`,
+          '/settlements',
+          {
+            relatedId: `invoice:${invoice.id}`,
+          },
+        );
+      } catch (error) {
+        // 알림 실패해도 전송 결과는 반환
+        console.error('[Invoices] Failed to send notification:', error);
+      }
+    }
+
     return results;
   }
 
@@ -542,6 +618,137 @@ export class InvoicesService {
   }
 
   /**
+   * 정산 섹션별로 청구서 조회
+   * - 정산중: 수업료 기간이 진행 중이거나 종료되었지만 청구일이 아직 도래하지 않음
+   * - 오늘청구: 청구일이 도래했거나 지났지만 아직 전송되지 않음
+   * - 전송한 청구서: 전송 완료된 청구서 (월별 그룹)
+   */
+  async getInvoicesBySections(userId: number) {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    today.setHours(0, 0, 0, 0);
+
+    // 모든 활성 계약서의 청구서 조회 (전송 완료 포함)
+    const allInvoices = await this.prisma.invoice.findMany({
+      where: {
+        user_id: userId,
+      },
+      include: {
+        student: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+          },
+        },
+        contract: {
+          select: {
+            id: true,
+            subject: true,
+            billing_type: true,
+            absence_policy: true,
+            policy_snapshot: true,
+            billing_day: true,
+            started_at: true,
+            ended_at: true,
+          },
+        },
+      },
+      orderBy: [
+        { year: 'desc' },
+        { month: 'desc' },
+        { created_at: 'desc' },
+      ],
+    });
+
+    const inProgress: any[] = [];
+    const todayBilling: any[] = [];
+    const sentInvoices = new Map<string, { year: number; month: number; invoices: any[] }>();
+
+    for (const invoice of allInvoices) {
+      const contract = invoice.contract;
+      const billingDay = contract?.billing_day;
+      const periodEnd = invoice.period_end ? new Date(invoice.period_end) : null;
+      const periodStart = invoice.period_start ? new Date(invoice.period_start) : null;
+
+      // 전송 완료된 청구서는 "전송한 청구서" 섹션에 추가
+      if (invoice.send_status === 'sent') {
+        const key = `${invoice.year}-${String(invoice.month).padStart(2, '0')}`;
+        if (!sentInvoices.has(key)) {
+          sentInvoices.set(key, {
+            year: invoice.year,
+            month: invoice.month,
+            invoices: [],
+          });
+        }
+        sentInvoices.get(key)?.invoices.push(invoice);
+        continue;
+      }
+
+      // 청구일 계산 (해당 invoice의 year/month 기준)
+      let billingDate: Date | null = null;
+      if (billingDay && billingDay >= 1 && billingDay <= 31) {
+        // 해당 invoice의 year/month의 billing_day가 청구일
+        billingDate = new Date(invoice.year, invoice.month - 1, billingDay);
+        billingDate.setHours(0, 0, 0, 0);
+      }
+
+      // 계약 종료일 확인
+      const contractEndDate = contract?.ended_at
+        ? new Date(contract.ended_at)
+        : null;
+      if (contractEndDate) {
+        contractEndDate.setHours(0, 0, 0, 0);
+      }
+
+      // period_end가 있고 아직 지나지 않았으면 "정산중"
+      if (periodEnd && periodEnd > now) {
+        inProgress.push(invoice);
+        continue;
+      }
+
+      // 후불 계약이고 계약 종료일이 오늘이면 "오늘청구" (마지막 청구서)
+      if (
+        contract?.billing_type === 'postpaid' &&
+        contractEndDate &&
+        today.getTime() === contractEndDate.getTime()
+      ) {
+        todayBilling.push(invoice);
+        continue;
+      }
+
+      // 청구일이 도래했거나 지났으면 "오늘청구"
+      if (billingDate && today >= billingDate) {
+        todayBilling.push(invoice);
+        continue;
+      }
+
+      // period_end가 지났지만 청구일이 아직 도래하지 않았으면 "정산중"
+      if (periodEnd && periodEnd <= now && billingDate && today < billingDate) {
+        inProgress.push(invoice);
+        continue;
+      }
+
+      // period_end가 없거나 billing_day가 없으면 기본적으로 "정산중"에 포함
+      if (!periodEnd || !billingDay) {
+        inProgress.push(invoice);
+      }
+    }
+
+    // 전송한 청구서를 월별로 정렬
+    const sentInvoicesArray = Array.from(sentInvoices.values()).sort((a, b) => {
+      if (a.year !== b.year) return b.year - a.year;
+      return b.month - a.month;
+    });
+
+    return {
+      inProgress,
+      todayBilling,
+      sentInvoices: sentInvoicesArray,
+    };
+  }
+
+  /**
    * 계약서의 policy_snapshot과 기타 JSON 필드를 안전하게 정규화합니다.
    */
   private normalizeContract(contract: any) {
@@ -575,6 +782,7 @@ export class InvoicesService {
       ...contract,
       policy_snapshot: normalizedSnapshot,
       day_of_week: Array.isArray(contract.day_of_week) ? contract.day_of_week : [],
+      billing_day: contract.billing_day ?? null,
     };
   }
 

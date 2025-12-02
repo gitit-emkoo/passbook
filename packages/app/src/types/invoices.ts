@@ -10,6 +10,8 @@ export interface InvoiceSummary {
   manual_reason: string | null;
   final_amount: number;
   send_status: string;
+  period_start?: string | null;
+  period_end?: string | null;
   student?: {
     id: number;
     name: string;
@@ -19,6 +21,7 @@ export interface InvoiceSummary {
     id: number;
     subject: string;
     billing_type: string;
+    absence_policy?: string;
   };
 }
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { NavigationContainer, CommonActions, NavigationContainerRef } from '@react-navigation/native';
+import { NavigationContainer, CommonActions, NavigationContainerRef, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { createBottomTabNavigator, BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator, NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { TouchableOpacity, View, ImageSourcePropType } from 'react-native';
@@ -53,10 +53,12 @@ interface TabIconImageProps {
   focused: boolean;
 }
 
-const TabIconImage = styled.Image<TabIconImageProps>`
+const TabIconImage = styled.Image.attrs<TabIconImageProps>((props) => ({
+  resizeMode: 'contain' as const,
+}))<TabIconImageProps>`
   width: 24px;
   height: 24px;
-  tint-color: ${(props: TabIconImageProps) => (props.focused ? '#ff6b00' : '#999')};
+  tint-color: ${(props: TabIconImageProps) => (props.focused ? '#1d42d8' : '#999')};
   opacity: ${(props: TabIconImageProps) => (props.focused ? 1 : 0.6)};
 `;
 
@@ -73,7 +75,7 @@ const FABButton = styled.TouchableOpacity<FABButtonProps>`
   height: ${(props: FABButtonProps) => props.size}px;
   border-radius: ${(props: FABButtonProps) => props.size / 2}px;
   border-width: 2px;
-  border-color: #ff6b00;
+  border-color: #1d42d8;
   background-color: #ffffff;
   align-items: center;
   justify-content: center;
@@ -158,7 +160,7 @@ function HomeStack() {
         name="ContractNew"
         component={ContractNewScreen}
         options={{
-          title: '계약서 생성',
+          title: '계약생성',
           headerShown: true,
           headerBackTitle: '뒤로',
           headerBackVisible: true,
@@ -300,7 +302,7 @@ function MainTabs() {
       <Tab.Navigator
         screenOptions={{
           headerShown: false,
-          tabBarActiveTintColor: '#ff6b00',
+          tabBarActiveTintColor: '#1d42d8',
           tabBarInactiveTintColor: '#999',
           tabBarStyle: {
             paddingBottom: 5,
@@ -378,25 +380,16 @@ function MainTabs() {
         options={({ navigation }) => ({
           title: '',
           tabBarButton: () => {
-            const state = navigation.getState();
-            const currentRoute = state?.routes?.[state.index ?? 0];
-            const isHomeFocused = currentRoute?.name === 'Home';
-
-            // 항상 동일한 크기의 공간을 차지하도록 설정
+            // 항상 플로팅 버튼 표시
             return (
               <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                {isHomeFocused ? (
-                  <FABButton
-                    size={FAB_SIZE}
-                    onPress={() => handleFABPress(navigation)}
-                    activeOpacity={0.8}
-                  >
-                    <FABIcon source={noteIcon} />
-                  </FABButton>
-                ) : (
-                  // 플로팅 버튼이 없는 탭에서는 투명한 공간만 차지
-                  <View style={{ width: FAB_SIZE, height: FAB_SIZE }} />
-                )}
+                <FABButton
+                  size={FAB_SIZE}
+                  onPress={() => handleFABPress(navigation)}
+                  activeOpacity={0.8}
+                >
+                  <FABIcon source={noteIcon} />
+                </FABButton>
               </View>
             );
           },

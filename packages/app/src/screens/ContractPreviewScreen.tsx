@@ -49,6 +49,14 @@ const StatusText = styled.Text`
   font-size: 13px;
   color: #8e8e93;
   text-align: center;
+  font-weight: 600;
+`;
+
+const StatusSubText = styled.Text`
+  font-size: 12px;
+  color: #a1a1aa;
+  text-align: center;
+  margin-top: 4px;
 `;
 
 const SignatureButtonsRow = styled.View`
@@ -275,11 +283,18 @@ function ContractPreviewContent() {
         showsHorizontalScrollIndicator={false}
       />
       <Footer>
-        <StatusText>
-          {loadingMeta
-            ? '계약 정보를 불러오는 중입니다...'
-            : `현재 상태: ${status === 'sent' ? '전송 완료' : status === 'confirmed' ? '확정됨' : '초안'}`}
-        </StatusText>
+        {loadingMeta ? (
+          <StatusText>계약 정보를 불러오는 중입니다...</StatusText>
+        ) : (
+          <>
+            <StatusText>
+              {`현재 상태 : ${status === 'sent' ? '전송 완료' : status === 'confirmed' ? '확정됨' : '확정 전'}`}
+            </StatusText>
+            {status !== 'confirmed' && status !== 'sent' && (
+              <StatusSubText>서명 후 확정 버튼을 클릭해 주세요</StatusSubText>
+            )}
+          </>
+        )}
         <SignatureButtonsRow>
           <SignatureButton
             onPress={() => openSignatureModal('teacher')}

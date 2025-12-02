@@ -7,7 +7,7 @@ import { authApi } from '../api/auth';
 import { useAuthStore } from '../store/useStore';
 import { AuthStackParamList } from '../navigation/AppNavigator';
 
-const logoImage = require('../../assets/logo1.jpg');
+const logoImage = require('../../assets/login3.png');
 
 type PhoneAuthNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'PhoneAuth'>;
 
@@ -88,7 +88,20 @@ export default function PhoneAuthScreen() {
           message: error?.response?.data?.message || error?.message,
         });
       }
-      Alert.alert('오류', error?.response?.data?.message || '인증번호 전송에 실패했습니다.');
+      
+      // 네트워크 에러 처리
+      let errorMessage = '인증번호 전송에 실패했습니다.';
+      if (error?.message === 'Network Error' || error?.code === 'ERR_NETWORK') {
+        const { apiBaseUrl } = useAuthStore.getState();
+        const currentUrl = apiBaseUrl || 'http://localhost:3000';
+        errorMessage = `네트워크 연결을 확인해주세요.\n\n현재 연결 시도 중인 주소:\n${currentUrl}\n\n백엔드 서버와 ngrok이 실행 중인지 확인해주세요.`;
+      } else if (error?.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+      
+      Alert.alert('오류', errorMessage);
     } finally {
       setRequestingCode(false);
     }
@@ -133,10 +146,20 @@ export default function PhoneAuthScreen() {
         });
       }
       
+      // 네트워크 에러 처리
+      let errorMessage = '인증번호가 일치하지 않습니다.';
+      if (error?.message === 'Network Error' || error?.code === 'ERR_NETWORK') {
+        errorMessage = '네트워크 연결을 확인해주세요.\n서버에 연결할 수 없습니다.';
+      } else if (error?.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error?.message && error.message !== 'Network Error') {
+        errorMessage = error.message;
+      }
+      
       // 사용자에게는 항상 간단하고 명확한 메시지만 표시
       Alert.alert(
         '인증 실패',
-        '인증번호가 일치하지 않습니다.',
+        errorMessage,
         [
           {
             text: '확인',
@@ -262,7 +285,7 @@ const LogoImage = styled.Image`
 const AppSlogan = styled.Text`
   font-size: 18px;
   font-weight: 700;
-  color: #ff6b00;
+  color: #1d42d8;
   text-align: center;
 `;
 
@@ -277,11 +300,6 @@ const StepContainer = styled.View`
   background-color: #ffffff;
   border-radius: 16px;
   padding: 24px;
-  shadow-color: #000000;
-  shadow-opacity: 0.05;
-  shadow-offset: 0px 4px;
-  shadow-radius: 10px;
-  elevation: 2;
 `;
 
 const Title = styled.Text`
@@ -331,7 +349,7 @@ const CodeInput = styled.TextInput`
 `;
 
 const PrimaryButton = styled.TouchableOpacity<{ disabled?: boolean }>`
-  background-color: #ff6b00;
+  background-color: #1d42d8;
   padding: 16px;
   border-radius: 12px;
   align-items: center;

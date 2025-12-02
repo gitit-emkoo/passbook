@@ -335,6 +335,24 @@ function StudentsListContent() {
     return policy;
   };
 
+  // 요일 변환 함수
+  const formatDayOfWeek = (dayOfWeekArray: string[] | null | undefined): string => {
+    if (!dayOfWeekArray || !Array.isArray(dayOfWeekArray) || dayOfWeekArray.length === 0) {
+      return '-';
+    }
+    const dayMap: Record<string, string> = {
+      'SUN': '일',
+      'MON': '월',
+      'TUE': '화',
+      'WED': '수',
+      'THU': '목',
+      'FRI': '금',
+      'SAT': '토',
+      'ANY': '무관',
+    };
+    return dayOfWeekArray.map(day => dayMap[day] || day).join('/');
+  };
+
   const renderStudentCard = useCallback(
     (card: StudentCardItem) => {
       const { student, meta } = card;
@@ -346,6 +364,7 @@ function StudentsListContent() {
 
       return (
         <Card>
+          <CardLeftLine />
           <CardRow1>
             <CardNameContainer>
               <CardName>{student.name}</CardName>
@@ -371,7 +390,21 @@ function StudentsListContent() {
             </AmountContainer>
           </CardRow1>
 
-          {student.class_info ? <CardRow2>{student.class_info}</CardRow2> : null}
+          {contract ? (
+            <CardRow2Container>
+              <CardRow2Subject>{contract.subject}</CardRow2Subject>
+              <CardRow2Separator> • </CardRow2Separator>
+              <CardRow2Day>{formatDayOfWeek(contract.day_of_week)}</CardRow2Day>
+              {contract.time ? (
+                <>
+                  <CardRow2Separator> </CardRow2Separator>
+                  <CardRow2Time>{contract.time}</CardRow2Time>
+                </>
+              ) : null}
+            </CardRow2Container>
+          ) : student.class_info ? (
+            <CardRow2>{student.class_info}</CardRow2>
+          ) : null}
 
           <RowWithFooter>
             {student.this_month_status_summary ? (
@@ -464,14 +497,20 @@ function StudentsListContent() {
   }, [items.length, status]);
 
   const listHeaderComponent = useMemo(() => {
+    const showToggle = activeCardsAll.length > 3 || showAllActive;
     return (
       <SectionIntro>
         <SectionTitleText>
           계약 중 수강생 <SectionCount>{activeCardsAll.length}명</SectionCount>
         </SectionTitleText>
+        {showToggle && (
+          <ShowMoreButtonInline onPress={() => setShowAllActive((prev) => !prev)}>
+            <ShowMoreButtonText>{showAllActive ? '닫기' : '수강생 전체보기'}</ShowMoreButtonText>
+          </ShowMoreButtonInline>
+        )}
       </SectionIntro>
     );
-  }, [activeCardsAll.length]);
+  }, [activeCardsAll.length, showAllActive]);
 
   const expiredSection = useMemo(() => {
     // 항상 표시되어야 하므로 showExpiredSection 체크 제거
@@ -495,7 +534,7 @@ function StudentsListContent() {
         ) : null}
         {showToggle && (
           <ShowMoreButton onPress={() => setShowAllExpired((prev) => !prev)}>
-            <ShowMoreButtonText>{showAllExpired ? '접기' : '전체 보기'}</ShowMoreButtonText>
+            <ShowMoreButtonText>{showAllExpired ? '닫기' : '수강생 전체보기'}</ShowMoreButtonText>
           </ShowMoreButton>
         )}
       </ExpiredSectionContainer>
@@ -509,29 +548,12 @@ function StudentsListContent() {
   ]);
 
   const combinedFooter = useMemo(() => {
-    // activeToggle: 3개 이상이거나 전체보기 상태일 때 표시
-    const activeToggle =
-      activeCardsAll.length > 3 || showAllActive ? (
-        <ShowMoreButton onPress={() => setShowAllActive((prev) => !prev)}>
-          <ShowMoreButtonText>{showAllActive ? '접기' : '전체 보기'}</ShowMoreButtonText>
-        </ShowMoreButton>
-      ) : null;
-
-    // activeToggle이 있으면 항상 표시 (renderFooter가 없어도)
-    if (!activeToggle && !renderFooter) {
+    // activeToggle은 이제 listHeaderComponent에 포함됨
+    if (!renderFooter) {
       return null;
     }
-    return (
-      <View>
-        {renderFooter}
-        {activeToggle}
-      </View>
-    );
-  }, [
-    activeCardsAll.length,
-    renderFooter,
-    showAllActive,
-  ]);
+    return <View>{renderFooter}</View>;
+  }, [renderFooter]);
 
   const handleAddStudent = useCallback(() => {
     // 홈 스택의 ContractNew로 이동
@@ -551,23 +573,25 @@ function StudentsListContent() {
         </ErrorBanner>
       ) : null}
 
-      {/* 헤더: 서브텍스트 + 수강생 추가 버튼 */}
-      <Header>
-        <HeaderTexts>
-          <HeaderTitle>수강생</HeaderTitle>
-          <HeaderSubtext>
-            총 {totalActiveCount}명 · 계약중 {billingThisMonthCount}명
-          </HeaderSubtext>
-        </HeaderTexts>
-        <AddButton onPress={handleAddStudent}>
-          <AddButtonText>+ 수강생 추가</AddButtonText>
-        </AddButton>
-      </Header>
+      {/* 헤더 및 검색 영역 */}
+      <HeaderTopSection>
+        {/* 헤더: 서브텍스트 + 수강생 추가 버튼 */}
+        <Header>
+          <HeaderTexts>
+            <HeaderTitle>수강생</HeaderTitle>
+            <HeaderSubtext>
+              총 {totalActiveCount}명 · 계약중 {billingThisMonthCount}명
+            </HeaderSubtext>
+          </HeaderTexts>
+          <AddButton onPress={handleAddStudent}>
+            <AddButtonText>+ 수강생 추가</AddButtonText>
+          </AddButton>
+        </Header>
 
-      {/* 검색 */}
-      <SearchRow>
+        {/* 검색 */}
+        <SearchRow>
         <SearchInputWrapper>
-          <SearchIcon>🔍</SearchIcon>
+          <SearchIconImage source={require('../../assets/s1.png')} />
           <SearchInput
             placeholder="이름 · 보호자 · 과목으로 검색"
             value={searchInput}
@@ -577,6 +601,7 @@ function StudentsListContent() {
           />
         </SearchInputWrapper>
       </SearchRow>
+      </HeaderTopSection>
 
       {/* 전체 스크롤 가능한 컨텐츠 */}
       <ScrollView
@@ -645,9 +670,13 @@ const Container = styled.SafeAreaView`
   background-color: #ffffff;
 `;
 
+const HeaderTopSection = styled.View`
+  background-color: #0f1b4d;
+  padding: 20px 16px 16px 16px;
+`;
+
 const Header = styled.View`
-  padding: 20px 16px 12px;
-  background-color: #fff;
+  padding: 0 0 12px 0;
   flex-direction: row;
   justify-content: space-between;
   align-items: flex-start;
@@ -661,18 +690,18 @@ const HeaderTexts = styled.View`
 const HeaderTitle = styled.Text`
   font-size: 22px;
   font-weight: 700;
-  color: #111;
+  color: #ffffff;
   margin-bottom: 4px;
 `;
 
 const HeaderSubtext = styled.Text`
   font-size: 13px;
-  color: #8e8e93;
+  color: #ffffff;
 `;
 
 const AddButton = styled.TouchableOpacity`
   padding: 8px 16px;
-  background-color: #ff6b00;
+  background-color: #1d42d8;
   border-radius: 8px;
 `;
 
@@ -683,13 +712,10 @@ const AddButtonText = styled.Text`
 `;
 
 const SearchRow = styled.View`
-  padding: 0 16px 16px;
-  background-color: #fff;
+  padding: 0;
   flex-direction: row;
   align-items: center;
   gap: 10px;
-  border-bottom-width: 1px;
-  border-bottom-color: #e5e5ea;
 `;
 
 const SearchInputWrapper = styled.View`
@@ -697,14 +723,17 @@ const SearchInputWrapper = styled.View`
   flex-direction: row;
   align-items: center;
   gap: 8px;
-  background-color: #f2f2f7;
+  background-color: #ffffff;
   border-radius: 12px;
   padding: 0 12px;
   height: 44px;
+  border-width: 1px;
+  border-color: #e0e0e0;
 `;
 
-const SearchIcon = styled.Text`
-  font-size: 18px;
+const SearchIconImage = styled.Image`
+  width: 18px;
+  height: 18px;
 `;
 
 const SearchInput = styled.TextInput`
@@ -715,15 +744,23 @@ const SearchInput = styled.TextInput`
 `;
 
 const Card = styled.View`
-  background-color: #f8f9fa;
+  background-color: #ffffff;
   border-radius: 12px;
   padding: 16px;
-  margin: 8px 16px;
-  shadow-color: #000;
-  shadow-offset: 0px 2px;
-  shadow-opacity: 0.1;
-  shadow-radius: 4px;
-  elevation: 2;
+  margin: 8px 0;
+  border-width: 1px;
+  border-color: #f0f0f0;
+  position: relative;
+  overflow: hidden;
+`;
+
+const CardLeftLine = styled.View`
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background-color: #0f1b4d;
 `;
 
 const CardRow1 = styled.View`
@@ -764,10 +801,40 @@ const BadgeText = styled.Text<{ absencePolicy?: boolean }>`
   font-weight: 600;
 `;
 
+const CardRow2Container = styled.View`
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+`;
+
 const CardRow2 = styled.Text`
   font-size: 14px;
   color: #666;
   margin-bottom: 6px;
+`;
+
+const CardRow2Subject = styled.Text`
+  font-size: 14px;
+  color: #0f1b4d;
+  font-weight: 500;
+`;
+
+const CardRow2Separator = styled.Text`
+  font-size: 14px;
+  color: #666;
+`;
+
+const CardRow2Day = styled.Text`
+  font-size: 14px;
+  color: #ff3b30;
+  font-weight: 500;
+`;
+
+const CardRow2Time = styled.Text`
+  font-size: 14px;
+  color: #FFD700;
+  font-weight: 500;
 `;
 
 const CardRow3 = styled.Text`
@@ -820,12 +887,12 @@ const ExtendNote = styled.Text`
 
 const ExtendActionButton = styled.TouchableOpacity`
   padding: 8px 14px;
-  background-color: #0a84ff;
+  background-color: #eef2ff;
   border-radius: 8px;
 `;
 
 const ExtendActionButtonText = styled.Text`
-  color: #ffffff;
+  color: #1d42d8;
   font-size: 14px;
   font-weight: 600;
 `;
@@ -833,12 +900,15 @@ const ExtendActionButtonText = styled.Text`
 const SectionIntro = styled.View`
   padding: 0 0 12px 0;
   margin-bottom: 12px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
 `;
 
 const SectionContainer = styled.View`
   background-color: #ffffff;
-  margin: 0 16px;
-  padding: 16px 0;
+  margin: 0;
+  padding: 16px 16px 16px 16px;
   border-bottom-width: 1px;
   border-bottom-color: #e0e0e0;
 `;
@@ -849,11 +919,16 @@ const ShowMoreButton = styled.TouchableOpacity`
   padding: 8px 16px;
   border-radius: 16px;
   border-width: 1px;
-  border-color: #ff6b00;
+  border-color: #1d42d8;
+`;
+
+const ShowMoreButtonInline = styled.TouchableOpacity`
+  padding: 4px 0;
+  margin-right: 8px;
 `;
 
 const ShowMoreButtonText = styled.Text`
-  color: #ff6b00;
+  color: #1d42d8;
   font-size: 13px;
   font-weight: 600;
 `;
@@ -872,8 +947,8 @@ const SectionCount = styled.Text`
 
 const ExpiredSectionContainer = styled.View`
   background-color: #ffffff;
-  margin: 0 16px;
-  padding: 16px 0;
+  margin: 0;
+  padding: 16px;
 `;
 
 const ExpiredHeader = styled.TouchableOpacity`
@@ -897,7 +972,7 @@ const ExpandIcon = styled.Text`
 
 const DetailButton = styled.TouchableOpacity`
   padding: 8px 16px;
-  background-color: #ff6b00;
+  background-color: #1d42d8;
   border-radius: 8px;
 `;
 

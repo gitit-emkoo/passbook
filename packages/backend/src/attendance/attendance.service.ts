@@ -1,11 +1,16 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { InvoicesService } from '../invoices/invoices.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateAttendanceDto, UpdateAttendanceDto, AttendanceStatus } from './dto/create-attendance.dto';
 
 @Injectable()
 export class AttendanceService {
-  constructor(private prisma: PrismaService, private invoicesService: InvoicesService) {}
+  constructor(
+    private prisma: PrismaService,
+    private invoicesService: InvoicesService,
+    private notificationsService: NotificationsService,
+  ) {}
 
   /**
    * 출결 기록 생성
@@ -129,6 +134,23 @@ export class AttendanceService {
         },
       },
     });
+
+    // 출결 수정 완료 알림 (이벤트 기반, 1회만 발송)
+    try {
+      await this.notificationsService.createAndSendNotification(
+        userId,
+        'attendance',
+        '출결 수정 알림',
+        '출결 수정이 완료되었습니다.',
+        `/attendance/${id}`,
+        {
+          relatedId: `attendance:${id}`,
+        },
+      );
+    } catch (error) {
+      // 알림 실패해도 수정 결과는 반환
+      console.error('[Attendance] Failed to send notification:', error);
+    }
 
     return updated;
   }
@@ -286,6 +308,7 @@ export class AttendanceService {
         time: true,
         started_at: true,
         ended_at: true,
+        created_at: true,
         student: {
           select: {
             id: true,
@@ -311,21 +334,33 @@ export class AttendanceService {
       const dayOfWeekArray = (contract.day_of_week as string[]) || [];
       if (dayOfWeekArray.length === 0) continue;
 
-      // 계약 시작일과 종료일 확인
+      // 계약 시작일, 종료일, 생성일 확인
       const contractStartDate = contract.started_at ? new Date(contract.started_at) : null;
       const contractEndDate = contract.ended_at ? new Date(contract.ended_at) : null;
+      const contractCreatedAt = contract.created_at ? new Date(contract.created_at) : null;
 
       // 체크할 날짜 범위 결정
-      // 시작일: 계약 시작일이 있으면 그 날짜부터, 없으면 최근 30일 전부터
+      // 시작일: 계약 생성일 이후부터만 체크 (계약 생성일 이전에는 계약이 존재하지 않았으므로)
+      // - started_at이 있으면: max(started_at, created_at) 사용
+      // - started_at이 없으면: created_at부터 체크
       // 종료일: 오늘 이전까지만 (오늘은 홈 화면에서 처리)
       let checkStartDate: Date;
+      if (!contractCreatedAt) {
+        // created_at이 없으면 스킵 (데이터 오류)
+        continue;
+      }
+
+      const createdDate = new Date(contractCreatedAt);
+      createdDate.setHours(0, 0, 0, 0);
+
       if (contractStartDate) {
-        checkStartDate = new Date(contractStartDate);
-        checkStartDate.setHours(0, 0, 0, 0);
+        const startDate = new Date(contractStartDate);
+        startDate.setHours(0, 0, 0, 0);
+        // started_at과 created_at 중 더 늦은 날짜 사용
+        checkStartDate = startDate > createdDate ? startDate : createdDate;
       } else {
-        // 계약 시작일이 없으면 최근 30일만 확인
-        checkStartDate = new Date(today);
-        checkStartDate.setDate(checkStartDate.getDate() - 30);
+        // started_at이 없으면 계약 생성일부터 체크
+        checkStartDate = createdDate;
       }
 
       // 체크 종료일: 계약 종료일이 있고 오늘보다 이전이면 계약 종료일까지, 아니면 오늘 이전까지

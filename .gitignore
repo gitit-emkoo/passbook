@@ -54,6 +54,10 @@ yarn-error.*
 .env.production.local
 packages/backend/firebase-service-account.json
 
+# Docs
+*.md
+*.txt
+
 # TypeScript
 *.tsbuildinfo
 

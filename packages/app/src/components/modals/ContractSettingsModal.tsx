@@ -186,7 +186,7 @@ const OptionButton = styled.TouchableOpacity<{ $active?: boolean }>`
   flex: 1;
   padding: 12px;
   border-radius: 8px;
-  background-color: ${(props) => (props.$active ? '#ff6b00' : '#f0f0f0')};
+  background-color: ${(props) => (props.$active ? '#1d42d8' : '#f0f0f0')};
   align-items: center;
 `;
 
@@ -219,7 +219,7 @@ const CancelButtonText = styled.Text`
 
 const ConfirmButton = styled.TouchableOpacity<{ disabled?: boolean }>`
   flex: 1;
-  background-color: #ff6b00;
+  background-color: #1d42d8;
   padding: 16px;
   border-radius: 12px;
   align-items: center;

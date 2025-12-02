@@ -43,6 +43,16 @@ export class InvoicesController {
   }
 
   /**
+   * 정산 섹션별 조회 (정산중/오늘청구/전송한청구서)
+   */
+  @Get('sections')
+  @UseGuards(JwtAuthGuard)
+  async getBySections(@Req() req: Request) {
+    const user = req.user as any;
+    return this.invoicesService.getInvoicesBySections(user.id ?? user.sub);
+  }
+
+  /**
    * Invoice 수정 (manual_adjustment)
    */
   @Patch(':id')

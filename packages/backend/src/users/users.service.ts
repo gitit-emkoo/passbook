@@ -53,9 +53,24 @@ export class UsersService {
   }
 
   async updateSettings(userId: number, settings: Record<string, unknown>) {
+    const existing = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { settings: true },
+    });
+
+    const currentSettings =
+      existing?.settings && typeof existing.settings === 'object' && !Array.isArray(existing.settings)
+        ? (existing.settings as Record<string, unknown>)
+        : {};
+
+    const mergedSettings = {
+      ...currentSettings,
+      ...settings,
+    };
+
     return this.prisma.user.update({
       where: { id: userId },
-      data: { settings: settings as any },
+      data: { settings: mergedSettings as any },
       select: {
         id: true,
         phone: true,

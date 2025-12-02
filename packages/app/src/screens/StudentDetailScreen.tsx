@@ -1,6 +1,7 @@
 import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert } from 'react-native';
 import styled from 'styled-components/native';
+import Modal from 'react-native-modal';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { featureFlags } from '../config/features';
 import { useStudentsStore } from '../store/useStudentsStore';
@@ -36,6 +37,8 @@ function StudentDetailContent() {
   const [selectedContract, setSelectedContract] = useState<{ id: number; studentPhone?: string; billingType?: 'prepaid' | 'postpaid' } | null>(null);
   const [isAttendanceExpanded, setIsAttendanceExpanded] = useState(false);
   const [showExtendModal, setShowExtendModal] = useState(false);
+  const [selectedAttendanceMonth, setSelectedAttendanceMonth] = useState<{ year: number; month: number } | null>(null);
+  const [showMonthPicker, setShowMonthPicker] = useState(false);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -285,14 +288,48 @@ const guardianLine = useMemo(() => {
       });
   }, [detail?.invoices]);
 
-  const thisMonthAttendanceLogs: StudentAttendanceLog[] = useMemo(() => {
+  // 출결 기록이 있는 월 목록 생성
+  const availableMonths = useMemo(() => {
     if (!Array.isArray(detail?.attendance_logs)) return [];
+    const monthSet = new Set<string>();
+    detail.attendance_logs.forEach((log) => {
+      let targetDate: Date | null = null;
+      if (log.occurred_at) {
+        targetDate = new Date(log.occurred_at);
+      } else if (log.substitute_at) {
+        targetDate = new Date(log.substitute_at);
+      }
+      if (targetDate) {
+        const year = targetDate.getFullYear();
+        const month = targetDate.getMonth();
+        monthSet.add(`${year}-${month}`);
+      }
+    });
+    return Array.from(monthSet)
+      .map((key) => {
+        const [year, month] = key.split('-').map(Number);
+        return { year, month };
+      })
+      .sort((a, b) => {
+        if (a.year !== b.year) return b.year - a.year;
+        return b.month - a.month;
+      });
+  }, [detail?.attendance_logs]);
+
+  // 선택한 월 (기본값: 현재 월)
+  const currentSelectedMonth = useMemo(() => {
+    if (selectedAttendanceMonth) return selectedAttendanceMonth;
     const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth();
+    return { year: now.getFullYear(), month: now.getMonth() };
+  }, [selectedAttendanceMonth]);
+
+  // 선택한 월의 출결 기록 필터링
+  const filteredAttendanceLogs: StudentAttendanceLog[] = useMemo(() => {
+    if (!Array.isArray(detail?.attendance_logs)) return [];
+    const { year, month } = currentSelectedMonth;
     const filtered = detail.attendance_logs
       .filter((log) => {
-        // occurred_at 또는 substitute_at 중 하나라도 이번 달이면 포함
+        // occurred_at 또는 substitute_at 중 하나라도 선택한 달이면 포함
         let targetDate: Date | null = null;
         if (log.occurred_at) {
           targetDate = new Date(log.occurred_at);
@@ -300,7 +337,7 @@ const guardianLine = useMemo(() => {
           targetDate = new Date(log.substitute_at);
         }
         if (!targetDate) return false;
-        return targetDate.getFullYear() === currentYear && targetDate.getMonth() === currentMonth;
+        return targetDate.getFullYear() === year && targetDate.getMonth() === month;
       })
       .sort((a, b) => {
         // 최신순 정렬 (최신이 위로)
@@ -311,28 +348,26 @@ const guardianLine = useMemo(() => {
         return recordedB - recordedA;
       });
     return filtered;
-  }, [detail?.attendance_logs]);
+  }, [detail?.attendance_logs, currentSelectedMonth]);
 
   // 접기/펼치기 상태에 따라 표시할 로그 결정
   const displayedAttendanceLogs = useMemo(() => {
     if (isAttendanceExpanded) {
-      return thisMonthAttendanceLogs;
+      return filteredAttendanceLogs;
     }
     // 기본 접힘 상태: 최근 1개만 표시
-    return thisMonthAttendanceLogs.slice(0, 1);
-  }, [thisMonthAttendanceLogs, isAttendanceExpanded]);
+    return filteredAttendanceLogs.slice(0, 1);
+  }, [filteredAttendanceLogs, isAttendanceExpanded]);
 
   const attendanceEmptyDescription = useMemo(() => {
-    const now = new Date();
-    const month = `${now.getMonth() + 1}`.padStart(2, '0');
-    return `${month}월에 기록된 출석/결석 로그가 없습니다.`;
-  }, []);
+    const { month } = currentSelectedMonth;
+    return `${month + 1}월에 기록된 출석/결석 로그가 없습니다.`;
+  }, [currentSelectedMonth]);
 
   const attendanceSectionTitle = useMemo(() => {
-    const now = new Date();
-    const month = now.getMonth() + 1;
-    return `${month}월 출결 기록`;
-  }, []);
+    const { year, month } = currentSelectedMonth;
+    return `${year}년 ${month + 1}월 출결 기록`;
+  }, [currentSelectedMonth]);
 
   // 연장 가능 여부 계산 (수강생 목록 화면과 동일한 로직)
   const extendMeta = useMemo(() => {
@@ -538,9 +573,16 @@ const guardianLine = useMemo(() => {
 
         <SectionCard>
           <SectionHeader>
-            <SectionTitle>{attendanceSectionTitle}</SectionTitle>
+            <SectionHeaderLeft>
+              <SectionTitle>{attendanceSectionTitle}</SectionTitle>
+              {availableMonths.length > 0 && (
+                <MonthPickerButton onPress={() => setShowMonthPicker(true)}>
+                  <MonthPickerText>▼</MonthPickerText>
+                </MonthPickerButton>
+              )}
+            </SectionHeaderLeft>
           </SectionHeader>
-          {thisMonthAttendanceLogs.length === 0 ? (
+          {filteredAttendanceLogs.length === 0 ? (
             <EmptyDescription>{attendanceEmptyDescription}</EmptyDescription>
           ) : (
             <>
@@ -626,10 +668,10 @@ const guardianLine = useMemo(() => {
                   );
                 })}
               </AttendanceList>
-              {thisMonthAttendanceLogs.length > 1 && (
+              {filteredAttendanceLogs.length > 1 && (
                 <AttendanceToggleButton onPress={() => setIsAttendanceExpanded(!isAttendanceExpanded)}>
                   <AttendanceToggleText>
-                    {isAttendanceExpanded ? '접기' : `더보기 (${thisMonthAttendanceLogs.length - 1}개)`}
+                    {isAttendanceExpanded ? '접기' : `더보기 (${filteredAttendanceLogs.length - 1}개)`}
                   </AttendanceToggleText>
                 </AttendanceToggleButton>
               )}
@@ -709,6 +751,44 @@ const guardianLine = useMemo(() => {
           currentEndDate={extendModalProps.currentEndDate}
         />
       )}
+
+      {/* 월 선택 모달 */}
+      <Modal
+        isVisible={showMonthPicker}
+        onBackdropPress={() => setShowMonthPicker(false)}
+        onBackButtonPress={() => setShowMonthPicker(false)}
+        style={{ margin: 0, justifyContent: 'flex-end' }}
+      >
+        <MonthPickerModalContainer>
+          <MonthPickerModalHeader>
+            <MonthPickerModalTitle>출결 기록 월 선택</MonthPickerModalTitle>
+            <MonthPickerCloseButton onPress={() => setShowMonthPicker(false)}>
+              <MonthPickerCloseText>닫기</MonthPickerCloseText>
+            </MonthPickerCloseButton>
+          </MonthPickerModalHeader>
+          <MonthPickerList>
+            {availableMonths.map((monthOption) => {
+              const isSelected = 
+                monthOption.year === currentSelectedMonth.year && 
+                monthOption.month === currentSelectedMonth.month;
+              return (
+                <MonthPickerItem
+                  key={`${monthOption.year}-${monthOption.month}`}
+                  onPress={() => {
+                    setSelectedAttendanceMonth(monthOption);
+                    setShowMonthPicker(false);
+                  }}
+                >
+                  <MonthPickerItemText $selected={isSelected}>
+                    {monthOption.year}년 {monthOption.month + 1}월
+                  </MonthPickerItemText>
+                  {isSelected && <MonthPickerCheckmark>✓</MonthPickerCheckmark>}
+                </MonthPickerItem>
+              );
+            })}
+          </MonthPickerList>
+        </MonthPickerModalContainer>
+      </Modal>
     </Container>
   );
 }
@@ -857,7 +937,7 @@ const ButtonGroup = styled.View`
 `;
 
 const EditButton = styled.TouchableOpacity`
-  background-color: #ff6b00;
+  background-color: #1d42d8;
   padding: 8px 14px;
   border-radius: 8px;
 `;
@@ -898,10 +978,29 @@ const SectionHeader = styled.View`
   margin-bottom: 16px;
 `;
 
+const SectionHeaderLeft = styled.View`
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+`;
+
 const SectionTitle = styled.Text`
   font-size: 18px;
   font-weight: 700;
   color: #111;
+`;
+
+const MonthPickerButton = styled.TouchableOpacity`
+  padding: 4px 8px;
+  border-radius: 6px;
+  background-color: #f0f0f0;
+`;
+
+const MonthPickerText = styled.Text`
+  font-size: 12px;
+  color: #666;
+  font-weight: 600;
 `;
 
 const ContractBadge = styled.View`
@@ -1179,4 +1278,62 @@ const SendButtonText = styled.Text`
   font-size: 14px;
   font-weight: 600;
   color: #fff;
+`;
+
+const MonthPickerModalContainer = styled.View`
+  background-color: #ffffff;
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+  max-height: 80%;
+  padding-bottom: 40px;
+`;
+
+const MonthPickerModalHeader = styled.View`
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border-bottom-width: 1px;
+  border-bottom-color: #e0e0e0;
+`;
+
+const MonthPickerModalTitle = styled.Text`
+  font-size: 18px;
+  font-weight: 700;
+  color: #111111;
+`;
+
+const MonthPickerCloseButton = styled.TouchableOpacity`
+  padding: 8px;
+`;
+
+const MonthPickerCloseText = styled.Text`
+  font-size: 16px;
+  color: #1d42d8;
+  font-weight: 600;
+`;
+
+const MonthPickerList = styled.ScrollView`
+  padding: 20px;
+`;
+
+const MonthPickerItem = styled.TouchableOpacity`
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  border-bottom-width: 1px;
+  border-bottom-color: #f0f0f0;
+`;
+
+const MonthPickerItemText = styled.Text<{ $selected?: boolean }>`
+  font-size: 16px;
+  color: ${(props) => (props.$selected ? '#1d42d8' : '#111111')};
+  font-weight: ${(props) => (props.$selected ? '600' : '400')};
+`;
+
+const MonthPickerCheckmark = styled.Text`
+  font-size: 16px;
+  color: #1d42d8;
+  font-weight: 600;
 `;

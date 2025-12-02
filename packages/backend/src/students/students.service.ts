@@ -1,11 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 
 @Injectable()
 export class StudentsService {
-	constructor(private prisma: PrismaService) {}
+	constructor(
+		private prisma: PrismaService,
+		private notificationsService: NotificationsService,
+	) {}
 
     async create(userId: number, dto: CreateStudentDto) {
     	return this.prisma.student.create({
@@ -312,9 +316,41 @@ export class StudentsService {
 	}
 
 	async toggleActive(userId: number, id: number, isActive: boolean) {
-		return this.prisma.student.update({
+		// 기존 상태 확인
+		const student = await this.prisma.student.findFirst({
+			where: { id, user_id: userId },
+			select: { is_active: true, name: true },
+		});
+
+		if (!student) {
+			throw new Error('수강생을 찾을 수 없습니다.');
+		}
+
+		const updated = await this.prisma.student.update({
 			where: { id },
 			data: { user_id: userId, is_active: isActive },
 		});
+
+		// 수강생 비활성화 알림 (이벤트 기반, 1회만 발송)
+		// true에서 false로 변경될 때만 알림 발송
+		if (student.is_active === true && isActive === false) {
+			try {
+				await this.notificationsService.createAndSendNotification(
+					userId,
+					'student',
+					'수강생 비활성화',
+					`비활성화된 수강생이 있습니다. (${student.name})`,
+					`/students/${id}`,
+					{
+						relatedId: `student:${id}:deactivated`,
+					},
+				);
+			} catch (error) {
+				// 알림 실패해도 상태 업데이트는 유지
+				console.error('[Students] Failed to send notification:', error);
+			}
+		}
+
+		return updated;
 	}
 }

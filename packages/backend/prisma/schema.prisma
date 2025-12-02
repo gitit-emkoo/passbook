@@ -105,6 +105,7 @@ model Contract {
   student_signature     String?
   started_at            DateTime? // 계약 시작일 (nullable)
   ended_at              DateTime? // 계약 종료일 (nullable, 무기한 계약 가능)
+  billing_day           Int?     // 청구일 (1-31, 계약 시작일의 일자)
   status                ContractStatus
   created_at            DateTime @default(now())
   updated_at            DateTime @updatedAt
@@ -158,6 +159,8 @@ model Invoice {
   manual_reason     String?
   final_amount      Int
   planned_count      Int?
+  period_start       DateTime? // 청구 기간 시작일
+  period_end         DateTime? // 청구 기간 종료일
   send_status       InvoiceSendStatus @default(not_sent)
   send_to           Json?
   send_history      Json?

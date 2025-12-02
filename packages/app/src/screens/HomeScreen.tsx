@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  LayoutChangeEvent,
   ScrollView,
   StyleSheet,
   Text,
@@ -27,8 +28,13 @@ import AttendanceDeleteModal from '../components/modals/AttendanceDeleteModal';
 import styled from 'styled-components/native';
 import { RecentContract } from '../types/dashboard';
 
-// 알림 아이콘 이미지
-const notificationBellIcon = require('../../assets/notification-bell.png');
+// 아이콘 이미지
+const notificationBellIcon = require('../../assets/bell.png');
+const dashboardStudentIcon = require('../../assets/p1.png');
+const dashboardClassesIcon = require('../../assets/p2.png');
+const dashboardUnprocessedIcon = require('../../assets/p3.png');
+const dashboardSettlementIcon = require('../../assets/p4.png');
+const recentContractIcon = require('../../assets/b2.png');
 
 const HomeStub = () => (
   <View style={stubStyles.container}>
@@ -41,6 +47,7 @@ interface TodayClass {
   id: number;
   subject: string;
   time: string | null;
+  day_of_week?: string[] | null;
   attendance_requires_signature: boolean;
   hasAttendanceLog: boolean;
   attendanceLogId: number | null;
@@ -76,6 +83,8 @@ function HomeContent() {
   const [showAttendanceSignatureModal, setShowAttendanceSignatureModal] = useState(false);
   const [showAttendanceAbsenceModal, setShowAttendanceAbsenceModal] = useState(false);
   const [showDeleteAttendanceModal, setShowDeleteAttendanceModal] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const todaySectionYRef = useRef(0);
   const [selectedClassItem, setSelectedClassItem] = useState<TodayClass | null>(null);
   const [unprocessedCount, setUnprocessedCount] = useState<number>(0);
 
@@ -84,8 +93,8 @@ function HomeContent() {
   const accessToken = useAuthStore((state) => state.accessToken);
   const fetchDashboard = useDashboardStore((state) => state.fetchDashboard);
   const summary = useDashboardStore((state) => state.summary);
-  const fetchInvoicesCurrent = useInvoicesStore((s) => s.fetchCurrentMonth);
-  const currentMonthInvoices = useInvoicesStore((state) => state.currentMonthInvoices);
+  const fetchInvoicesSections = useInvoicesStore((s) => s.fetchSections);
+  const sections = useInvoicesStore((state) => state.sections);
   const fetchStudentDetail = useStudentsStore((state) => state.fetchStudentDetail);
   const status = useDashboardStore((state) => state.status);
   const errorMessage = useDashboardStore((state) => state.errorMessage);
@@ -107,11 +116,16 @@ function HomeContent() {
       fetchDashboard().catch((err: any) => {
         console.error('[Dashboard] error initial', err?.message);
       }),
-      fetchInvoicesCurrent({ historyMonths: 3 }).catch((err: any) => {
-        console.error('[Invoices] error initial', err?.message);
+      fetchInvoicesSections(true).catch((err: any) => {
+        const statusCode = err?.response?.status;
+        if (statusCode === 401 || statusCode === 403) {
+          console.warn('[Invoices] unauthorized, skipping error banner');
+        } else {
+          console.error('[Invoices] error initial', err?.message);
+        }
       }),
     ]);
-  }, [isPersistReady, loadedOnce, fetchDashboard, fetchInvoicesCurrent]);
+  }, [isPersistReady, loadedOnce, fetchDashboard, fetchInvoicesSections]);
 
   // persist 준비 완료 감지 및 오늘 수업 로드
   React.useEffect(() => {
@@ -165,7 +179,7 @@ function HomeContent() {
       // 대시보드 갱신
       fetchDashboard().catch(() => {});
       // 정산 데이터 갱신
-      fetchInvoicesCurrent({ historyMonths: 3 }).catch(() => {});
+      fetchInvoicesSections(true).catch(() => {});
       // 오늘 수업 갱신
       (async () => {
         try {
@@ -180,7 +194,7 @@ function HomeContent() {
       })();
       // 미처리 출결 개수 갱신
       loadUnprocessedCount();
-    }, [isPersistReady, fetchDashboard, fetchInvoicesCurrent, loadUnprocessedCount]),
+    }, [isPersistReady, fetchDashboard, fetchInvoicesSections, loadUnprocessedCount]),
   );
 
   const handleRetry = useCallback(async () => {
@@ -212,15 +226,15 @@ function HomeContent() {
       const data = await contractsApi.getTodayClasses();
       setTodayClasses(data);
       // 정산 데이터도 동시에 최신화 (당월 차감 실시간 반영)
-      await fetchInvoicesCurrent({ historyMonths: 3, force: true });
-      // 대시보드도 새로고침 (이번달 정산할 학생 수 업데이트)
+      await fetchInvoicesSections(true);
+      // 대시보드도 새로고침 (미청구 정산 학생 수 업데이트)
       await fetchDashboard({ force: true });
     } catch (error: any) {
       console.error('[Home] refresh today classes error', error);
     } finally {
       setTodayClassesLoading(false);
     }
-  }, [fetchInvoicesCurrent, fetchDashboard]);
+  }, [fetchInvoicesSections, fetchDashboard]);
 
   // 출석 기록 API 호출
   const handleAttendancePresentSubmit = useCallback(async (signatureData?: string) => {
@@ -368,6 +382,24 @@ function HomeContent() {
     [navigation],
   );
 
+  const handleTodaySectionLayout = useCallback((event: LayoutChangeEvent) => {
+    todaySectionYRef.current = event.nativeEvent.layout.y;
+  }, []);
+
+  const handleScrollToToday = useCallback(() => {
+    if (!scrollViewRef.current) return;
+    const offset = Math.max(todaySectionYRef.current - 16, 0);
+    scrollViewRef.current.scrollTo({ y: offset, animated: true });
+  }, []);
+
+  const handleStudentsShortcut = useCallback(() => {
+    navigation.navigate('Students');
+  }, [navigation]);
+
+  const handleUnprocessedShortcut = useCallback(() => {
+    appNavigation.navigate('UnprocessedAttendance');
+  }, [appNavigation]);
+
   // 추가 안내가 필요한 수강생: 연장 필요 조건 (백엔드에서 필터링된 결과 사용)
   const rawGuidanceContracts = useMemo(() => {
     // 백엔드에서 needsAttentionContracts를 제공하면 사용, 없으면 빈 배열
@@ -395,6 +427,11 @@ function HomeContent() {
     [guidanceContracts.length, rawGuidanceContracts.length],
   );
 
+  const unsentInvoicesCount = useMemo(
+    () => sections?.todayBilling?.length ?? 0,
+    [sections?.todayBilling],
+  );
+
   const handleToggleGuidance = useCallback(() => {
     setShowAllGuidanceStudents((prev) => !prev);
   }, []);
@@ -404,12 +441,6 @@ function HomeContent() {
       setShowAllGuidanceStudents(false);
     }
   }, [hasMoreGuidanceStudents, showAllGuidanceStudents]);
-
-
-  const getCurrentMonth = useCallback(() => {
-    const now = new Date();
-    return `${now.getMonth() + 1}월`;
-  }, []);
 
   const getBillingTypeLabel = useCallback((type: string) => {
     if (type === 'prepaid') return '선불';
@@ -464,7 +495,7 @@ function HomeContent() {
           // 선불 계약의 경우 청구서가 지난 정산에 반영되도록
           await Promise.all([
             fetchDashboard({ force: true }),
-            fetchInvoicesCurrent({ force: true }),
+            fetchInvoicesSections(true),
           ]);
         } else if (channel === 'link') {
           // 링크만 복사하는 경우는 ContractSendModal에서 처리
@@ -479,7 +510,7 @@ function HomeContent() {
         setSendingContractId(null);
       }
     },
-    [selectedContract, fetchDashboard, fetchInvoicesCurrent, sendingContractId],
+    [selectedContract, fetchDashboard, fetchInvoicesSections, sendingContractId],
   );
 
   const getContractStatusLabel = useCallback((status: string | null | undefined) => {
@@ -545,30 +576,100 @@ function HomeContent() {
   return (
     <>
       <Container>
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* 상단 헤더: 로고, 알림 아이콘, 안내 텍스트 */}
-        <HeaderSection>
-          <HeaderTop>
-            <HeaderTitle>김쌤</HeaderTitle>
-            <NotificationButton onPress={handleNotificationPress}>
-              <NotificationIcon source={notificationBellIcon} />
-            </NotificationButton>
-          </HeaderTop>
-          <HeaderSubtext>계약부터 출결기록 정산서 발송까지 간편한 레슨관리</HeaderSubtext>
-        </HeaderSection>
+      <ScrollView
+        ref={scrollViewRef}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* 상단 헤더 및 대시보드 영역 */}
+        <HeaderTopSection>
+          {/* 상단 헤더: 로고, 알림 아이콘, 안내 텍스트 */}
+          <HeaderSection>
+            <HeaderTop>
+              <HeaderTitle>THE LESSON</HeaderTitle>
+              <NotificationButton onPress={handleNotificationPress}>
+                <NotificationIcon source={notificationBellIcon} tintColor="#B22222" />
+              </NotificationButton>
+            </HeaderTop>
+            <HeaderSubtext>계약부터 출결기록 정산서 발송까지 간편한 레슨관리</HeaderSubtext>
+          </HeaderSection>
 
-        {/* 에러 배너 */}
-        {status === 'error' && summary ? (
-          <ErrorBanner>
-            <ErrorText>{errorMessage}</ErrorText>
-            <InlineButton onPress={handleRetry}>
-              <InlineButtonText>재시도</InlineButtonText>
-            </InlineButton>
-          </ErrorBanner>
-        ) : null}
+          {/* 에러 배너 */}
+          {status === 'error' && summary ? (
+            <ErrorBanner>
+              <ErrorText>{errorMessage}</ErrorText>
+              <InlineButton onPress={handleRetry}>
+                <InlineButtonText>재시도</InlineButtonText>
+              </InlineButton>
+            </ErrorBanner>
+          ) : null}
+
+          {/* 대시보드 요약 카드 */}
+          <DashboardCardSection>
+          <DashboardCardGrid>
+            <DashboardCard onPress={handleStudentsShortcut}>
+              <DashboardCardRow>
+                <DashboardIconColumn>
+                  <DashboardIconWrapper>
+                    <DashboardIconImage source={dashboardStudentIcon} resizeMode="contain" />
+                  </DashboardIconWrapper>
+                </DashboardIconColumn>
+                <DashboardTextBlock>
+                  <DashboardLabel numberOfLines={1}>총 수강생</DashboardLabel>
+                  <DashboardValue numberOfLines={1}>
+                    {(summary?.studentsCount ?? 0).toLocaleString()}명
+                  </DashboardValue>
+                </DashboardTextBlock>
+              </DashboardCardRow>
+            </DashboardCard>
+
+            <DashboardCard onPress={handleScrollToToday}>
+              <DashboardCardRow>
+                <DashboardIconColumn>
+                  <DashboardIconWrapper>
+                    <DashboardIconImage source={dashboardClassesIcon} resizeMode="contain" />
+                  </DashboardIconWrapper>
+                </DashboardIconColumn>
+                <DashboardTextBlock>
+                  <DashboardLabel numberOfLines={1}>오늘 수업</DashboardLabel>
+                  <DashboardValue numberOfLines={1}>{todayClasses.length.toLocaleString()}건</DashboardValue>
+                </DashboardTextBlock>
+              </DashboardCardRow>
+            </DashboardCard>
+
+            <DashboardCard onPress={handleUnprocessedShortcut}>
+              <DashboardCardRow>
+                <DashboardIconColumn>
+                  <DashboardIconWrapper>
+                    <DashboardIconImage source={dashboardUnprocessedIcon} resizeMode="contain" />
+                  </DashboardIconWrapper>
+                </DashboardIconColumn>
+                <DashboardTextBlock>
+                  <DashboardLabel numberOfLines={1}>미처리 출결</DashboardLabel>
+                  <DashboardValue numberOfLines={1}>{unprocessedCount.toLocaleString()}건</DashboardValue>
+                </DashboardTextBlock>
+              </DashboardCardRow>
+            </DashboardCard>
+
+            <DashboardCard onPress={handleSettlementPress}>
+              <DashboardCardRow>
+                <DashboardIconColumn>
+                  <DashboardIconWrapper>
+                    <DashboardIconImage source={dashboardSettlementIcon} resizeMode="contain" />
+                  </DashboardIconWrapper>
+                </DashboardIconColumn>
+                <DashboardTextBlock>
+                  <DashboardLabel numberOfLines={1}>미청구 정산</DashboardLabel>
+                  <DashboardValue numberOfLines={1}>{unsentInvoicesCount.toLocaleString()}명</DashboardValue>
+                </DashboardTextBlock>
+              </DashboardCardRow>
+            </DashboardCard>
+          </DashboardCardGrid>
+          </DashboardCardSection>
+        </HeaderTopSection>
 
         {/* 1. 오늘 수업 섹션 */}
-        <Section>
+        <Section style={{ borderTopWidth: 0 }} onLayout={handleTodaySectionLayout}>
           <SectionHeader>
             <SectionTitle>오늘 수업</SectionTitle>
           </SectionHeader>
@@ -577,7 +678,10 @@ function HomeContent() {
               <ActivityIndicator size="small" color="#ff6b00" />
             </LoadingContainer>
           ) : todayClasses.length === 0 ? (
-            <EmptyDescription>오늘 예정된 수업이 없습니다.</EmptyDescription>
+            <EmptyStateContainer>
+              <EmptyStateIcon source={dashboardClassesIcon} resizeMode="contain" />
+              <EmptyStateText>오늘 예정된 수업이 없습니다.</EmptyStateText>
+            </EmptyStateContainer>
           ) : (
             <ListContainer>
               {todayClasses.map((classItem) => {
@@ -599,12 +703,36 @@ function HomeContent() {
                   ? `${formatSubstituteDate(classItem.originalOccurredAt)} > 오늘`
                   : null;
 
+                // 요일 변환 함수
+                const formatDayOfWeek = (dayOfWeekArray: string[] | null | undefined): string => {
+                  if (!dayOfWeekArray || !Array.isArray(dayOfWeekArray) || dayOfWeekArray.length === 0) {
+                    return '-';
+                  }
+                  const dayMap: Record<string, string> = {
+                    'SUN': '일',
+                    'MON': '월',
+                    'TUE': '화',
+                    'WED': '수',
+                    'THU': '목',
+                    'FRI': '금',
+                    'SAT': '토',
+                    'ANY': '무관',
+                  };
+                  return dayOfWeekArray.map(day => dayMap[day] || day).join(', ');
+                };
+
+                // 시간 포맷팅
+                const formatTime = (time: string | null | undefined): string => {
+                  if (!time) return '-';
+                  return time;
+                };
+
                 return (
                   <ClassCard key={classItem.id}>
                     <ClassInfo>
                       <ClassMainInfo>
                         <ClassMainText>
-                          {classItem.time || '-'} {classItem.student?.name || '알 수 없음'} ({classItem.subject})
+                          {classItem.student?.name || '알 수 없음'} ({classItem.subject})
                         </ClassMainText>
                         {substituteText && (
                           <SubstituteInfo>{substituteText}</SubstituteInfo>
@@ -615,37 +743,47 @@ function HomeContent() {
                           {amount ? <ClassAmount>{amount}</ClassAmount> : null}
                           <ClassCondition>{conditionText}</ClassCondition>
                         </ClassMetaContainer>
-                        <ClassActions>
-                          <AttendanceButton
-                            onPress={() => handleAttendancePresent(classItem)}
-                            variant="present"
-                            disabled={classItem.hasAttendanceLog}
-                          >
-                            <AttendanceButtonText variant="present" disabled={classItem.hasAttendanceLog}>
-                              출석
-                            </AttendanceButtonText>
-                          </AttendanceButton>
-                          <AttendanceButton
-                            onPress={() => handleAttendanceAbsence(classItem)}
-                            variant="absent"
-                            disabled={classItem.hasAttendanceLog}
-                          >
-                            <AttendanceButtonText variant="absent" disabled={classItem.hasAttendanceLog}>
-                              결석
-                            </AttendanceButtonText>
-                          </AttendanceButton>
-                          <AttendanceButton
-                            onPress={() => handleDeleteAttendance(classItem)}
-                            variant="edit"
-                            disabled={!classItem.hasAttendanceLog}
-                          >
-                            <AttendanceButtonText variant="edit" disabled={!classItem.hasAttendanceLog}>
-                              수정
-                            </AttendanceButtonText>
-                          </AttendanceButton>
-                        </ClassActions>
+                        <ClassTimeDayRow>
+                          <ClassTimeDayItem>
+                            <ClassTimeDayLabel>시간</ClassTimeDayLabel>
+                            <ClassTimeDayValue $variant="time">{formatTime(classItem.time)}</ClassTimeDayValue>
+                          </ClassTimeDayItem>
+                          <ClassTimeDayItem>
+                            <ClassTimeDayLabel>요일</ClassTimeDayLabel>
+                            <ClassTimeDayValue $variant="day">{formatDayOfWeek(classItem.day_of_week)}</ClassTimeDayValue>
+                          </ClassTimeDayItem>
+                        </ClassTimeDayRow>
                       </ClassMetaRow>
                     </ClassInfo>
+                    <EditButton
+                      onPress={() => handleDeleteAttendance(classItem)}
+                      disabled={!classItem.hasAttendanceLog}
+                    >
+                      <EditButtonText disabled={!classItem.hasAttendanceLog}>
+                        수정
+                      </EditButtonText>
+                    </EditButton>
+                    <AttendanceButtonsRow>
+                      <AttendanceBottomButton
+                        onPress={() => handleAttendancePresent(classItem)}
+                        variant="present"
+                        disabled={classItem.hasAttendanceLog}
+                      >
+                        <AttendanceBottomButtonText variant="present" disabled={classItem.hasAttendanceLog}>
+                          출석
+                        </AttendanceBottomButtonText>
+                      </AttendanceBottomButton>
+                      <AttendanceDivider />
+                      <AttendanceBottomButton
+                        onPress={() => handleAttendanceAbsence(classItem)}
+                        variant="absent"
+                        disabled={classItem.hasAttendanceLog}
+                      >
+                        <AttendanceBottomButtonText variant="absent" disabled={classItem.hasAttendanceLog}>
+                          결석
+                        </AttendanceBottomButtonText>
+                      </AttendanceBottomButton>
+                    </AttendanceButtonsRow>
                   </ClassCard>
                 );
               })}
@@ -653,47 +791,29 @@ function HomeContent() {
           )}
         </Section>
 
-        {/* 미처리 출결 안내 카드 */}
-        {unprocessedCount > 0 && (
-          <Section>
-            <UnprocessedCard onPress={() => appNavigation.navigate('UnprocessedAttendance')}>
-              <UnprocessedCardText>
-                미처리 출결 {unprocessedCount}건 → 처리하기
-              </UnprocessedCardText>
-              <UnprocessedCardArrow>›</UnprocessedCardArrow>
-            </UnprocessedCard>
-          </Section>
-        )}
-
-        {/* 2. 정산 알림 섹션 */}
+        {/* 2. 최근 계약 섹션 */}
         <Section>
-          <SettlementCard onPress={handleSettlementPress}>
-            <SettlementCardContent>
-              <SettlementCardTitle>
-                {getCurrentMonth()} 정산할 학생 {(() => {
-                  const pendingCount = currentMonthInvoices.filter(
-                    (inv) => inv.send_status === 'not_sent' || inv.send_status === 'partial'
-                  ).length;
-                  return pendingCount;
-                })()}명
-              </SettlementCardTitle>
-              <SettlementCardSubtext>금액 확인 후 보내세요.</SettlementCardSubtext>
-            </SettlementCardContent>
-            <SettlementCardButton>
-              <SettlementCardButtonText>정산으로</SettlementCardButtonText>
-            </SettlementCardButton>
-          </SettlementCard>
-        </Section>
-
-        {/* 3. 최근 계약 섹션 */}
-        {recentContracts.length > 0 && (
-          <Section>
-            <SectionHeader>
+          <SectionHeader>
+            <SectionHeaderLeft>
               <SectionTitle>최근 계약</SectionTitle>
-              <Badge>
-                <BadgeText>{recentContracts.length}</BadgeText>
-              </Badge>
-            </SectionHeader>
+              {recentContracts.length > 0 && (
+                <Badge>
+                  <BadgeText>{recentContracts.length}</BadgeText>
+                </Badge>
+              )}
+            </SectionHeaderLeft>
+            {hasMoreRecentContracts && (
+              <ShowMoreButtonInline onPress={handleToggleRecentContracts}>
+                <ShowMoreButtonText>{showAllRecentContracts ? '접기' : '전체 보기'}</ShowMoreButtonText>
+              </ShowMoreButtonInline>
+            )}
+          </SectionHeader>
+          {recentContracts.length === 0 ? (
+            <EmptyStateContainer>
+              <EmptyStateIcon source={recentContractIcon} resizeMode="contain" />
+              <EmptyStateText>최근 계약이 없습니다.</EmptyStateText>
+            </EmptyStateContainer>
+          ) : (
             <ListContainer>
               {displayedRecentContracts.map((contract) => {
                 const isConfirmed = contract.status === 'confirmed';
@@ -724,24 +844,21 @@ function HomeContent() {
                   </RecentContractItem>
                 );
               })}
-              {hasMoreRecentContracts && (
-                <ShowMoreButton onPress={handleToggleRecentContracts}>
-                  <ShowMoreButtonText>{showAllRecentContracts ? '접기' : '전체 보기'}</ShowMoreButtonText>
-                </ShowMoreButton>
-              )}
             </ListContainer>
-          </Section>
-        )}
+          )}
+        </Section>
 
-        {/* 4. 추가 안내가 필요한 수강생 섹션 */}
+        {/* 3. 추가 안내가 필요한 수강생 섹션 */}
         <Section>
           <SectionHeader>
-            <SectionTitle>추가 안내가 필요한 수강생</SectionTitle>
-            {guidanceContracts.length > 0 && (
-              <Badge>
-                <BadgeText>{guidanceContracts.length}</BadgeText>
-              </Badge>
-            )}
+            <SectionHeaderLeft>
+              <SectionTitle>추가 안내가 필요한 수강생</SectionTitle>
+              {guidanceContracts.length > 0 && (
+                <Badge>
+                  <BadgeText>{guidanceContracts.length}</BadgeText>
+                </Badge>
+              )}
+            </SectionHeaderLeft>
           </SectionHeader>
           {!summary || guidanceContracts.length === 0 ? (
             <EmptyDescription>추가 안내가 필요한 수강생이 없습니다.</EmptyDescription>
@@ -767,21 +884,6 @@ function HomeContent() {
           )}
         </Section>
 
-        {/* 5. 요약 지표 (하단 작은 배지) */}
-        <SummaryBadgeSection>
-          <SummaryBadgeText>
-            {(() => {
-              const pendingCount = currentMonthInvoices.filter(
-                (inv) => inv.send_status === 'not_sent' || inv.send_status === 'partial'
-              ).length;
-              const studentsCount = summary?.studentsCount ?? 0;
-              const contractsCount = summary?.contractsCount ?? 0;
-              
-              // 항상 "총 학생 X명 · 총 계약 X건 · 미정산 X건" 형식으로 표시
-              return `총 학생 ${studentsCount}명 · 총 계약 ${contractsCount}건 · 미정산 ${pendingCount}건`;
-            })()}
-          </SummaryBadgeText>
-        </SummaryBadgeSection>
       </ScrollView>
       </Container>
 
@@ -903,7 +1005,7 @@ const styles = StyleSheet.create({
 
 const Container = styled.View`
   flex: 1;
-  background-color: #ffffff;
+  background-color: #f5f5f5;
   z-index: 0;
 `;
 
@@ -950,6 +1052,12 @@ const RetryButtonText = styled.Text`
   font-weight: 600;
 `;
 
+const HeaderTopSection = styled.View`
+  background-color: #0f1b4d;
+  padding: 20px 16px 24px 16px;
+  margin: -16px -16px 20px -16px;
+`;
+
 const HeaderSection = styled.View`
   margin-bottom: 20px;
 `;
@@ -964,22 +1072,22 @@ const HeaderTop = styled.View`
 const HeaderTitle = styled.Text`
   font-size: 24px;
   font-weight: 700;
-  color: #ff6b00;
+  color: #ffffff;
   flex: 1;
 `;
 
 const NotificationButton = styled.TouchableOpacity`
-  padding: 8px;
+  padding: 4px;
 `;
 
 const NotificationIcon = styled.Image`
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
 `;
 
 const HeaderSubtext = styled.Text`
   font-size: 14px;
-  color: #666;
+  color: #ffffff;
 `;
 
 const ErrorBanner = styled.View`
@@ -1011,16 +1119,24 @@ const InlineButtonText = styled.Text`
 `;
 
 const Section = styled.View`
-  background-color: #ffffff;
+  background-color: transparent;
   border-radius: 12px;
-  padding: 16px;
+  padding: 0;
   margin-bottom: 16px;
 `;
 
 const SectionHeader = styled.View`
   flex-direction: row;
   align-items: center;
+  justify-content: space-between;
   margin-bottom: 12px;
+  padding: 0;
+`;
+
+const SectionHeaderLeft = styled.View`
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
 `;
 
 const SectionTitle = styled.Text`
@@ -1030,14 +1146,15 @@ const SectionTitle = styled.Text`
 `;
 
 const Badge = styled.View`
-  background-color: #ff6b00;
+  background-color: #c7d2fe;
   border-radius: 12px;
-  padding: 4px 10px;
-  margin-left: 8px;
+  padding: 3px 8px;
+  align-items: center;
+  justify-content: center;
 `;
 
 const BadgeText = styled.Text`
-  color: #ffffff;
+  color: #1d42d8;
   font-size: 12px;
   font-weight: 600;
 `;
@@ -1048,23 +1165,49 @@ const EmptyDescription = styled.Text`
   padding: 8px 0;
 `;
 
+const EmptyStateContainer = styled.View`
+  min-height: 160px;
+  justify-content: center;
+  align-items: center;
+  padding: 40px 20px;
+`;
+
+const EmptyStateIcon = styled.Image`
+  width: 64px;
+  height: 64px;
+  opacity: 0.5;
+  margin-bottom: 16px;
+`;
+
+const EmptyStateText = styled.Text`
+  font-size: 14px;
+  color: #8e8e93;
+  text-align: center;
+`;
+
 const ListContainer = styled.View`
   gap: 12px;
+  padding: 0;
 `;
 
 const ClassCard = styled.View`
-  background-color: #f8f9fa;
+  background-color: #ffffff;
   border-radius: 8px;
   padding: 12px;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
   margin-bottom: 8px;
+  margin-left: 0;
+  margin-right: 0;
+  position: relative;
+  overflow: hidden;
+  width: 100%;
 `;
 
 const ClassInfo = styled.View`
   flex: 1;
   gap: 4px;
+  padding-right: 60px;
+  margin-bottom: 4px;
 `;
 
 const ClassMainInfo = styled.View`
@@ -1090,6 +1233,7 @@ const ClassMetaRow = styled.View`
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
 `;
 
 const ClassMetaContainer = styled.View`
@@ -1108,111 +1252,82 @@ const ClassCondition = styled.Text`
   color: #666;
 `;
 
-const ClassActions = styled.View`
+const ClassTimeDayRow = styled.View`
   flex-direction: row;
-  gap: 6px;
-  margin-left: 12px;
-`;
-
-const AttendanceButton = styled.TouchableOpacity<{ variant: 'present' | 'absent' | 'substitute' | 'edit'; disabled?: boolean }>`
-  padding: 8px 14px;
-  border-radius: 20px;
+  gap: 16px;
   align-items: center;
-  justify-content: center;
-  background-color: ${({ variant, disabled }: { variant: string; disabled?: boolean }) => {
-    if (disabled) return '#f5f5f5';
-    if (variant === 'present') return '#fff5f0';
-    if (variant === 'absent') return '#fff4e6';
-    if (variant === 'edit') return '#e8f4f8';
-    return '#ffffff';
-  }};
-  border-width: ${({ variant }: { variant: string }) => (variant === 'substitute' ? '1px' : '0px')};
-  border-color: ${({ variant }: { variant: string }) => (variant === 'substitute' ? '#e0e0e0' : 'transparent')};
-  opacity: ${({ disabled }: { disabled?: boolean }) => (disabled ? 0.5 : 1)};
 `;
 
-const AttendanceButtonText = styled.Text<{ variant: 'present' | 'absent' | 'substitute' | 'edit'; disabled?: boolean }>`
-  font-size: 13px;
-  font-weight: 600;
-  color: ${({ variant, disabled }: { variant: string; disabled?: boolean }) => {
-    if (disabled) return '#999';
-    if (variant === 'present') return '#ff6b00';
-    if (variant === 'absent') return '#ff9500';
-    if (variant === 'edit') return '#007AFF';
-    return '#333';
-  }};
-`;
-
-const SettlementCard = styled.TouchableOpacity`
-  background-color: #fff7e6;
-  border-radius: 12px;
-  padding: 16px;
-  margin: 0;
+const ClassTimeDayItem = styled.View`
   flex-direction: row;
   align-items: center;
-  justify-content: space-between;
-  border-width: 2px;
-  border-color: #ffa500;
+  gap: 4px;
 `;
 
-const SettlementCardContent = styled.View`
-  flex: 1;
-`;
-
-const SettlementCardTitle = styled.Text`
-  font-size: 16px;
-  font-weight: 700;
-  color: #111;
-  margin-bottom: 4px;
-`;
-
-const SettlementCardSubtext = styled.Text`
+const ClassTimeDayLabel = styled.Text`
   font-size: 13px;
   color: #666;
 `;
 
-const SettlementCardButton = styled.View`
-  padding: 10px 20px;
-  background-color: #ff6b00;
-  border-radius: 8px;
-`;
-
-const SettlementCardButtonText = styled.Text`
-  color: #ffffff;
-  font-size: 14px;
+const ClassTimeDayValue = styled.Text<{ $variant: 'time' | 'day' }>`
+  font-size: 13px;
   font-weight: 600;
+  color: ${({ $variant }: { $variant: string }) => ($variant === 'time' ? '#FFD700' : '#ff3b30')};
 `;
 
-const UnprocessedCard = styled.TouchableOpacity`
-  background-color: #fff2e5;
+const EditButton = styled.TouchableOpacity<{ disabled?: boolean }>`
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 6px 12px;
   border-radius: 12px;
-  padding: 16px;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  border-width: 1px;
-  border-color: #ff6b00;
+  background-color: ${({ disabled }: { disabled?: boolean }) => (disabled ? '#f5f5f5' : '#e8f4f8')};
+  opacity: ${({ disabled }: { disabled?: boolean }) => (disabled ? 0.5 : 1)};
 `;
 
-const UnprocessedCardText = styled.Text`
-  font-size: 15px;
+const EditButtonText = styled.Text<{ disabled?: boolean }>`
+  font-size: 12px;
   font-weight: 600;
-  color: #ff6b00;
-  flex: 1;
+  color: ${({ disabled }: { disabled?: boolean }) => (disabled ? '#999' : '#007AFF')};
 `;
 
-const UnprocessedCardArrow = styled.Text`
-  font-size: 20px;
-  color: #ff6b00;
-  margin-left: 8px;
+const AttendanceButtonsRow = styled.View`
+  flex-direction: row;
+  border-top-width: 1px;
+  border-top-color: #e0e0e0;
+  margin-top: 4px;
+  padding-top: 4px;
+`;
+
+const AttendanceBottomButton = styled.TouchableOpacity<{ variant: 'present' | 'absent'; disabled?: boolean }>`
+  flex: 1;
+  padding: 8px;
+  align-items: center;
+  justify-content: center;
+  background-color: transparent;
+  opacity: ${({ disabled }: { disabled?: boolean }) => (disabled ? 0.5 : 1)};
+`;
+
+const AttendanceBottomButtonText = styled.Text<{ variant: 'present' | 'absent'; disabled?: boolean }>`
+  font-size: 13px;
+  font-weight: 600;
+  color: ${({ disabled }: { disabled?: boolean }) => (disabled ? '#999' : '#333')};
+`;
+
+const AttendanceDivider = styled.View`
+  width: 1px;
+  background-color: #e0e0e0;
 `;
 
 const StudentItem = styled.View`
   flex-direction: row;
   align-items: center;
   padding: 12px;
-  background-color: #f8f9fa;
+  background-color: #ffffff;
   border-radius: 8px;
+  border-width: 1px;
+  border-color: #e0e4ff;
+  margin-bottom: 8px;
 `;
 
 const StudentItemContent = styled.View`
@@ -1233,7 +1348,7 @@ const StudentItemMeta = styled.Text`
 
 const StudentItemButton = styled.TouchableOpacity`
   padding: 6px 12px;
-  background-color: #ff6b00;
+  background-color: #1d42d8;
   border-radius: 6px;
 `;
 
@@ -1247,9 +1362,11 @@ const RecentContractItem = styled.View`
   flex-direction: row;
   align-items: center;
   padding: 12px;
-  background-color: #f8f9fa;
+  background-color: #ffffff;
   border-radius: 8px;
   margin-bottom: 8px;
+  border-width: 1px;
+  border-color: #e0e4ff;
 `;
 
 const RecentContractContent = styled.View`
@@ -1299,26 +1416,86 @@ const ShowMoreButton = styled.TouchableOpacity`
   padding: 8px 16px;
   border-radius: 16px;
   border-width: 1px;
-  border-color: #ff6b00;
+  border-color: #1d42d8;
+`;
+
+const ShowMoreButtonInline = styled.TouchableOpacity`
+  padding: 4px 0;
+  margin-right: 8px;
 `;
 
 const ShowMoreButtonText = styled.Text`
-  color: #ff6b00;
+  color: #1d42d8;
   font-size: 13px;
   font-weight: 600;
 `;
 
-const SummaryBadgeSection = styled.View`
+const DashboardCardSection = styled.View`
+  margin-bottom: 0;
+`;
+
+const DashboardCardGrid = styled.View`
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+`;
+
+const DashboardCard = styled.TouchableOpacity`
+  width: 48%;
   background-color: #ffffff;
-  border-radius: 12px;
-  padding: 12px 16px;
-  margin-bottom: 16px;
+  border-radius: 16px;
+  padding: 16px;
+  shadow-color: rgba(29, 66, 216, 0.15);
+  shadow-opacity: 0.15;
+  shadow-radius: 8px;
+  shadow-offset: 0px 4px;
+  elevation: 2;
+`;
+
+const DashboardIconWrapper = styled.View`
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+`;
+
+const DashboardIconText = styled.Text`
+  font-size: 32px;
+`;
+
+const DashboardIconImage = styled.Image`
+  width: 45px;
+  height: 45px;
+`;
+
+const DashboardCardRow = styled.View`
+  flex-direction: row;
   align-items: center;
 `;
 
-const SummaryBadgeText = styled.Text`
-  font-size: 13px;
-  color: #666;
+const DashboardIconColumn = styled.View`
+  width: 50%;
+  align-items: center;
+  justify-content: center;
 `;
 
+const DashboardTextBlock = styled.View`
+  width: 50%;
+  align-items: flex-end;
+  justify-content: center;
+`;
 
+const DashboardLabel = styled.Text`
+  font-size: 13px;
+  color: #6b7280;
+  font-weight: 500;
+  text-align: right;
+`;
+
+const DashboardValue = styled.Text`
+  font-size: 18px;
+  font-weight: 700;
+  color: #1d42d8;
+  margin-top: 4px;
+  text-align: right;
+`;

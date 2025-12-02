@@ -15,6 +15,8 @@ export default function SettlementSendScreen() {
   const { invoiceIds, year, month } = route.params;
 
   const currentMonthInvoices = useInvoicesStore((s) => s.currentMonthInvoices);
+  const sections = useInvoicesStore((s) => s.sections);
+  const fetchSections = useInvoicesStore((s) => s.fetchSections);
   const fetchCurrentMonth = useInvoicesStore((s) => s.fetchCurrentMonth);
 
   const [channel, setChannel] = useState<'kakao' | 'sms' | 'link'>('kakao');
@@ -23,11 +25,19 @@ export default function SettlementSendScreen() {
 
   const selectedInvoices = useMemo<InvoiceSummary[]>(() => {
     const map = new Map<number, InvoiceSummary>();
+    // currentMonthInvoices와 sections 모두에서 인보이스 찾기
     currentMonthInvoices.forEach((inv) => map.set(inv.id, inv));
+    if (sections) {
+      [...(sections.todayBilling ?? []), ...(sections.inProgress ?? [])].forEach((inv) => {
+        if (!map.has(inv.id)) {
+          map.set(inv.id, inv);
+        }
+      });
+    }
     return invoiceIds
       .map((id) => map.get(id))
       .filter((v): v is InvoiceSummary => Boolean(v));
-  }, [currentMonthInvoices, invoiceIds]);
+  }, [currentMonthInvoices, sections, invoiceIds]);
 
   const canSend = (inv: InvoiceSummary) => {
     const hasPhone = Boolean(inv.student?.phone);
@@ -63,7 +73,11 @@ export default function SettlementSendScreen() {
           text: '확인',
           onPress: async () => {
             try {
-              await fetchCurrentMonth({ historyMonths: 3, force: true });
+              // sections와 currentMonthInvoices 모두 새로고침
+              await Promise.all([
+                fetchSections(true),
+                fetchCurrentMonth({ historyMonths: 3, force: true }),
+              ]);
             } finally {
               navigation.goBack();
             }

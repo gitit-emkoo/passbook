@@ -1,14 +1,28 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as admin from 'firebase-admin';
+import { Expo, ExpoPushMessage, ExpoPushTicket } from 'expo-server-sdk';
 
 @Injectable()
 export class PushNotificationService {
   private readonly logger = new Logger(PushNotificationService.name);
   private firebaseApp: admin.app.App | null = null;
+  private expo: Expo;
 
   constructor(private configService: ConfigService) {
     this.initializeFirebase();
+    this.expo = new Expo();
+  }
+
+  /**
+   * 토큰이 Expo Push Token인지 확인
+   */
+  private isExpoPushToken(token: string): boolean {
+    return (
+      token.startsWith('ExponentPushToken[') ||
+      token.startsWith('ExpoPushToken[') ||
+      Expo.isExpoPushToken(token)
+    );
   }
 
   /**
@@ -40,11 +54,17 @@ export class PushNotificationService {
    * 단일 푸시 알림 전송
    */
   async sendPushNotification(
-    fcmToken: string,
+    token: string,
     title: string,
     body: string,
     data?: Record<string, string>,
   ): Promise<boolean> {
+    // Expo Push Token인 경우
+    if (this.isExpoPushToken(token)) {
+      return this.sendExpoPushNotification(token, title, body, data);
+    }
+
+    // FCM Token인 경우
     if (!this.firebaseApp) {
       this.logger.warn('Firebase Admin is not initialized. Cannot send push notification.');
       return false;
@@ -52,7 +72,7 @@ export class PushNotificationService {
 
     try {
       const message: admin.messaging.Message = {
-        token: fcmToken,
+        token,
         notification: {
           title,
           body,
@@ -80,9 +100,64 @@ export class PushNotificationService {
       // 유효하지 않은 토큰인 경우 로그만 남기고 false 반환
       if (error.code === 'messaging/invalid-registration-token' || 
           error.code === 'messaging/registration-token-not-registered') {
-        this.logger.warn(`Invalid FCM token: ${fcmToken}`);
+        this.logger.warn(`Invalid FCM token: ${token}`);
       }
       
+      return false;
+    }
+  }
+
+  /**
+   * Expo Push Notification 전송
+   */
+  private async sendExpoPushNotification(
+    token: string,
+    title: string,
+    body: string,
+    data?: Record<string, string>,
+  ): Promise<boolean> {
+    try {
+      // 토큰이 유효한지 확인
+      if (!Expo.isExpoPushToken(token)) {
+        this.logger.warn(`Invalid Expo push token: ${token}`);
+        return false;
+      }
+
+      const message: ExpoPushMessage = {
+        to: token,
+        sound: 'default',
+        title,
+        body,
+        data: data || {},
+        badge: 1,
+      };
+
+      const tickets = await this.expo.sendPushNotificationsAsync([message]);
+      const ticket = tickets[0];
+
+      if (ticket.status === 'ok') {
+        this.logger.log(`Expo push notification sent successfully: ${ticket.id}`);
+        return true;
+      } else {
+        // 에러 상세 정보 로깅
+        const errorInfo = ticket as any;
+        this.logger.error(
+          `Expo push notification failed: status=${ticket.status}, message=${errorInfo.message || 'Unknown error'}`,
+          JSON.stringify(ticket, null, 2),
+        );
+        
+        // FCM 서버 키 관련 에러인 경우 경고만 남기고 계속 진행
+        if (errorInfo.message && errorInfo.message.includes('FCM server key')) {
+          this.logger.warn(
+            'FCM server key is not configured. Expo Push Notification may not work for Android devices. ' +
+            'Please configure FCM server key in Expo dashboard or use Firebase Admin SDK for FCM tokens.',
+          );
+        }
+        
+        return false;
+      }
+    } catch (error: any) {
+      this.logger.error(`Failed to send Expo push notification: ${error.message}`, error.stack);
       return false;
     }
   }
@@ -134,7 +209,7 @@ export class PushNotificationService {
 
       // 실패한 토큰들 로깅
       if (response.failureCount > 0) {
-        response.responses.forEach((resp, idx) => {
+        response.responses.forEach((resp: admin.messaging.SendResponse, idx: number) => {
           if (!resp.success) {
             this.logger.warn(`Failed to send to token ${fcmTokens[idx]}: ${resp.error?.message}`);
           }

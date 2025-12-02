@@ -103,6 +103,21 @@ export const useStudentsStore = create<StudentsState>((set, get) => ({
         };
       });
     } catch (error: any) {
+      // 401/403 에러는 로그아웃 과정에서 발생할 수 있으므로 조용히 처리
+      if (error?.response?.status === 401 || error?.response?.status === 403) {
+        set((state) => ({
+          list: {
+            ...state.list,
+            status: 'idle',
+            errorMessage: null,
+            isRefreshing: false,
+            _inFlight: false,
+            _loadedOnce: false,
+          },
+        }));
+        return;
+      }
+      
       console.error('[Students] fetchStudents error', error);
       set((state) => ({
         list: {

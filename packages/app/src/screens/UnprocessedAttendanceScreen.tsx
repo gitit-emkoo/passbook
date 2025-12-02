@@ -170,7 +170,7 @@ function UnprocessedAttendanceContent() {
     return (
       <Container>
         <Header>
-          <Title>출결 미처리 관리</Title>
+          <Subtitle>미처리 출결이 없습니다.</Subtitle>
         </Header>
         <CenteredContainer>
           <CenteredText>미처리 출결이 없습니다.</CenteredText>
@@ -182,7 +182,6 @@ function UnprocessedAttendanceContent() {
   return (
     <Container>
       <Header>
-        <Title>출결 미처리 관리</Title>
         <Subtitle>총 {items.length}건</Subtitle>
       </Header>
       <ScrollView showsVerticalScrollIndicator={false}>
@@ -361,13 +360,13 @@ const ActionButton = styled.TouchableOpacity<{ variant: 'primary' | 'secondary' 
   padding: 12px;
   border-radius: 8px;
   align-items: center;
-  background-color: ${(props) => (props.variant === 'primary' ? '#ff6b00' : '#f3f4f6')};
+  background-color: ${(props) => (props.variant === 'primary' ? '#1d42d8' : '#c7d2fe')};
 `;
 
 const ActionButtonText = styled.Text<{ variant: 'primary' | 'secondary' }>`
   font-size: 14px;
   font-weight: 600;
-  color: ${(props) => (props.variant === 'primary' ? '#ffffff' : '#111111')};
+  color: ${(props) => (props.variant === 'primary' ? '#ffffff' : '#1d42d8')};
 `;
 
 export default function UnprocessedAttendanceScreen() {

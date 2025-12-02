@@ -243,48 +243,34 @@ function SettingsContent() {
               )}
             </ProfileAvatar>
           </ProfileAvatarTouchable>
-          <ProfileName>{orgCode || '상호명 없음'}</ProfileName>
+          <ProfileNameRow onPress={() => setProfileEditModalVisible(true)}>
+            <ProfileName>{orgCode || '상호명 없음'}</ProfileName>
+            <ChevronIcon>›</ChevronIcon>
+          </ProfileNameRow>
           <ProfileEmail>{userName || '이름 없음'}</ProfileEmail>
-          <EditButtonWrapper onPress={() => setProfileEditModalVisible(true)}>
-            <EditButtonText>
-              프로필 수정 <EditIcon>✏</EditIcon>
-            </EditButtonText>
-          </EditButtonWrapper>
         </ProfileSection>
 
-        {/* 계약서 기본조건 설정 */}
-        <Section>
-          <SectionTitle>계약서 기본조건 설정</SectionTitle>
-          <SettingsItem onPress={() => setContractSettingsModalVisible(true)}>
-            <SettingsItemLeft>
-              <SettingsItemTitle>등록 된 기본조건</SettingsItemTitle>
-              {contractSettingsSummary !== '설정 안 됨' && (
-                <SettingsItemValue>{contractSettingsSummary}</SettingsItemValue>
-              )}
-              <SettingsButtonText>
-                {contractSettingsSummary === '설정 안 됨' ? '설정하기' : '조건 변경하기'}
-              </SettingsButtonText>
-            </SettingsItemLeft>
-            <ChevronIcon>›</ChevronIcon>
-          </SettingsItem>
-        </Section>
-
-        {/* 계좌 정보 */}
-        <Section>
-          <SectionTitle>계좌 정보</SectionTitle>
-          <HelperText>청구서에 포함될 계좌정보를 등록 해 주세요</HelperText>
-          <SettingsItem onPress={() => setAccountInfoModalVisible(true)}>
-            <SettingsItemLeft>
-              <SettingsItemTitle $isOrange={bankName && accountNumber && accountHolder ? true : false}>
-                {bankName && accountNumber && accountHolder ? '계좌 수정하기' : '계좌 등록하기'}
-              </SettingsItemTitle>
-              {bankName && accountNumber && accountHolder && (
-                <SettingsItemValue>{bankName} {accountNumber}</SettingsItemValue>
-              )}
-            </SettingsItemLeft>
-            <ChevronIcon>›</ChevronIcon>
-          </SettingsItem>
-        </Section>
+        {/* 빠른 접근 카드 */}
+        <QuickAccessSection>
+          <QuickAccessCard onPress={() => setContractSettingsModalVisible(true)}>
+            <QuickAccessIconWrapper>
+              <QuickAccessIconImage source={require('../../assets/b2.png')} resizeMode="contain" />
+            </QuickAccessIconWrapper>
+            <QuickAccessLabel>계약서 기본조건</QuickAccessLabel>
+          </QuickAccessCard>
+          <QuickAccessCard onPress={() => setAccountInfoModalVisible(true)}>
+            <QuickAccessIconWrapper>
+              <QuickAccessIconImage source={require('../../assets/b1.png')} resizeMode="contain" />
+            </QuickAccessIconWrapper>
+            <QuickAccessLabel>계좌 정보</QuickAccessLabel>
+          </QuickAccessCard>
+          <QuickAccessCard onPress={() => navigation.navigate('UnprocessedAttendance' as never)}>
+            <QuickAccessIconWrapper>
+              <QuickAccessIconImage source={require('../../assets/p3.png')} resizeMode="contain" />
+            </QuickAccessIconWrapper>
+            <QuickAccessLabel>출결 미처리</QuickAccessLabel>
+          </QuickAccessCard>
+        </QuickAccessSection>
 
         {/* 부가기능 섹션 */}
         <Section>
@@ -297,7 +283,7 @@ function SettingsContent() {
             <Switch
               value={notificationEnabled}
               onValueChange={setNotificationEnabled}
-              trackColor={{ false: '#e0e0e0', true: '#ff6b00' }}
+              trackColor={{ false: '#e0e0e0', true: '#c7d2fe' }}
               thumbColor="#ffffff"
             />
           </SettingsItem>
@@ -305,13 +291,6 @@ function SettingsContent() {
           <SettingsItem onPress={handleNoticePress}>
             <SettingsItemLeft>
               <SettingsItemTitle>공지사항</SettingsItemTitle>
-            </SettingsItemLeft>
-            <ChevronIcon>›</ChevronIcon>
-          </SettingsItem>
-
-          <SettingsItem onPress={() => navigation.navigate('UnprocessedAttendance' as never)}>
-            <SettingsItemLeft>
-              <SettingsItemTitle>출결 미처리 관리</SettingsItemTitle>
             </SettingsItemLeft>
             <ChevronIcon>›</ChevronIcon>
           </SettingsItem>
@@ -477,7 +456,7 @@ const ProfileAvatar = styled.View`
   width: 80px;
   height: 80px;
   border-radius: 40px;
-  background-color: #ff6b00;
+  background-color: transparent;
   justify-content: center;
   align-items: center;
 `;
@@ -492,33 +471,22 @@ const AvatarIcon = styled.Text`
   font-size: 40px;
 `;
 
+const ProfileNameRow = styled.TouchableOpacity`
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+`;
+
 const ProfileName = styled.Text`
   font-size: 20px;
   font-weight: 700;
   color: #111111;
-  margin-bottom: 4px;
 `;
 
 const ProfileEmail = styled.Text`
   font-size: 14px;
   color: #8e8e93;
-`;
-
-const EditButtonWrapper = styled.TouchableOpacity`
-  margin-top: 16px;
-`;
-
-const EditButtonText = styled.Text`
-  font-size: 18px;
-  color: #ff6b00;
-  font-weight: 700;
-  text-decoration-line: underline;
-`;
-
-const EditIcon = styled.Text`
-  font-size: 18px;
-  color: #ff6b00;
-  margin-left: 4px;
 `;
 
 const Section = styled.View`
@@ -550,7 +518,7 @@ const SettingsItemLeft = styled.View`
 
 const SettingsItemTitle = styled.Text<{ $isOrange?: boolean }>`
   font-size: 16px;
-  color: ${(props) => (props.$isOrange ? '#ff6b00' : '#111111')};
+  color: ${(props) => (props.$isOrange ? '#1d42d8' : '#111111')};
   margin-bottom: 4px;
   font-weight: ${(props) => (props.$isOrange ? '700' : 'normal')};
 `;
@@ -562,7 +530,7 @@ const SettingsItemValue = styled.Text`
 
 const SettingsButtonText = styled.Text`
   font-size: 16px;
-  color: #ff6b00;
+  color: #1d42d8;
   font-weight: 700;
   margin-top: 4px;
 `;
@@ -667,4 +635,51 @@ const HealthResultText = styled.Text`
 const HealthResultError = styled.Text`
   font-size: 13px;
   color: #ff3b30;
+`;
+
+const QuickAccessSection = styled.View`
+  flex-direction: row;
+  justify-content: space-between;
+  padding: 0 16px;
+  margin-bottom: 16px;
+  gap: 12px;
+`;
+
+const QuickAccessCard = styled.TouchableOpacity`
+  flex: 1;
+  background-color: #ffffff;
+  border-radius: 16px;
+  padding: 20px 12px;
+  align-items: center;
+  shadow-color: rgba(29, 66, 216, 0.15);
+  shadow-opacity: 0.15;
+  shadow-radius: 8px;
+  shadow-offset: 0px 4px;
+  elevation: 2;
+`;
+
+const QuickAccessIconWrapper = styled.View`
+  width: 50px;
+  height: 50px;
+  border-radius: 25px;
+  background-color: transparent;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
+`;
+
+const QuickAccessIcon = styled.Text`
+  font-size: 28px;
+`;
+
+const QuickAccessIconImage = styled.Image`
+  width: 45px;
+  height: 45px;
+`;
+
+const QuickAccessLabel = styled.Text`
+  font-size: 12px;
+  color: #6b7280;
+  font-weight: 500;
+  text-align: center;
 `;

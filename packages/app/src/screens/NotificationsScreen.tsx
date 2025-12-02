@@ -15,7 +15,7 @@ interface NotificationItem {
   createdAt: string;
   read: boolean;
   target?: {
-    screen: 'Settlement' | 'Students' | 'Home';
+    screen: 'Settlement' | 'Students' | 'Home' | 'UnprocessedAttendance';
     params?: any;
   };
 }
@@ -96,12 +96,66 @@ export default function NotificationsScreen() {
     return items.filter((item) => item.category === filter);
   }, [items, filter]);
 
+  // target_route를 파싱하여 target 객체 생성
+  const parseTargetRoute = (route: string): NotificationItem['target'] | undefined => {
+    if (!route) return undefined;
+
+    // 계약서 상세: /contracts/{id} -> Students 스택의 ContractView
+    if (route.startsWith('/contracts/')) {
+      const id = route.split('/contracts/')[1]?.split('?')[0];
+      if (id) {
+        return { 
+          screen: 'Students', 
+          params: { 
+            screen: 'ContractView', 
+            params: { contractId: parseInt(id, 10) } 
+          } 
+        };
+      }
+    } 
+    // 수강생 상세: /students/{id} -> Students 스택의 StudentDetail
+    else if (route.startsWith('/students/')) {
+      const id = route.split('/students/')[1]?.split('?')[0];
+      if (id) {
+        return { 
+          screen: 'Students', 
+          params: { 
+            screen: 'StudentDetail', 
+            params: { studentId: parseInt(id, 10) } 
+          } 
+        };
+      }
+    } 
+    // 정산: /settlements 또는 /invoices -> Settlement 탭
+    else if (route.startsWith('/settlements') || route.startsWith('/invoices')) {
+      return { screen: 'Settlement' };
+    } 
+    // 출결: /attendance -> UnprocessedAttendance (MainAppStack 레벨)
+    // 출결 상세: /attendance/{id} -> 현재는 UnprocessedAttendance로 대체
+    else if (route.startsWith('/attendance')) {
+      // MainAppStack 레벨 화면
+      return { screen: 'UnprocessedAttendance' };
+    }
+
+    return undefined;
+  };
+
   const loadNotifications = useCallback(
     async (selectedFilter: typeof filter) => {
       setLoading(true);
       try {
         const data = await notificationsApi.getAll(selectedFilter === 'all' ? undefined : selectedFilter);
-        setItems(data);
+        // 백엔드 응답을 프론트엔드 형식으로 매핑
+        const mappedData: NotificationItem[] = data.map((item: any) => ({
+          id: item.id,
+          category: item.type as NotificationCategory,
+          title: item.title,
+          message: item.body, // body -> message
+          createdAt: item.created_at, // created_at -> createdAt
+          read: item.is_read, // is_read -> read
+          target: parseTargetRoute(item.target_route),
+        }));
+        setItems(mappedData);
       } catch (error) {
         console.warn('[Notifications] load error, fallback to stub', error);
         // 필터에 맞춰 스텁 데이터를 반환
@@ -134,17 +188,33 @@ export default function NotificationsScreen() {
   }, []);
 
   const handleCardPress = useCallback(
-    (item: NotificationItem) => {
-      setItems((prev) => prev.map((notif) => (notif.id === item.id ? { ...notif, read: true } : notif)));
+    async (item: NotificationItem) => {
+      // 읽지 않은 알림만 읽음 처리
+      if (!item.read) {
+        try {
+          await notificationsApi.markAsRead(item.id);
+        } catch (error) {
+          console.warn('[Notifications] mark as read failed', error);
+        }
+        // 로컬 상태 업데이트
+        setItems((prev) => prev.map((notif) => (notif.id === item.id ? { ...notif, read: true } : notif)));
+      }
 
       if (!item.target) {
         return;
       }
 
-      navigation.navigate('MainTabs', {
-        screen: item.target.screen,
-        params: item.target.params,
-      } as any);
+      // UnprocessedAttendance는 MainAppStack 레벨 화면
+      if (item.target.screen === 'UnprocessedAttendance') {
+        navigation.navigate('UnprocessedAttendance');
+      } 
+      // 나머지는 MainTabs 내부 화면
+      else {
+        navigation.navigate('MainTabs', {
+          screen: item.target.screen,
+          params: item.target.params,
+        });
+      }
     },
     [navigation],
   );
@@ -172,11 +242,6 @@ export default function NotificationsScreen() {
 
   return (
     <Container>
-      <Header>
-        <BackPlaceholder />
-        <HeaderTitle>알림</HeaderTitle>
-        <BackPlaceholder />
-      </Header>
       <Subtitle>읽지 않은 알림 {unreadCount}개</Subtitle>
 
       <FilterWrapper>

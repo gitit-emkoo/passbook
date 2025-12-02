@@ -38,6 +38,18 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         _loadedOnce: true,
       });
     } catch (error: any) {
+      const statusCode = error?.response?.status;
+      if (statusCode === 401 || statusCode === 403) {
+        console.warn('[Dashboard] unauthorized, skipping error banner');
+        set({
+          summary: null,
+          status: 'idle',
+          errorMessage: null,
+          _loadedOnce: false,
+        });
+        return;
+      }
+
       console.error('[Dashboard] fetchDashboard error', error);
       set({
         summary: EMPTY_DASHBOARD_SUMMARY,

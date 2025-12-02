@@ -210,7 +210,7 @@ const CancelButtonText = styled.Text`
 
 const ConfirmButton = styled.TouchableOpacity<{ disabled?: boolean }>`
   flex: 1;
-  background-color: #ff6b00;
+  background-color: #1d42d8;
   padding: 16px;
   border-radius: 12px;
   align-items: center;
