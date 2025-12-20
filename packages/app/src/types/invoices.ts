@@ -12,6 +12,8 @@ export interface InvoiceSummary {
   send_status: string;
   period_start?: string | null;
   period_end?: string | null;
+  display_period_start?: string | null; // 전송 시점에 저장된 표시 기간 시작일
+  display_period_end?: string | null; // 전송 시점에 저장된 표시 기간 종료일
   student?: {
     id: number;
     name: string;
@@ -22,6 +24,12 @@ export interface InvoiceSummary {
     subject: string;
     billing_type: string;
     absence_policy?: string;
+    started_at?: string | null;
+    ended_at?: string | null;
+    policy_snapshot?: any;
+    sessions_used?: number;
+    target_sessions?: number; // 해당 정산서의 목표 회차 (연장 정산서의 경우 연장한 회차)
+    payment_schedule?: 'monthly' | 'lump_sum' | null; // 납부 방식: 월납 / 일시납
   };
 }
 

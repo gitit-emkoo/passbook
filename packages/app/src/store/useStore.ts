@@ -53,7 +53,75 @@ export const useAuthStore = create<AuthState>()(
           console.error('[AuthStore] Failed to reset stores', error);
         }
         
+        // 상태 업데이트 (동기적으로)
         set({ user, accessToken: token, isAuthenticated: true });
+        
+        // persist가 이전 상태를 덮어쓰지 않도록 AsyncStorage에 직접 저장
+        try {
+          const persistData = {
+            state: {
+              user,
+              accessToken: token,
+              persistTestValue: get().persistTestValue || '',
+              apiBaseUrl: get().apiBaseUrl || env.API_URL,
+            },
+            version: 0,
+          };
+          await AsyncStorage.setItem('auth-storage', JSON.stringify(persistData));
+        } catch (error) {
+          console.error('[AuthStore] Failed to save auth state directly', error);
+        }
+        
+        // 상태가 제대로 설정되었는지 즉시 확인
+        let state = get();
+        if (__DEV__) {
+          console.log('[AuthStore] Login set - immediate check:', {
+            hasAccessToken: !!state.accessToken,
+            hasUser: !!state.user,
+            isAuthenticated: state.isAuthenticated,
+            tokenLength: state.accessToken?.length,
+            tokenValue: state.accessToken?.substring(0, 20) + '...',
+          });
+        }
+        
+        // 상태가 제대로 설정되지 않았으면 다시 시도
+        if (!state.accessToken || !state.user) {
+          if (__DEV__) {
+            console.log('[AuthStore] State not set correctly, retrying...');
+          }
+          set({ user, accessToken: token, isAuthenticated: true });
+          // 다시 AsyncStorage에 저장
+          try {
+            const persistData = {
+              state: {
+                user,
+                accessToken: token,
+                persistTestValue: get().persistTestValue || '',
+                apiBaseUrl: get().apiBaseUrl || env.API_URL,
+              },
+              version: 0,
+            };
+            await AsyncStorage.setItem('auth-storage', JSON.stringify(persistData));
+          } catch (error) {
+            console.error('[AuthStore] Failed to save auth state directly (retry)', error);
+          }
+          state = get();
+        }
+        
+        // 상태 업데이트가 완료될 때까지 약간의 지연 (React 상태 업데이트와 Zustand 구독이 완료되도록)
+        await new Promise(resolve => setTimeout(resolve, 200));
+        
+        // 최종 상태 확인
+        state = get();
+        if (__DEV__) {
+          console.log('[AuthStore] Login completed:', {
+            hasAccessToken: !!state.accessToken,
+            hasUser: !!state.user,
+            isAuthenticated: state.isAuthenticated,
+            tokenLength: state.accessToken?.length,
+          });
+        }
+        
         // 로그인 성공 시 이전 로그인 기록도 업데이트
         try {
           await AsyncStorage.setItem('last-logged-in-user', JSON.stringify(user));
@@ -92,6 +160,28 @@ export const useAuthStore = create<AuthState>()(
       setAccessToken: async (token) => {
         const trimmed = token.trim();
         set({ accessToken: trimmed, isAuthenticated: !!trimmed && !!get().user });
+        
+        // persist가 완료될 때까지 약간의 지연
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // 상태 확인
+        const state = get();
+        if (__DEV__) {
+          console.log('[AuthStore] setAccessToken completed:', {
+            hasAccessToken: !!state.accessToken,
+            tokenLength: state.accessToken?.length,
+            tokenValue: state.accessToken?.substring(0, 20) + '...',
+          });
+        }
+        
+        // 상태가 제대로 설정되지 않았으면 다시 시도
+        if (!state.accessToken || state.accessToken !== trimmed) {
+          if (__DEV__) {
+            console.log('[AuthStore] AccessToken not set correctly, retrying...');
+          }
+          set({ accessToken: trimmed, isAuthenticated: !!trimmed && !!get().user });
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
       },
 
       loadAuth: async () => {

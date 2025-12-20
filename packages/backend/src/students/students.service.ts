@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateStudentDto } from './dto/create-student.dto';
@@ -126,8 +126,10 @@ export class StudentsService {
 				},
 				invoices: {
 					where: {
-						year: currentYear,
-						month: currentMonth,
+						send_status: 'not_sent', // 미전송 정산서만 (정산중 섹션에 있는 정산서)
+					},
+					orderBy: {
+						created_at: 'desc', // 가장 최근 정산서
 					},
 					take: 1,
 				},
@@ -292,16 +294,51 @@ export class StudentsService {
 						},
 					},
 				});
+				// 일정 예외(ScheduleException) 조회
+				const scheduleExceptions = await this.prisma.scheduleException.findMany({
+					where: {
+						user_id: userId,
+						contract_id: contract.id,
+					},
+					select: {
+						id: true,
+						original_date: true,
+						new_date: true,
+						reason: true,
+						created_at: true,
+					},
+					orderBy: {
+						original_date: 'asc',
+					},
+				});
 				return {
 					...contract,
 					sessions_used: sessionsUsed,
+					schedule_exceptions: scheduleExceptions,
 				};
 			}),
 		);
 
+		// 전송된 정산서의 display_period_start/display_period_end 추출
+		const invoicesWithDisplayPeriod = student.invoices.map((invoice) => {
+			if (invoice.send_status === 'sent' && invoice.send_history) {
+				const sendHistory = invoice.send_history as any[];
+				if (Array.isArray(sendHistory) && sendHistory.length > 0) {
+					const lastSend = sendHistory[sendHistory.length - 1];
+					return {
+						...invoice,
+						display_period_start: lastSend?.display_period_start || null,
+						display_period_end: lastSend?.display_period_end || null,
+					};
+				}
+			}
+			return invoice;
+		});
+
 		return {
 			...student,
 			contracts: contractsWithSessions,
+			invoices: invoicesWithDisplayPeriod,
 		};
 	}
 
@@ -352,5 +389,24 @@ export class StudentsService {
 		}
 
 		return updated;
+	}
+
+	async delete(userId: number, id: number) {
+		// 수강생이 해당 사용자의 것인지 확인
+		const student = await this.prisma.student.findFirst({
+			where: { id, user_id: userId },
+			select: { id: true, name: true },
+		});
+
+		if (!student) {
+			throw new NotFoundException('수강생을 찾을 수 없습니다.');
+		}
+
+		// Cascade 설정으로 인해 관련된 모든 데이터(계약, 출결, 정산 등)가 자동으로 삭제됨
+		await this.prisma.student.delete({
+			where: { id },
+		});
+
+		return { message: '수강생이 삭제되었습니다.' };
 	}
 }

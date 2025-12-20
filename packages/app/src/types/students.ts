@@ -31,6 +31,14 @@ export interface StudentSummary {
   class_info: string;
 }
 
+export interface ScheduleException {
+  id: number;
+  original_date: string;
+  new_date: string;
+  reason: string | null;
+  created_at: string;
+}
+
 export interface StudentContractDetail {
   id: number;
   subject: string;
@@ -51,6 +59,7 @@ export interface StudentContractDetail {
   student_signature: string | null;
   created_at: string;
   updated_at: string;
+  schedule_exceptions?: ScheduleException[];
 }
 
 export interface StudentAttendanceLog {
@@ -92,6 +101,10 @@ export interface StudentDetail {
     final_amount: number;
     base_amount: number;
     send_status: string;
+    period_start?: string | null;
+    period_end?: string | null;
+    display_period_start?: string | null;
+    display_period_end?: string | null;
     contract: {
       id: number;
       billing_type: string;

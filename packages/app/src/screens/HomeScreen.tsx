@@ -35,6 +35,7 @@ const dashboardClassesIcon = require('../../assets/p2.png');
 const dashboardUnprocessedIcon = require('../../assets/p3.png');
 const dashboardSettlementIcon = require('../../assets/p4.png');
 const recentContractIcon = require('../../assets/b2.png');
+const guidanceEmptyIcon = require('../../assets/if1.png');
 
 const HomeStub = () => (
   <View style={stubStyles.container}>
@@ -121,7 +122,7 @@ function HomeContent() {
         if (statusCode === 401 || statusCode === 403) {
           console.warn('[Invoices] unauthorized, skipping error banner');
         } else {
-          console.error('[Invoices] error initial', err?.message);
+        console.error('[Invoices] error initial', err?.message);
         }
       }),
     ]);
@@ -173,8 +174,8 @@ function HomeContent() {
   useFocusEffect(
     React.useCallback(() => {
       // 인증 상태 확인
-      const isAuthenticated = useAuthStore.getState().isAuthenticated;
-      if (!isPersistReady || !isAuthenticated) return;
+      const { isAuthenticated, accessToken } = useAuthStore.getState();
+      if (!isPersistReady || !isAuthenticated || !accessToken) return;
       
       // 대시보드 갱신
       fetchDashboard().catch(() => {});
@@ -267,8 +268,6 @@ function HomeContent() {
   const handleAttendanceAbsenceSubmit = useCallback(async (data: {
     status: 'absent' | 'substitute';
     substitute_at?: string;
-    memo_public?: string;
-    memo_internal?: string;
     reason: string;
   }) => {
     if (!selectedClassItem) return;
@@ -281,9 +280,8 @@ function HomeContent() {
         occurred_at: occurredAt,
         status: data.status,
         substitute_at: data.substitute_at,
-        // 공개 메모는 결석/대체 사유와 동일하게 저장
-        memo_public: data.reason || data.memo_public,
-        memo_internal: data.memo_internal,
+        // 사유를 memo_public에 저장
+        memo_public: data.reason,
       });
       
       Alert.alert('완료', `${data.status === 'absent' ? '결석' : '대체'}이 기록되었습니다.`);
@@ -393,7 +391,14 @@ function HomeContent() {
   }, []);
 
   const handleStudentsShortcut = useCallback(() => {
-    navigation.navigate('Students');
+    navigation.dispatch(
+      CommonActions.navigate({
+        name: 'Students',
+        params: {
+          screen: 'StudentsList',
+        },
+      }),
+    );
   }, [navigation]);
 
   const handleUnprocessedShortcut = useCallback(() => {
@@ -583,26 +588,26 @@ function HomeContent() {
       >
         {/* 상단 헤더 및 대시보드 영역 */}
         <HeaderTopSection>
-          {/* 상단 헤더: 로고, 알림 아이콘, 안내 텍스트 */}
-          <HeaderSection>
-            <HeaderTop>
+        {/* 상단 헤더: 로고, 알림 아이콘, 안내 텍스트 */}
+        <HeaderSection>
+          <HeaderTop>
               <HeaderTitle>THE LESSON</HeaderTitle>
-              <NotificationButton onPress={handleNotificationPress}>
+            <NotificationButton onPress={handleNotificationPress}>
                 <NotificationIcon source={notificationBellIcon} tintColor="#B22222" />
-              </NotificationButton>
-            </HeaderTop>
-            <HeaderSubtext>계약부터 출결기록 정산서 발송까지 간편한 레슨관리</HeaderSubtext>
-          </HeaderSection>
+            </NotificationButton>
+          </HeaderTop>
+          <HeaderSubtext>계약부터 출결기록 정산서 발송까지 간편한 레슨관리</HeaderSubtext>
+        </HeaderSection>
 
-          {/* 에러 배너 */}
-          {status === 'error' && summary ? (
-            <ErrorBanner>
-              <ErrorText>{errorMessage}</ErrorText>
-              <InlineButton onPress={handleRetry}>
-                <InlineButtonText>재시도</InlineButtonText>
-              </InlineButton>
-            </ErrorBanner>
-          ) : null}
+        {/* 에러 배너 */}
+        {status === 'error' && summary ? (
+          <ErrorBanner>
+            <ErrorText>{errorMessage}</ErrorText>
+            <InlineButton onPress={handleRetry}>
+              <InlineButtonText>재시도</InlineButtonText>
+            </InlineButton>
+          </ErrorBanner>
+        ) : null}
 
           {/* 대시보드 요약 카드 */}
           <DashboardCardSection>
@@ -631,7 +636,7 @@ function HomeContent() {
                   </DashboardIconWrapper>
                 </DashboardIconColumn>
                 <DashboardTextBlock>
-                  <DashboardLabel numberOfLines={1}>오늘 수업</DashboardLabel>
+                  <DashboardLabel numberOfLines={1}>Today's class</DashboardLabel>
                   <DashboardValue numberOfLines={1}>{todayClasses.length.toLocaleString()}건</DashboardValue>
                 </DashboardTextBlock>
               </DashboardCardRow>
@@ -668,10 +673,10 @@ function HomeContent() {
           </DashboardCardSection>
         </HeaderTopSection>
 
-        {/* 1. 오늘 수업 섹션 */}
+        {/* 1. Today's class 섹션 */}
         <Section style={{ borderTopWidth: 0 }} onLayout={handleTodaySectionLayout}>
           <SectionHeader>
-            <SectionTitle>오늘 수업</SectionTitle>
+            <SectionTitle>Today's class</SectionTitle>
           </SectionHeader>
           {todayClassesLoading ? (
             <LoadingContainer>
@@ -716,7 +721,6 @@ function HomeContent() {
                     'THU': '목',
                     'FRI': '금',
                     'SAT': '토',
-                    'ANY': '무관',
                   };
                   return dayOfWeekArray.map(day => dayMap[day] || day).join(', ');
                 };
@@ -765,22 +769,22 @@ function HomeContent() {
                     </EditButton>
                     <AttendanceButtonsRow>
                       <AttendanceBottomButton
-                        onPress={() => handleAttendancePresent(classItem)}
-                        variant="present"
-                        disabled={classItem.hasAttendanceLog}
-                      >
+                            onPress={() => handleAttendancePresent(classItem)}
+                            variant="present"
+                            disabled={classItem.hasAttendanceLog}
+                          >
                         <AttendanceBottomButtonText variant="present" disabled={classItem.hasAttendanceLog}>
-                          출석
+                              출석
                         </AttendanceBottomButtonText>
                       </AttendanceBottomButton>
                       <AttendanceDivider />
                       <AttendanceBottomButton
-                        onPress={() => handleAttendanceAbsence(classItem)}
-                        variant="absent"
-                        disabled={classItem.hasAttendanceLog}
-                      >
+                            onPress={() => handleAttendanceAbsence(classItem)}
+                            variant="absent"
+                            disabled={classItem.hasAttendanceLog}
+                          >
                         <AttendanceBottomButtonText variant="absent" disabled={classItem.hasAttendanceLog}>
-                          결석
+                              결석
                         </AttendanceBottomButtonText>
                       </AttendanceBottomButton>
                     </AttendanceButtonsRow>
@@ -791,15 +795,15 @@ function HomeContent() {
           )}
         </Section>
 
-        {/* 2. 최근 계약 섹션 */}
-        <Section>
-          <SectionHeader>
+        {/* 2. 이번 달 신규 계약 섹션 */}
+          <Section>
+            <SectionHeader>
             <SectionHeaderLeft>
-              <SectionTitle>최근 계약</SectionTitle>
+              <SectionTitle>신규 계약</SectionTitle>
               {recentContracts.length > 0 && (
-                <Badge>
-                  <BadgeText>{recentContracts.length}</BadgeText>
-                </Badge>
+              <Badge>
+                <BadgeText>{recentContracts.length}</BadgeText>
+              </Badge>
               )}
             </SectionHeaderLeft>
             {hasMoreRecentContracts && (
@@ -807,11 +811,11 @@ function HomeContent() {
                 <ShowMoreButtonText>{showAllRecentContracts ? '접기' : '전체 보기'}</ShowMoreButtonText>
               </ShowMoreButtonInline>
             )}
-          </SectionHeader>
+            </SectionHeader>
           {recentContracts.length === 0 ? (
             <EmptyStateContainer>
               <EmptyStateIcon source={recentContractIcon} resizeMode="contain" />
-              <EmptyStateText>최근 계약이 없습니다.</EmptyStateText>
+              <EmptyStateText>이번 달 신규 계약이 없습니다.</EmptyStateText>
             </EmptyStateContainer>
           ) : (
             <ListContainer>
@@ -822,7 +826,16 @@ function HomeContent() {
                 const isSending = sendingContractId === contract.id;
 
                 return (
-                  <RecentContractItem key={contract.id}>
+                  <RecentContractItem 
+                    key={contract.id}
+                    onPress={() => {
+                      // Students 탭으로 먼저 이동한 다음 ContractView로 이동
+                      navigation.navigate('Students', {
+                        screen: 'ContractView',
+                        params: { contractId: contract.id },
+                      });
+                    }}
+                  >
                     <RecentContractContent>
                       <RecentContractTitle>{contract.studentName || '학생 정보 없음'}</RecentContractTitle>
                       <RecentContractMeta>{contract.title}</RecentContractMeta>
@@ -845,23 +858,26 @@ function HomeContent() {
                 );
               })}
             </ListContainer>
-          )}
+        )}
         </Section>
 
         {/* 3. 추가 안내가 필요한 수강생 섹션 */}
         <Section>
           <SectionHeader>
             <SectionHeaderLeft>
-              <SectionTitle>추가 안내가 필요한 수강생</SectionTitle>
-              {guidanceContracts.length > 0 && (
-                <Badge>
-                  <BadgeText>{guidanceContracts.length}</BadgeText>
-                </Badge>
-              )}
+            <SectionTitle>안내가 필요한 수강생</SectionTitle>
+            {guidanceContracts.length > 0 && (
+              <Badge>
+                <BadgeText>{guidanceContracts.length}</BadgeText>
+              </Badge>
+            )}
             </SectionHeaderLeft>
           </SectionHeader>
           {!summary || guidanceContracts.length === 0 ? (
-            <EmptyDescription>추가 안내가 필요한 수강생이 없습니다.</EmptyDescription>
+            <EmptyStateContainer>
+              <EmptyStateIcon source={guidanceEmptyIcon} resizeMode="contain" />
+              <EmptyStateText>추가 안내가 필요한 수강생이 없습니다.</EmptyStateText>
+            </EmptyStateContainer>
           ) : (
             <ListContainer>
               {displayedGuidanceContracts.map((contract: RecentContract) => (
@@ -1358,7 +1374,7 @@ const StudentItemButtonText = styled.Text`
   font-weight: 600;
 `;
 
-const RecentContractItem = styled.View`
+const RecentContractItem = styled.TouchableOpacity`
   flex-direction: row;
   align-items: center;
   padding: 12px;

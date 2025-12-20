@@ -101,6 +101,7 @@ function ContractPreviewContent() {
   const [sending, setSending] = useState(false);
   const fetchDashboard = useDashboardStore((s) => s.fetchDashboard);
   const fetchInvoicesCurrent = useInvoicesStore((s) => s.fetchCurrentMonth);
+  const fetchInvoicesSections = useInvoicesStore((s) => s.fetchSections);
 
   useEffect(() => {
     const loadContract = async () => {
@@ -240,6 +241,7 @@ function ContractPreviewContent() {
         await Promise.all([
           fetchDashboard({ force: true }),
           fetchInvoicesCurrent({ historyMonths: 3, force: true }),
+          fetchInvoicesSections(true), // 정산 섹션 새로고침 (오늘청구 섹션에 바로 반영)
         ]);
         Alert.alert('완료', '계약서가 전송되었습니다.');
       } catch (err: any) {

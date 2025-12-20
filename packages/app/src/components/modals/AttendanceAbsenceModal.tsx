@@ -84,8 +84,6 @@ interface AttendanceAbsenceModalProps {
   onConfirm: (data: {
     status: 'absent' | 'substitute';
     substitute_at?: string;
-    memo_public?: string;
-    memo_internal?: string;
     reason: string; // 사유 (필수)
   }) => void;
   studentName: string;
@@ -104,8 +102,6 @@ export default function AttendanceAbsenceModal({
   const [substituteDate, setSubstituteDate] = useState<Date | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [reason, setReason] = useState(''); // 사유 (필수)
-  const [memoPublic, setMemoPublic] = useState(''); // 메모 (선택)
-  const [memoInternal, setMemoInternal] = useState(''); // 내부 메모 (선택)
 
   const handleConfirm = () => {
     // 사유 필수 검증
@@ -122,17 +118,13 @@ export default function AttendanceAbsenceModal({
     onConfirm({
       status,
       substitute_at: substituteDate ? substituteDate.toISOString() : undefined,
-      memo_public: memoPublic.trim() || undefined,
-      memo_internal: memoInternal.trim() || undefined,
-      reason: reason.trim(), // 사유 포함
+      reason: reason.trim(),
     });
 
     // 초기화
     setStatus('absent');
     setSubstituteDate(null);
     setReason('');
-    setMemoPublic('');
-    setMemoInternal('');
     onClose();
   };
 
@@ -141,8 +133,6 @@ export default function AttendanceAbsenceModal({
     setStatus('absent');
     setSubstituteDate(null);
     setReason('');
-    setMemoPublic('');
-    setMemoInternal('');
     onClose();
   };
 
@@ -207,25 +197,7 @@ export default function AttendanceAbsenceModal({
                 value={reason}
                 onChangeText={setReason}
                 multiline
-                numberOfLines={2}
-              />
-
-              <InputLabel>공개 메모 (수강생에게 표시)</InputLabel>
-              <TextInput
-                placeholder="예: 다음 주에 보충 수업 진행 예정"
-                value={memoPublic}
-                onChangeText={setMemoPublic}
-                multiline
-                numberOfLines={2}
-              />
-
-              <InputLabel>내부 메모 (강사 전용)</InputLabel>
-              <TextInput
-                placeholder="강사 전용 메모를 입력하세요"
-                value={memoInternal}
-                onChangeText={setMemoInternal}
-                multiline
-                numberOfLines={2}
+                numberOfLines={3}
               />
 
               <ButtonRow>

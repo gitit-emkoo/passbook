@@ -62,5 +62,12 @@ export const invoicesApi = {
     const baseURL = apiClient.defaults.baseURL || '';
     return `${baseURL}/api/v1/invoices/${id}/view`;
   },
+  /**
+   * 청구서를 오늘청구로 이동 (조기 청구)
+   */
+  moveToTodayBilling: async (id: number) => {
+    const response = await apiClient.patch(`/api/v1/invoices/${id}/move-to-today-billing`);
+    return response.data;
+  },
 };
 

@@ -91,8 +91,7 @@ interface AttendanceEditModalProps {
   onConfirm: () => void;
   attendanceId: number;
   initialStatus?: string;
-  initialMemoPublic?: string;
-  initialMemoInternal?: string;
+  initialReason?: string; // 사유 (memo_public)
 }
 
 /**
@@ -104,13 +103,11 @@ export default function AttendanceEditModal({
   onConfirm,
   attendanceId,
   initialStatus,
-  initialMemoPublic,
-  initialMemoInternal,
+  initialReason,
 }: AttendanceEditModalProps) {
   const [status, setStatus] = useState<string>(initialStatus || 'present');
   const [showStatusPicker, setShowStatusPicker] = useState(false);
-  const [memoPublic, setMemoPublic] = useState(initialMemoPublic || '');
-  const [memoInternal, setMemoInternal] = useState(initialMemoInternal || '');
+  const [reason, setReason] = useState(initialReason || ''); // 사유
   const [changeReason, setChangeReason] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -131,8 +128,7 @@ export default function AttendanceEditModal({
       setLoading(true);
       await attendanceApi.update(attendanceId, {
         status: status as any,
-        memo_public: memoPublic || undefined,
-        memo_internal: memoInternal || undefined,
+        memo_public: reason || undefined,
         change_reason: changeReason,
       });
       Alert.alert('완료', '출결이 수정되었습니다.');
@@ -148,8 +144,7 @@ export default function AttendanceEditModal({
 
   const handleClose = () => {
     setStatus(initialStatus || 'present');
-    setMemoPublic(initialMemoPublic || '');
-    setMemoInternal(initialMemoInternal || '');
+    setReason(initialReason || '');
     setChangeReason('');
     onClose();
   };
@@ -186,22 +181,13 @@ export default function AttendanceEditModal({
             )}
           </PickerContainer>
 
-          <InputLabel>공개 메모 (수강생에게 표시)</InputLabel>
+          <InputLabel>사유</InputLabel>
           <TextInput
-            placeholder="공개 메모를 입력하세요"
-            value={memoPublic}
-            onChangeText={setMemoPublic}
+            placeholder="결석/대체 사유를 입력하세요"
+            value={reason}
+            onChangeText={setReason}
             multiline
-            numberOfLines={2}
-          />
-
-          <InputLabel>내부 메모 (강사 전용)</InputLabel>
-          <TextInput
-            placeholder="내부 메모를 입력하세요"
-            value={memoInternal}
-            onChangeText={setMemoInternal}
-            multiline
-            numberOfLines={2}
+            numberOfLines={3}
           />
 
           <InputLabel>변경 사유 *</InputLabel>

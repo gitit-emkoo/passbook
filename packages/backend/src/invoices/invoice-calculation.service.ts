@@ -71,6 +71,7 @@ export class InvoiceCalculationService {
       policy_snapshot: any;
       planned_count_override?: number | null;
       day_of_week: string[];
+      payment_schedule?: string | null;
     },
     attendanceLogs: Array<{
       status: string;
@@ -80,21 +81,51 @@ export class InvoiceCalculationService {
     }>,
     year: number,
     month: number,
+    periodStart?: Date | null,
+    periodEnd?: Date | null,
   ): number {
     // policy_snapshot에서 정책 정보 가져오기
     const policy = contract.policy_snapshot;
     const absencePolicy = policy.absence_policy; // 'carry_over' | 'deduct_next' | 'vanish'
     const monthlyAmount = policy.monthly_amount;
+    const isLumpSum = contract.payment_schedule === 'lump_sum';
 
     // 예정 수업 횟수 (필요 시 단가 계산에 사용)
-    const plannedCount =
-      contract.planned_count_override ??
-      this.calculatePlannedCount(contract.day_of_week, year, month);
+    let plannedCount: number;
+    if (contract.planned_count_override) {
+      // 명시적으로 지정된 경우 사용
+      plannedCount = contract.planned_count_override;
+    } else if (isLumpSum && periodStart && periodEnd) {
+      // 일시납부: 전체 계약 기간의 수업 횟수 계산
+      const dayOfWeekArray = contract.day_of_week || [];
+      const targetDays = dayOfWeekArray
+        .map((day) => {
+          const mapping: Record<string, number> = {
+            SUN: 0, MON: 1, TUE: 2, WED: 3, THU: 4, FRI: 5, SAT: 6,
+          };
+          return mapping[day.toUpperCase()] ?? -1;
+        })
+        .filter((day) => day !== -1);
+      
+      let count = 0;
+      const start = new Date(periodStart);
+      const end = new Date(periodEnd);
+      for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
+        if (targetDays.includes(date.getDay())) {
+          count++;
+        }
+      }
+      plannedCount = count;
+    } else {
+      // 월단위: 해당 월의 예정 수업 횟수
+      plannedCount = this.calculatePlannedCount(contract.day_of_week, year, month);
+    }
 
     // 1회당 금액 계산 우선순위:
     // 1) policy.per_session_amount (가장 우선)
     // 2) policy.total_sessions 기반(monthly_amount / total_sessions) - 횟수제
-    // 3) 예정회차 기반(monthly_amount / plannedCount) - 월단위
+    // 3) 일시납부: 전체 금액 / 전체 계약 기간 회차
+    // 4) 예정회차 기반(monthly_amount / plannedCount) - 월단위
     let perSession = 0;
     const policyPer = (policy as any).per_session_amount;
     const policyTotal = (policy as any).total_sessions;
@@ -104,6 +135,9 @@ export class InvoiceCalculationService {
     } else if (typeof policyTotal === 'number' && policyTotal > 0) {
       // 횟수제: 총 금액 / 총 회차 = 단가
       perSession = monthlyAmount / policyTotal;
+    } else if (isLumpSum && plannedCount > 0) {
+      // 일시납부: 전체 금액 / 전체 계약 기간 회차 = 단가
+      perSession = monthlyAmount / plannedCount;
     } else {
       // 월단위: 월 금액 / 예정 회차 = 단가
       perSession = plannedCount > 0 ? monthlyAmount / plannedCount : 0;
@@ -113,7 +147,7 @@ export class InvoiceCalculationService {
       return 0;
     }
 
-    // 해당 월의 출결 기록 필터링 (취소된 기록 제외)
+    // 출결 기록 필터링 (취소된 기록 제외)
     const validLogs = attendanceLogs.filter((log) => !log.voided);
 
     // 출석/대체/결석/소멸 개수 계산
@@ -124,12 +158,24 @@ export class InvoiceCalculationService {
 
     validLogs.forEach((log) => {
       const logDate = new Date(log.occurred_at);
+      
+      // period_start, period_end가 있으면 계약기간 기준으로 필터링
+      // 없으면 기존 로직대로 해당 월의 기록만 처리
+      if (periodStart || periodEnd) {
+        const logTime = logDate.getTime();
+        if (periodStart && logTime < periodStart.getTime()) {
+          return;
+        }
+        if (periodEnd && logTime > periodEnd.getTime()) {
+          return;
+        }
+      } else {
+        // 기존 로직: 해당 월의 기록만 처리
       const logYear = logDate.getFullYear();
       const logMonth = logDate.getMonth() + 1;
-
-      // 해당 월의 기록만 처리
       if (logYear !== year || logMonth !== month) {
         return;
+        }
       }
 
       switch (log.status) {

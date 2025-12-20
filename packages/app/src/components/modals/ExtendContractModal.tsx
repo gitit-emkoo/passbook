@@ -28,12 +28,14 @@ export default function ExtendContractModal({
 }: ExtendContractModalProps) {
   const [loading, setLoading] = useState(false);
   const [addedSessions, setAddedSessions] = useState('');
+  const [extensionAmount, setExtensionAmount] = useState(''); // 연장 정산서 금액
   const [extendedEndDate, setExtendedEndDate] = useState<Date | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
 
   useEffect(() => {
     if (visible) {
       setAddedSessions('');
+      setExtensionAmount('');
       if (currentEndDate) {
         setExtendedEndDate(new Date(currentEndDate));
       } else {
@@ -49,23 +51,46 @@ export default function ExtendContractModal({
         Alert.alert('오류', '추가할 회차를 입력해주세요.');
         return;
       }
+      const amount = extensionAmount ? parseInt(extensionAmount.replace(/,/g, ''), 10) : null;
+      if (!amount || amount <= 0) {
+        Alert.alert('오류', '연장 정산서 금액을 입력해주세요.');
+        return;
+      }
     } else {
       if (!extendedEndDate) {
         Alert.alert('오류', '연장 종료일을 선택해주세요.');
         return;
       }
-      if (currentEndDate && extendedEndDate <= new Date(currentEndDate)) {
-        Alert.alert('오류', '연장 종료일은 현재 종료일보다 이후여야 합니다.');
-        return;
+      if (currentEndDate) {
+        const currentEnd = new Date(currentEndDate);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        currentEnd.setHours(0, 0, 0, 0);
+        
+        // 계약이 이미 종료되었는지 확인
+        if (currentEnd < today) {
+          Alert.alert('오류', '이미 종료된 계약은 연장할 수 없습니다.');
+          return;
+        }
+        
+        // 연장 종료일이 현재 종료일보다 이후여야 함
+        if (extendedEndDate <= currentEnd) {
+          Alert.alert('오류', '연장 종료일은 현재 종료일보다 이후여야 합니다.');
+          return;
+        }
       }
     }
 
     try {
       setLoading(true);
 
-      const data: { added_sessions?: number; extended_end_date?: string } = {};
+      const data: { added_sessions?: number; extension_amount?: number; extended_end_date?: string } = {};
       if (contractType === 'sessions') {
         data.added_sessions = parseInt(addedSessions, 10);
+        const amount = extensionAmount ? parseInt(extensionAmount.replace(/,/g, ''), 10) : null;
+        if (amount) {
+          data.extension_amount = amount;
+        }
       } else {
         data.extended_end_date = extendedEndDate!.toISOString();
       }
@@ -143,6 +168,22 @@ export default function ExtendContractModal({
                 {addedSessions && !isNaN(parseInt(addedSessions, 10)) && (
                   <PreviewText>
                     연장 후: {totalSessions + parseInt(addedSessions, 10)}회
+                  </PreviewText>
+                )}
+                <InputLabel style={{ marginTop: 16 }}>연장 정산서 금액 (원) *</InputLabel>
+                <StyledTextInput
+                  value={extensionAmount}
+                  onChangeText={(text) => {
+                    // 숫자와 쉼표만 허용
+                    const numericValue = text.replace(/[^0-9,]/g, '');
+                    setExtensionAmount(numericValue);
+                  }}
+                  placeholder="예: 150000"
+                  keyboardType="number-pad"
+                />
+                {extensionAmount && (
+                  <PreviewText>
+                    {parseInt(extensionAmount.replace(/,/g, ''), 10).toLocaleString()}원
                   </PreviewText>
                 )}
               </>

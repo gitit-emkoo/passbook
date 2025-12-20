@@ -4,6 +4,7 @@ import styled from 'styled-components/native';
 import { useRoute, RouteProp, useNavigation } from '@react-navigation/native';
 import { SettlementStackParamList, SettlementStackNavigationProp } from '../navigation/AppNavigator';
 import { useInvoicesStore } from '../store/useInvoicesStore';
+import { useStudentsStore } from '../store/useStudentsStore';
 import { InvoiceSummary } from '../types/invoices';
 import { invoicesApi } from '../api/invoices';
 
@@ -18,6 +19,7 @@ export default function SettlementSendScreen() {
   const sections = useInvoicesStore((s) => s.sections);
   const fetchSections = useInvoicesStore((s) => s.fetchSections);
   const fetchCurrentMonth = useInvoicesStore((s) => s.fetchCurrentMonth);
+  const fetchStudentDetail = useStudentsStore((s) => s.fetchStudentDetail);
 
   const [channel, setChannel] = useState<'kakao' | 'sms' | 'link'>('kakao');
   const [excluded, setExcluded] = useState<Set<number>>(new Set());
@@ -78,6 +80,19 @@ export default function SettlementSendScreen() {
                 fetchSections(true),
                 fetchCurrentMonth({ historyMonths: 3, force: true }),
               ]);
+              
+              // 전송된 정산서의 수강생 상세 정보도 갱신 (정산서 전송내역 반영)
+              const uniqueStudentIds = new Set(
+                sendableInvoices.map((inv) => inv.student_id).filter((id): id is number => Boolean(id))
+              );
+              await Promise.all(
+                Array.from(uniqueStudentIds).map((studentId) =>
+                  fetchStudentDetail(studentId, { force: true }).catch((error) => {
+                    // 개별 수강생 갱신 실패해도 계속 진행
+                    console.warn(`[SettlementSend] Failed to refresh student ${studentId}:`, error);
+                  })
+                )
+              );
             } finally {
               navigation.goBack();
             }
@@ -89,13 +104,14 @@ export default function SettlementSendScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [channel, fetchCurrentMonth, navigation, selectedCount, sendableInvoices]);
+  }, [channel, fetchCurrentMonth, fetchSections, fetchStudentDetail, navigation, selectedCount, sendableInvoices]);
 
   return (
     <Container>
       <Header>
         <Title>{`${year}년 ${month}월 전송 대상`}</Title>
         <Summary>{`선택 ${selectedCount}명 · 합계 ${selectedSum.toLocaleString()}원`}</Summary>
+        <HintText>각 항목을 터치하면 청구서 상세내역을 미리 볼 수 있어요</HintText>
       </Header>
 
       <ChannelRow>
@@ -153,7 +169,7 @@ export default function SettlementSendScreen() {
 
       <Footer>
         <PrimaryButton disabled={selectedCount === 0 || submitting} onPress={handleSubmit}>
-          {submitting ? <ActivityIndicator color="#ff6b00" /> : <PrimaryButtonText>전송하기</PrimaryButtonText>}
+          {submitting ? <ActivityIndicator color="#ffffff" /> : <PrimaryButtonText>전송하기</PrimaryButtonText>}
         </PrimaryButton>
       </Footer>
     </Container>
@@ -184,6 +200,12 @@ const Summary = styled.Text`
   color: #666666;
 `;
 
+const HintText = styled.Text`
+  margin-top: 6px;
+  font-size: 12px;
+  color: #8e8e93;
+`;
+
 const ChannelRow = styled.View`
   flex-direction: row;
   gap: 8px;
@@ -196,11 +218,11 @@ const ChannelRow = styled.View`
 const ChannelChip = styled.TouchableOpacity<{ $active?: boolean }>`
   padding: 8px 12px;
   border-radius: 999px;
-  background-color: ${(p) => (p.$active ? '#ff6b00' : '#f3f4f6')};
+  background-color: ${(p) => (p.$active ? '#c7d2fe' : '#f3f4f6')};
 `;
 
 const ChannelChipText = styled.Text<{ $active?: boolean }>`
-  color: ${(p) => (p.$active ? '#ffffff' : '#111111')};
+  color: ${(p) => (p.$active ? '#1d42d8' : '#111111')};
   font-size: 14px;
   font-weight: 700;
 `;
@@ -288,7 +310,7 @@ const Footer = styled.View`
 const PrimaryButton = styled.TouchableOpacity<{ disabled?: boolean }>`
   padding: 14px;
   border-radius: 10px;
-  background-color: ${(props) => (props.disabled ? '#ffd2ad' : '#ff6b00')};
+  background-color: ${(props) => (props.disabled ? '#c7d2fe' : '#1d42d8')};
   align-items: center;
 `;
 

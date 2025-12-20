@@ -57,12 +57,13 @@ model User {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  students       Student[]
-  contracts      Contract[]
-  attendance_logs AttendanceLog[]
-  invoices       Invoice[]
-  notifications  Notification[]
-  notices        Notice[]
+  students          Student[]
+  contracts         Contract[]
+  attendance_logs   AttendanceLog[]
+  invoices          Invoice[]
+  notifications     Notification[]
+  notices           Notice[]
+  scheduleExceptions ScheduleException[]
 
   @@map("users")
 }
@@ -78,10 +79,11 @@ model Student {
   created_at    DateTime @default(now())
   updated_at    DateTime @updatedAt
 
-  user            User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  contracts       Contract[]
-  attendance_logs AttendanceLog[]
-  invoices        Invoice[]
+  user               User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  contracts          Contract[]
+  attendance_logs    AttendanceLog[]
+  invoices           Invoice[]
+  scheduleExceptions ScheduleException[]
 
   @@map("students")
 }
@@ -106,14 +108,16 @@ model Contract {
   started_at            DateTime? // 계약 시작일 (nullable)
   ended_at              DateTime? // 계약 종료일 (nullable, 무기한 계약 가능)
   billing_day           Int?     // 청구일 (1-31, 계약 시작일의 일자)
+  payment_schedule      String?   // 납부 방식: 'monthly' (월납) | 'lump_sum' (일시납), nullable (기본값: 월납)
   status                ContractStatus
   created_at            DateTime @default(now())
   updated_at            DateTime @updatedAt
 
-  user            User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  student         Student         @relation(fields: [student_id], references: [id], onDelete: Cascade)
-  attendance_logs AttendanceLog[]
-  invoices        Invoice[]
+  user               User               @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  student            Student            @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  attendance_logs    AttendanceLog[]
+  invoices           Invoice[]
+  scheduleExceptions ScheduleException[]
 
   @@map("contracts")
 }
@@ -146,6 +150,28 @@ model AttendanceLog {
   @@map("attendance_logs")
 }
 
+model ScheduleException {
+  id            Int      @id @default(autoincrement())
+  user_id       Int
+  student_id    Int
+  contract_id   Int
+  original_date DateTime
+  new_date      DateTime
+  reason        String?
+  created_at    DateTime @default(now())
+
+  user     User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  student  Student  @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  contract Contract @relation(fields: [contract_id], references: [id], onDelete: Cascade)
+
+  @@index([student_id])
+  @@index([contract_id])
+  @@index([original_date])
+  @@index([new_date])
+  @@unique([contract_id, original_date])
+  @@map("schedule_exceptions")
+}
+
 model Invoice {
   id                Int      @id @default(autoincrement())
   user_id           Int
@@ -161,6 +187,7 @@ model Invoice {
   planned_count      Int?
   period_start       DateTime? // 청구 기간 시작일
   period_end         DateTime? // 청구 기간 종료일
+  force_to_today_billing Boolean @default(false) // 수동으로 오늘청구로 이동 (조기 청구)
   send_status       InvoiceSendStatus @default(not_sent)
   send_to           Json?
   send_history      Json?

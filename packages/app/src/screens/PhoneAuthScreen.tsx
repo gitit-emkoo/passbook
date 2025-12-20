@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Alert, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Image } from 'react-native';
+import { Alert, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Image, Modal, TouchableOpacity } from 'react-native';
 import { useNavigation, NativeStackNavigationProp } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import styled from 'styled-components/native';
@@ -14,6 +14,9 @@ type PhoneAuthNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'Ph
 export default function PhoneAuthScreen() {
   const navigation = useNavigation<PhoneAuthNavigationProp>();
   const login = useAuthStore((state) => state.login);
+  const apiBaseUrl = useAuthStore((state) => state.apiBaseUrl);
+  const setApiBaseUrl = useAuthStore((state) => state.setApiBaseUrl);
+  const storedAccessToken = useAuthStore((state) => state.accessToken);
   
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
@@ -21,6 +24,11 @@ export default function PhoneAuthScreen() {
   const [requestingCode, setRequestingCode] = useState(false);
   const [verifyingCode, setVerifyingCode] = useState(false);
   const [hasPreviousLogin, setHasPreviousLogin] = useState(false);
+  const [showApiUrlInput, setShowApiUrlInput] = useState(false);
+  const [apiUrlInput, setApiUrlInput] = useState('');
+  const [showTokenInput, setShowTokenInput] = useState(false);
+  const [tokenInput, setTokenInput] = useState('');
+  const saveAccessToken = useAuthStore((state) => state.setAccessToken);
 
   // 디바이스에 이전 로그인 기록이 있는지 확인
   useEffect(() => {
@@ -52,7 +60,16 @@ export default function PhoneAuthScreen() {
       }
     };
     checkPreviousLogin();
-  }, []);
+    // API URL 초기값 설정
+    setApiUrlInput(apiBaseUrl || '');
+  }, [apiBaseUrl]);
+
+  // 저장된 토큰을 로그인 화면 토큰 입력란에 반영
+  useEffect(() => {
+    if (storedAccessToken) {
+      setTokenInput(storedAccessToken);
+    }
+  }, [storedAccessToken]);
 
   // 전화번호 형식 검증
   const isValidPhone = (phoneNumber: string): boolean => {
@@ -94,7 +111,27 @@ export default function PhoneAuthScreen() {
       if (error?.message === 'Network Error' || error?.code === 'ERR_NETWORK') {
         const { apiBaseUrl } = useAuthStore.getState();
         const currentUrl = apiBaseUrl || 'http://localhost:3000';
+        if (__DEV__) {
+          console.log('[PhoneAuthScreen] Network error - Current API URL:', currentUrl);
+        }
         errorMessage = `네트워크 연결을 확인해주세요.\n\n현재 연결 시도 중인 주소:\n${currentUrl}\n\n백엔드 서버와 ngrok이 실행 중인지 확인해주세요.`;
+        
+        // 네트워크 에러 시 API URL 입력 옵션 제공
+        Alert.alert(
+          '네트워크 오류',
+          errorMessage,
+          [
+            {
+              text: 'API URL 설정',
+              onPress: () => setShowApiUrlInput(true),
+            },
+            {
+              text: '확인',
+              style: 'cancel',
+            },
+          ]
+        );
+        return;
       } else if (error?.response?.data?.message) {
         errorMessage = error.response.data.message;
       } else if (error?.message) {
@@ -107,6 +144,40 @@ export default function PhoneAuthScreen() {
     }
   }, [phone]);
 
+  // API URL 저장
+  const handleSaveApiUrl = useCallback(async () => {
+    if (!apiUrlInput.trim()) {
+      Alert.alert('입력 오류', 'API URL을 입력해주세요.');
+      return;
+    }
+    
+    try {
+      const trimmedUrl = apiUrlInput.trim();
+      // URL 형식 검증
+      if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
+        Alert.alert('입력 오류', '올바른 URL 형식이 아닙니다.\n예: https://xxxx.ngrok.io');
+        return;
+      }
+      
+      await setApiBaseUrl(trimmedUrl);
+      setShowApiUrlInput(false);
+      
+      // API 클라이언트 즉시 업데이트 확인
+      const { apiBaseUrl: savedUrl } = useAuthStore.getState();
+      if (__DEV__) {
+        console.log('[PhoneAuthScreen] API URL saved:', savedUrl);
+      }
+      
+      Alert.alert(
+        '완료', 
+        `API URL이 저장되었습니다.\n\n저장된 주소:\n${savedUrl}\n\n다시 인증번호를 요청해주세요.`
+      );
+    } catch (error) {
+      console.error('[PhoneAuthScreen] Failed to save API URL', error);
+      Alert.alert('오류', 'API URL 저장에 실패했습니다.');
+    }
+  }, [apiUrlInput, setApiBaseUrl]);
+
   // 인증번호 검증
   const handleVerifyCode = useCallback(async () => {
     if (code.length !== 6) {
@@ -116,19 +187,68 @@ export default function PhoneAuthScreen() {
 
     try {
       setVerifyingCode(true);
+      
+      if (__DEV__) {
+        console.log('[PhoneAuthScreen] Verifying code for phone:', phone);
+      }
+      
       const response = await authApi.verifyCode(phone, code);
+      
+      if (__DEV__) {
+        console.log('[PhoneAuthScreen] verifyCode response:', {
+          isNewUser: response.isNewUser,
+          hasAccessToken: !!response.accessToken,
+          hasUser: !!response.user,
+          hasTemporaryToken: !!response.temporaryToken,
+        });
+      }
       
       if (!response.isNewUser && response.accessToken && response.user) {
         // 이미 가입한 사용자: 바로 로그인
-        await login(response.accessToken, {
-          id: response.user.id,
-          phone: response.user.phone,
-          name: response.user.name,
-          org_code: response.user.org_code,
-        });
-        // 로그인 성공하면 자동으로 홈 화면으로 이동됨
+        try {
+          if (__DEV__) {
+            console.log('[PhoneAuthScreen] Logging in user:', response.user.id);
+          }
+          
+          // 로그인 처리
+          await login(response.accessToken, {
+            id: response.user.id,
+            phone: response.user.phone,
+            name: response.user.name,
+            org_code: response.user.org_code,
+          });
+          
+          // 로그인 상태 확인
+          const authState = useAuthStore.getState();
+          if (__DEV__) {
+            console.log('[PhoneAuthScreen] Login state after login:', {
+              isAuthenticated: authState.isAuthenticated,
+              hasAccessToken: !!authState.accessToken,
+              hasUser: !!authState.user,
+            });
+          }
+          
+          // 약간의 지연을 주어 상태 업데이트가 완료되도록 함
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          if (__DEV__) {
+            console.log('[PhoneAuthScreen] Login successful, navigation should happen automatically');
+          }
+          
+          // 로그인 성공하면 자동으로 홈 화면으로 이동됨 (AppNavigator에서 isAuthenticated 변경 감지)
+        } catch (loginError: any) {
+          console.error('[PhoneAuthScreen] Login error:', loginError);
+          Alert.alert(
+            '로그인 오류',
+            '로그인 처리 중 오류가 발생했습니다.\n앱을 재시작해주세요.',
+            [{ text: '확인' }]
+          );
+        }
       } else if (response.isNewUser && response.temporaryToken) {
         // 신규 사용자: 회원가입 화면으로 이동
+        if (__DEV__) {
+          console.log('[PhoneAuthScreen] New user, navigating to Signup');
+        }
         navigation.navigate('Signup', {
           phone,
           temporaryToken: response.temporaryToken,
@@ -143,6 +263,7 @@ export default function PhoneAuthScreen() {
         console.log('[PhoneAuthScreen] verifyCode error (handled)', {
           status: error?.response?.status,
           message: error?.response?.data?.message || error?.message,
+          error: error,
         });
       }
       
@@ -187,8 +308,10 @@ export default function PhoneAuthScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <HeaderArea>
+            <AppTitle>THE LESSON</AppTitle>
             <LogoImage source={logoImage} resizeMode="contain" />
-            <AppSlogan>계약부터 정산까지 간편한 레슨관리 김쌤</AppSlogan>
+            <AppSlogan>소규모 레슨 운영 자동화</AppSlogan>
+            <AppSubtitle>계약 출결 정산 발송이 더 편리해집니다.</AppSubtitle>
           </HeaderArea>
           <Content>
             <StepContainer>
@@ -257,10 +380,123 @@ export default function PhoneAuthScreen() {
                   <SecondaryButtonText>번호 다시 입력</SecondaryButtonText>
                 </SecondaryButton>
               )}
+
+              {/* API URL 설정 버튼 (개발용) */}
+              <SecondaryButton 
+                onPress={() => setShowApiUrlInput(true)}
+                style={{ marginTop: 8 }}
+              >
+                <SecondaryButtonText style={{ fontSize: 12, color: '#8e8e93' }}>
+                  API URL 설정
+                </SecondaryButtonText>
+              </SecondaryButton>
+
+              {/* AccessToken 직접 입력 버튼 (임시 개발용) */}
+              <SecondaryButton 
+                onPress={() => setShowTokenInput(true)}
+                style={{ marginTop: 8 }}
+              >
+                <SecondaryButtonText style={{ fontSize: 12, color: '#ff6b00' }}>
+                  AccessToken 직접 입력 (임시)
+                </SecondaryButtonText>
+              </SecondaryButton>
             </StepContainer>
           </Content>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* API URL 입력 모달 */}
+      {showApiUrlInput && (
+        <Modal
+          visible={showApiUrlInput}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowApiUrlInput(false)}
+        >
+          <ModalOverlay onPress={() => setShowApiUrlInput(false)}>
+            <ModalContent onStartShouldSetResponder={() => true}>
+              <ModalTitle>API URL 설정</ModalTitle>
+              <ModalDescription>
+                백엔드 서버 주소를 입력해주세요.{'\n'}
+                예: https://your-ngrok-url.ngrok.io
+              </ModalDescription>
+              <ApiUrlInput
+                value={apiUrlInput}
+                onChangeText={setApiUrlInput}
+                placeholder="https://your-ngrok-url.ngrok.io"
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+              />
+              <CurrentUrlText>
+                현재: {apiBaseUrl || 'http://localhost:3000'}
+              </CurrentUrlText>
+              <ModalButtons>
+                <ModalButton onPress={() => setShowApiUrlInput(false)}>
+                  <ModalButtonText>취소</ModalButtonText>
+                </ModalButton>
+                <ModalButton primary onPress={handleSaveApiUrl}>
+                  <ModalButtonText primary>저장</ModalButtonText>
+                </ModalButton>
+              </ModalButtons>
+            </ModalContent>
+          </ModalOverlay>
+        </Modal>
+      )}
+
+      {/* AccessToken 입력 모달 (임시 개발용) */}
+      {showTokenInput && (
+        <Modal
+          visible={showTokenInput}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowTokenInput(false)}
+        >
+          <ModalOverlay onPress={() => setShowTokenInput(false)}>
+            <ModalContent onStartShouldSetResponder={() => true}>
+              <ModalTitle>Access Token 입력 (임시)</ModalTitle>
+              <ModalDescription>
+                Access Token을 입력하고 저장하세요.{'\n'}
+                개발/복구용 기능입니다.
+              </ModalDescription>
+              <InputLabel style={{ marginTop: 0 }}>Access Token</InputLabel>
+              <ApiUrlInput
+                value={tokenInput}
+                onChangeText={setTokenInput}
+                placeholder="Bearer 토큰 문자열을 입력하세요"
+                autoCapitalize="none"
+                autoCorrect={false}
+                multiline
+                style={{ minHeight: 80 }}
+              />
+              <ModalButtons>
+                <ModalButton onPress={() => setShowTokenInput(false)}>
+                  <ModalButtonText>취소</ModalButtonText>
+                </ModalButton>
+                <ModalButton 
+                  primary 
+                  onPress={async () => {
+                    if (!tokenInput.trim()) {
+                      Alert.alert('입력 오류', 'Access Token을 입력해주세요.');
+                      return;
+                    }
+                    try {
+                      await saveAccessToken(tokenInput.trim());
+                      setShowTokenInput(false);
+                      Alert.alert('저장 완료', 'Access Token이 저장되었습니다.');
+                    } catch (error: any) {
+                      console.error('[PhoneAuthScreen] Save token error:', error);
+                      Alert.alert('오류', '토큰 저장에 실패했습니다.');
+                    }
+                  }}
+                >
+                  <ModalButtonText primary>저장</ModalButtonText>
+                </ModalButton>
+              </ModalButtons>
+            </ModalContent>
+          </ModalOverlay>
+        </Modal>
+      )}
     </Container>
   );
 }
@@ -276,6 +512,14 @@ const HeaderArea = styled.View`
   gap: 16px;
 `;
 
+const AppTitle = styled.Text`
+  font-size: 28px;
+  font-weight: 700;
+  color: #111111;
+  text-align: center;
+  margin-bottom: 8px;
+`;
+
 const LogoImage = styled.Image`
   width: 80px;
   height: 80px;
@@ -287,6 +531,14 @@ const AppSlogan = styled.Text`
   font-weight: 700;
   color: #1d42d8;
   text-align: center;
+`;
+
+const AppSubtitle = styled.Text`
+  font-size: 14px;
+  font-weight: 400;
+  color: #8e8e93;
+  text-align: center;
+  margin-top: 4px;
 `;
 
 const Content = styled.View`
@@ -373,5 +625,70 @@ const SecondaryButton = styled.TouchableOpacity`
 const SecondaryButtonText = styled.Text`
   color: #8e8e93;
   font-size: 14px;
+`;
+
+const ModalOverlay = styled.TouchableOpacity`
+  flex: 1;
+  background-color: rgba(0, 0, 0, 0.5);
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+`;
+
+const ModalContent = styled.View`
+  background-color: #ffffff;
+  border-radius: 16px;
+  padding: 24px;
+  width: 100%;
+  max-width: 400px;
+`;
+
+const ModalTitle = styled.Text`
+  font-size: 20px;
+  font-weight: 700;
+  color: #111111;
+  margin-bottom: 8px;
+`;
+
+const ModalDescription = styled.Text`
+  font-size: 14px;
+  color: #666666;
+  margin-bottom: 16px;
+  line-height: 20px;
+`;
+
+const ApiUrlInput = styled.TextInput`
+  border-width: 1px;
+  border-color: #e0e0e0;
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 14px;
+  color: #111111;
+  background-color: #ffffff;
+  margin-bottom: 8px;
+`;
+
+const CurrentUrlText = styled.Text`
+  font-size: 12px;
+  color: #8e8e93;
+  margin-bottom: 16px;
+`;
+
+const ModalButtons = styled.View`
+  flex-direction: row;
+  justify-content: flex-end;
+  gap: 12px;
+`;
+
+const ModalButton = styled.TouchableOpacity<{ primary?: boolean }>`
+  padding: 12px 24px;
+  border-radius: 8px;
+  background-color: ${(props) => (props.primary ? '#1d42d8' : '#f0f0f0')};
+`;
+
+const ModalButtonText = styled.Text<{ primary?: boolean }>`
+  color: ${(props) => (props.primary ? '#ffffff' : '#111111')};
+  font-size: 14px;
+  font-weight: 600;
 `;
 

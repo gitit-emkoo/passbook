@@ -34,6 +34,15 @@ export class AttendanceService {
         user_id: userId,
         student_id: dto.student_id,
       },
+      include: {
+        student: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+          },
+        },
+      },
     });
 
     if (!contract) {
@@ -82,6 +91,238 @@ export class AttendanceService {
     } catch (e) {
       console.warn('[Attendance] invoice recalc failed', e?.message);
     }
+
+    // 횟수계약(계약기간없음) 처리: 횟수 모두 차감되었을 때 청구서 생성
+    try {
+      const policy = (contract.policy_snapshot ?? {}) as Record<string, any>;
+      const totalSessions = typeof policy.total_sessions === 'number' ? policy.total_sessions : 0;
+      const isSessionBased = totalSessions > 0 && !contract.ended_at; // 횟수계약 (계약기간없음)
+      
+      if (isSessionBased) {
+        // 연장 이력 확인
+        const extensions = Array.isArray(policy.extensions) ? policy.extensions : [];
+        
+        // 사용된 횟수 계산 (전체 출결기록 기준)
+        const allUsedSessions = await this.prisma.attendanceLog.count({
+          where: {
+            user_id: userId,
+            contract_id: contract.id,
+            voided: false,
+            status: { in: ['present', 'absent', 'substitute', 'vanish'] },
+          },
+        });
+        
+        // 연장이 있는 경우: 이전 계약(연장 전)의 사용된 횟수 계산
+        let previousContractUsedSessions = 0;
+        if (extensions.length > 0) {
+          const lastExtension = extensions[extensions.length - 1];
+          const lastExtensionDate = lastExtension.extended_at 
+            ? new Date(lastExtension.extended_at)
+            : null;
+          
+          if (lastExtensionDate) {
+            // 마지막 연장 시점 이전의 출결기록만 카운트
+            previousContractUsedSessions = await this.prisma.attendanceLog.count({
+              where: {
+                user_id: userId,
+                contract_id: contract.id,
+                voided: false,
+                status: { in: ['present', 'absent', 'substitute', 'vanish'] },
+                occurred_at: {
+                  lt: lastExtensionDate,
+                },
+              },
+            });
+          }
+        }
+        
+        // 후불: 횟수 모두 차감되었을 때 "오늘청구" 이동을 위해 청구서 존재 여부만 확인
+        // 계약서 전송 시 이미 정산서가 생성되어 있어야 하며, 없을 경우에만 생성
+        if (contract.billing_type === 'postpaid' && allUsedSessions >= totalSessions) {
+          // 기존 미전송 청구서가 있는지 확인 (contract_id 기준)
+          const existingInvoice = await this.prisma.invoice.findFirst({
+            where: {
+              user_id: userId,
+              contract_id: contract.id,
+              send_status: 'not_sent',
+            },
+            orderBy: {
+              created_at: 'desc',
+            },
+          });
+
+          if (!existingInvoice) {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = now.getMonth() + 1;
+            await this.invoicesService.createInvoiceForSessionBasedContract(userId, contract, year, month);
+          }
+        }
+        
+        // 확정 개념: 선불 횟수 계약 (횟수 모두 소진되기 전 연장처리)
+        // 직전 계약의 마지막 회차 출결 처리 시점에 정산서 생성/마감
+        if (contract.billing_type === 'prepaid' && extensions.length > 0) {
+          // 현재 생성해야 할 청구서가 몇 번째 연장인지 확인
+          const existingInvoices = await this.prisma.invoice.findMany({
+            where: {
+              user_id: userId,
+              student_id: contract.student_id,
+              contract_id: contract.id,
+            },
+          });
+          
+          // 현재 생성해야 할 청구서 번호 (1=첫 계약, 2=2회 연장, 3=3회 연장...)
+          const nextInvoiceNumber = existingInvoices.length + 1;
+          
+          // 출결 기록 생성 후 직전 계약의 잔여 회차 소진 여부 확인
+          // allUsedSessions는 방금 생성된 출결 기록을 포함하므로, 직전 계약의 잔여 회차 소진 여부를 정확히 확인 가능
+          
+          if (nextInvoiceNumber === 2) {
+            // 2회 연장의 청구서: 최초 계약의 횟수 소진 시점 확인
+            const firstContractTotalSessions = extensions.reduce(
+              (sum: number, ext: any) => sum - (ext.added_sessions || 0),
+              totalSessions
+            );
+            
+            // 첫 계약의 사용된 횟수 계산: 연장 시점 이전의 출결 기록만 카운트
+            // (방금 생성된 출결 기록도 이미 DB에 저장되어 있으므로 count에 포함됨)
+            // 첫 계약의 사용된 횟수:
+            // 확정 개념상 "직전 계약의 모든 회차가 소진되는 시점"이 중요하므로,
+            // 연장 시점(before/after)과 관계없이 전체 사용된 횟수 기준으로 판단한다.
+            // 예) 2회 선불 후 4회 연장, 1회 남은 시점에서 연장한 경우
+            //  - 연장 시점 이후에 발생한 출결이라도, 총 사용 횟수가 최초 계약 횟수(2회)에 도달하면
+            //    직전 계약이 모두 소진된 것으로 보고 연장분 정산서를 생성해야 함.
+            const firstContractUsedSessions = allUsedSessions;
+            
+            // 첫 계약의 사용된 횟수가 첫 계약의 총 횟수와 같거나 크면 2회 연장 청구서 생성
+            // 확정 개념: 직전 계약의 마지막 회차 소진 시점에 정산서 생성
+            console.log(`[Attendance] Contract ${contract.id}: firstContractUsedSessions=${firstContractUsedSessions}, firstContractTotalSessions=${firstContractTotalSessions}, allUsedSessions=${allUsedSessions}`);
+            if (firstContractUsedSessions >= firstContractTotalSessions) {
+              // 횟수제 선불 계약의 경우 year/month는 unique constraint를 피하기 위해 다음 달로 설정
+              // (전송 시점에 실제 청구월로 업데이트됨)
+              // 첫 계약의 모든 회차가 소진된 시점의 다음 달을 사용
+              const lastAttendanceLog = await this.prisma.attendanceLog.findFirst({
+                where: {
+                  user_id: userId,
+                  contract_id: contract.id,
+                  voided: false,
+                  status: { in: ['present', 'absent', 'substitute', 'vanish'] },
+                },
+                orderBy: {
+                  occurred_at: 'desc',
+                },
+              });
+
+              let year: number;
+              let month: number;
+              
+              if (lastAttendanceLog) {
+                // 마지막 출결 기록의 날짜를 기준으로 다음 달 계산
+                const lastAttendanceDate = new Date(lastAttendanceLog.occurred_at);
+                year = lastAttendanceDate.getFullYear();
+                month = lastAttendanceDate.getMonth() + 1;
+                // 다음 달로 설정 (unique constraint 방지)
+                month += 1;
+                if (month > 12) {
+                  month = 1;
+                  year += 1;
+                }
+              } else {
+                // 출결 기록이 없으면 현재 시점의 다음 달 사용
+                const now = new Date();
+                year = now.getFullYear();
+                month = now.getMonth() + 2; // 다음 달
+                if (month > 12) {
+                  month = month - 12;
+                  year += 1;
+                }
+              }
+              
+              await this.invoicesService.createInvoiceForSessionBasedContract(userId, contract, year, month);
+              console.log(`[Attendance] Prepaid session-based invoice created (first extension) for contract ${contract.id}, student ${contract.student_id}, year=${year}, month=${month}`);
+            } else {
+              console.log(`[Attendance] Contract ${contract.id}: Not creating invoice yet. firstContractUsedSessions=${firstContractUsedSessions} < firstContractTotalSessions=${firstContractTotalSessions}`);
+            }
+          } else if (nextInvoiceNumber > 2 && nextInvoiceNumber <= extensions.length + 1) {
+            // 3회 연장 이상의 청구서: 이전 연장의 횟수 소진 시점 확인
+            // 예: 3회 연장 청구서는 2회 연장의 횟수가 소진되었을 때 생성
+            const previousExtension = extensions[nextInvoiceNumber - 3]; // 이전 연장
+            const previousExtensionDate = previousExtension.extended_at 
+              ? new Date(previousExtension.extended_at)
+              : null;
+            
+            if (previousExtensionDate) {
+              // 이전 연장 시점부터 현재까지의 사용된 횟수 계산 (방금 생성된 출결 기록 포함)
+              const previousExtensionUsedSessions = await this.prisma.attendanceLog.count({
+                where: {
+                  user_id: userId,
+                  contract_id: contract.id,
+                  voided: false,
+                  status: { in: ['present', 'absent', 'substitute', 'vanish'] },
+                  occurred_at: {
+                    gte: previousExtensionDate,
+                  },
+                },
+              });
+              
+              // 이전 연장으로 추가된 횟수
+              const previousExtensionAddedSessions = previousExtension.added_sessions || 0;
+              
+              // 이전 연장의 사용된 횟수가 이전 연장의 총 횟수와 같거나 크면 다음 청구서 생성
+              // 확정 개념: 직전 계약의 마지막 회차 소진 시점에 정산서 생성
+              if (previousExtensionUsedSessions >= previousExtensionAddedSessions) {
+                // 횟수제 선불 계약의 경우 year/month는 unique constraint를 피하기 위해 다음 달로 설정
+                const lastAttendanceLog = await this.prisma.attendanceLog.findFirst({
+                  where: {
+                    user_id: userId,
+                    contract_id: contract.id,
+                    voided: false,
+                    status: { in: ['present', 'absent', 'substitute', 'vanish'] },
+                    occurred_at: {
+                      gte: previousExtensionDate,
+                    },
+                  },
+                  orderBy: {
+                    occurred_at: 'desc',
+                  },
+                });
+
+                let year: number;
+                let month: number;
+                
+                if (lastAttendanceLog) {
+                  // 마지막 출결 기록의 날짜를 기준으로 다음 달 계산
+                  const lastAttendanceDate = new Date(lastAttendanceLog.occurred_at);
+                  year = lastAttendanceDate.getFullYear();
+                  month = lastAttendanceDate.getMonth() + 1;
+                  // 다음 달로 설정 (unique constraint 방지)
+                  month += 1;
+                  if (month > 12) {
+                    month = 1;
+                    year += 1;
+                  }
+                } else {
+                  // 출결 기록이 없으면 현재 시점의 다음 달 사용
+                  const now = new Date();
+                  year = now.getFullYear();
+                  month = now.getMonth() + 2; // 다음 달
+                  if (month > 12) {
+                    month = month - 12;
+                    year += 1;
+                  }
+                }
+                
+                await this.invoicesService.createInvoiceForSessionBasedContract(userId, contract, year, month);
+                console.log(`[Attendance] Prepaid session-based invoice created (extension ${nextInvoiceNumber - 1}) for contract ${contract.id}, year=${year}, month=${month}`);
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[Attendance] session-based invoice creation failed', e?.message);
+    }
+
     return attendanceLog;
   }
 
@@ -388,7 +629,7 @@ export class AttendanceService {
         const dayOfWeek = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'][d.getDay()];
         
         // 계약서의 요일에 포함되는지 확인
-        if (!dayOfWeekArray.includes(dayOfWeek) && !dayOfWeekArray.includes('ANY')) {
+        if (!dayOfWeekArray.includes(dayOfWeek)) {
           continue;
         }
 

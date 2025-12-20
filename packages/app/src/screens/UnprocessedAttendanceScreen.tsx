@@ -6,6 +6,7 @@ import { attendanceApi } from '../api/attendance';
 import AttendanceAbsenceModal from '../components/modals/AttendanceAbsenceModal';
 import AttendanceSignatureModal from '../components/modals/AttendanceSignatureModal';
 import AttendanceConfirmModal from '../components/modals/AttendanceConfirmModal';
+import { useStudentsStore } from '../store/useStudentsStore';
 
 interface UnprocessedItem {
   contract_id: number;
@@ -63,11 +64,7 @@ function UnprocessedAttendanceContent() {
       FRI: '금',
       SAT: '토',
       SUN: '일',
-      ANY: '무관',
     };
-    if (dayOfWeekArray.includes('ANY')) {
-      return '무관';
-    }
     return dayOfWeekArray.map((d) => dayNames[d] || d).join('/');
   };
 
@@ -100,21 +97,25 @@ function UnprocessedAttendanceContent() {
 
         Alert.alert('완료', '출석이 기록되었습니다.');
         await loadUnprocessed();
+        // 해당 수강생의 상세 정보도 새로고침 (출결 기록 반영)
+        if (selectedItem?.student_id) {
+          await fetchStudentDetail(selectedItem.student_id, { force: true }).catch(() => {
+            // 에러는 무시 (수강생 상세 화면이 열려있지 않을 수 있음)
+          });
+        }
         setSelectedItem(null);
       } catch (error: any) {
         console.error('[UnprocessedAttendance] create attendance error', error);
         Alert.alert('오류', error?.message || '출석 기록에 실패했습니다.');
       }
     },
-    [selectedItem, loadUnprocessed],
+    [selectedItem, loadUnprocessed, fetchStudentDetail],
   );
 
   const handleAttendanceAbsenceSubmit = useCallback(
     async (data: {
       status: 'absent' | 'substitute';
       substitute_at?: string;
-      memo_public?: string;
-      memo_internal?: string;
       reason: string;
     }) => {
       if (!selectedItem) return;
@@ -129,19 +130,24 @@ function UnprocessedAttendanceContent() {
           occurred_at: occurredAt.toISOString(),
           status: data.status,
           substitute_at: data.substitute_at,
-          memo_public: data.reason || data.memo_public,
-          memo_internal: data.memo_internal,
+          memo_public: data.reason,
         });
 
         Alert.alert('완료', `${data.status === 'absent' ? '결석' : '대체'}이 기록되었습니다.`);
         await loadUnprocessed();
+        // 해당 수강생의 상세 정보도 새로고침 (출결 기록 반영)
+        if (selectedItem?.student_id) {
+          await fetchStudentDetail(selectedItem.student_id, { force: true }).catch(() => {
+            // 에러는 무시 (수강생 상세 화면이 열려있지 않을 수 있음)
+          });
+        }
         setSelectedItem(null);
       } catch (error: any) {
         console.error('[UnprocessedAttendance] create absence error', error);
         Alert.alert('오류', error?.message || '기록에 실패했습니다.');
       }
     },
-    [selectedItem, loadUnprocessed],
+    [selectedItem, loadUnprocessed, fetchStudentDetail],
   );
 
   const groupedItems = useMemo(() => {

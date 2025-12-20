@@ -1,10 +1,11 @@
-import { Controller, Post, Get, Param, Body, Patch, Req, UseGuards, ParseIntPipe } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { ContractsService } from './contracts.service';
 import { CreateContractDto } from './dto/create-contract.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth/jwt-auth.guard';
 import { UpdateContractStatusDto } from './dto/update-contract-status.dto';
 import { ExtendContractDto } from './dto/extend-contract.dto';
+import { RescheduleSessionDto } from './dto/reschedule-session.dto';
 
 @Controller('api/v1/contracts')
 export class ContractsController {
@@ -33,6 +34,18 @@ export class ContractsController {
   async findTodayClasses(@Req() req: Request) {
     const user = req.user as any;
     return this.contractsService.findTodayClasses(user.id ?? user.sub);
+  }
+
+  @Post(':id/reschedule')
+  @UseGuards(JwtAuthGuard)
+  async rescheduleSession(
+    @Req() req: Request,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: RescheduleSessionDto,
+  ) {
+    const user = req.user as any;
+    const userId = user.id ?? user.sub;
+    return this.contractsService.rescheduleSession(userId, id, dto);
   }
 
   @Get(':id')

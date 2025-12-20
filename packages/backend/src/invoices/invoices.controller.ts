@@ -48,7 +48,9 @@ export class InvoicesController {
   @Get('sections')
   @UseGuards(JwtAuthGuard)
   async getBySections(@Req() req: Request) {
+    console.log('[InvoicesController] getBySections called');
     const user = req.user as any;
+    console.log('[InvoicesController] User ID:', user.id ?? user.sub);
     return this.invoicesService.getInvoicesBySections(user.id ?? user.sub);
   }
 
@@ -70,6 +72,20 @@ export class InvoicesController {
       manualAdjustment,
       manualReason,
     );
+  }
+
+  /**
+   * 청구서를 오늘청구로 이동 (조기 청구)
+   */
+  @Patch(':id/move-to-today-billing')
+  @UseGuards(JwtAuthGuard)
+  async moveToTodayBilling(@Req() req: Request, @Param('id', ParseIntPipe) id: number) {
+    console.log('[InvoicesController] moveToTodayBilling called - invoiceId:', id);
+    const user = req.user as any;
+    console.log('[InvoicesController] User ID:', user.id ?? user.sub);
+    const result = await this.invoicesService.moveToTodayBilling(user.id ?? user.sub, id);
+    console.log('[InvoicesController] moveToTodayBilling result:', result);
+    return result;
   }
 
   /**

@@ -21,6 +21,7 @@ import { useAuthStore } from '../store/useStore';
 import { StudentSummary } from '../types/students';
 import { StudentsStackNavigationProp, MainTabsNavigationProp } from '../navigation/AppNavigator';
 import ExtendContractModal from '../components/modals/ExtendContractModal';
+import { studentsApi } from '../api/students';
 import styled from 'styled-components/native';
 
 const StudentsListStub = () => (
@@ -81,6 +82,14 @@ function StudentsListContent() {
   const billingThisMonthCount = useMemo(() => {
     return items.filter((item) => item.this_month_invoice && item.this_month_invoice.final_amount > 0).length;
   }, [items]);
+
+  // 전체 수강생 수 (백엔드 total 우선, 없으면 현재 리스트 길이)
+  const totalStudentsCount = useMemo(() => {
+    if (typeof total === 'number' && total >= 0) {
+      return total;
+    }
+    return items.length;
+  }, [items.length, total]);
 
   const isInitialLoading = status === 'loading' && items.length === 0;
 
@@ -143,7 +152,8 @@ function StudentsListContent() {
       let extendEligible = false;
       let extendReason: string | null = null;
       if (isExpired) {
-        extendEligible = true;
+        // 종료된 계약은 연장 불가
+        extendEligible = false;
         extendReason = '기간 만료됨';
       } else {
         extendEligible = daysUntilEnd <= 7;
@@ -263,6 +273,33 @@ function StudentsListContent() {
     Alert.alert('완료', '연장 처리되었습니다.');
   }, [fetchStudents, searchQuery]);
 
+  const handleDeletePress = useCallback((card: StudentCardItem) => {
+    const { student } = card;
+    Alert.alert(
+      '수강생 삭제',
+      `${student.name} 수강생을 삭제하시겠습니까?\n\n삭제된 수강생의 모든 데이터(계약, 출결 기록, 정산 내역 등)가 영구적으로 삭제되며 복구할 수 없습니다.`,
+      [
+        {
+          text: '취소',
+          style: 'cancel',
+        },
+        {
+          text: '삭제',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await studentsApi.delete(Number(student.id));
+              await fetchStudents({ refresh: true, search: searchQuery || undefined });
+              Alert.alert('완료', '수강생이 삭제되었습니다.');
+            } catch (error: any) {
+              Alert.alert('오류', error?.response?.data?.message || error?.message || '수강생 삭제에 실패했습니다.');
+            }
+          },
+        },
+      ],
+    );
+  }, [fetchStudents, searchQuery]);
+
   const handleExtendSectionToggle = useCallback(() => {
     setShowExpiredExpanded((prev) => !prev);
   }, []);
@@ -324,6 +361,12 @@ function StudentsListContent() {
   }, [errorMessage]);
 
   // 뱃지 텍스트 변환
+  const getContractTypeLabel = (type: 'sessions' | 'monthly' | 'unknown') => {
+    if (type === 'sessions') return '횟수제';
+    if (type === 'monthly') return '기간제';
+    return '알 수 없음';
+  };
+
   const getBillingTypeLabel = (type: string) => {
     return type === 'prepaid' ? '선불' : type === 'postpaid' ? '후불' : type;
   };
@@ -348,10 +391,13 @@ function StudentsListContent() {
       'THU': '목',
       'FRI': '금',
       'SAT': '토',
-      'ANY': '무관',
     };
     return dayOfWeekArray.map(day => dayMap[day] || day).join('/');
   };
+
+  const handleCardPress = useCallback((studentId: number) => {
+    navigation.navigate('StudentDetail', { studentId });
+  }, [navigation]);
 
   const renderStudentCard = useCallback(
     (card: StudentCardItem) => {
@@ -363,15 +409,18 @@ function StudentsListContent() {
       const displayAmount = baseAmount > 0 ? baseAmount : contractAmount;
 
       return (
-        <Card>
-          <CardLeftLine />
+        <Card onPress={() => handleCardPress(Number(student.id))} activeOpacity={0.7}>
+          <CardLeftLine isExpired={meta.isExpired} />
           <CardRow1>
             <CardNameContainer>
               <CardName>{student.name}</CardName>
               {contract ? (
                 <BadgeContainer>
-                  <Badge billingType>
-                    <BadgeText>{getBillingTypeLabel(contract.billing_type)}</BadgeText>
+                  <Badge contractType>
+                    <BadgeText contractType>{getContractTypeLabel(meta.contractType)}</BadgeText>
+                  </Badge>
+                  <Badge billingType billingTypeValue={contract.billing_type}>
+                    <BadgeText billingTypeValue={contract.billing_type}>{getBillingTypeLabel(contract.billing_type)}</BadgeText>
                   </Badge>
                   <Badge absencePolicy>
                     <BadgeText absencePolicy>
@@ -407,29 +456,39 @@ function StudentsListContent() {
           ) : null}
 
           <RowWithFooter>
+            <FooterLeft>
             {student.this_month_status_summary ? (
               <CardRow3>{student.this_month_status_summary}</CardRow3>
-            ) : (
-              <Spacer />
-            )}
+              ) : null}
+              {meta.contractType === 'sessions' && typeof meta.remainingSessions === 'number' ? (
+                <ExtendNote style={{ color: '#6b46c1' }}>{`잔여 ${meta.remainingSessions}회`}</ExtendNote>
+              ) : meta.extendEligible && meta.extendReason ? (
+                <ExtendNote>{meta.extendReason}</ExtendNote>
+              ) : null}
+            </FooterLeft>
             <ButtonGroup>
               {meta.extendEligible ? (
-                <ExtendActionButton onPress={() => handleExtendPress(card)}>
+                <ExtendActionButton onPress={(e) => {
+                  e?.stopPropagation?.();
+                  handleExtendPress(card);
+                }}>
                   <ExtendActionButtonText>연장하기</ExtendActionButtonText>
                 </ExtendActionButton>
               ) : null}
-              <DetailButton onPress={() => navigation.navigate('StudentDetail', { studentId: Number(student.id) })}>
-                <DetailButtonText>상세보기</DetailButtonText>
-              </DetailButton>
+              {meta.isExpired ? (
+                <DeleteButton onPress={(e) => {
+                  e?.stopPropagation?.();
+                  handleDeletePress(card);
+                }}>
+                  <DeleteButtonText>삭제</DeleteButtonText>
+                </DeleteButton>
+              ) : null}
             </ButtonGroup>
           </RowWithFooter>
-          {meta.extendEligible && meta.extendReason ? (
-            <ExtendNote>{meta.extendReason}</ExtendNote>
-          ) : null}
         </Card>
       );
     },
-    [getAbsencePolicyLabel, getBillingTypeLabel, handleExtendPress, navigation],
+    [getAbsencePolicyLabel, getBillingTypeLabel, handleExtendPress, handleDeletePress, handleCardPress, navigation],
   );
 
   const renderItem = useCallback(
@@ -500,9 +559,12 @@ function StudentsListContent() {
     const showToggle = activeCardsAll.length > 3 || showAllActive;
     return (
       <SectionIntro>
+        <SectionHeaderLeft>
         <SectionTitleText>
           계약 중 수강생 <SectionCount>{activeCardsAll.length}명</SectionCount>
         </SectionTitleText>
+          <SectionSubtext>카드를 터치하면 수강생 정보로 이동합니다.</SectionSubtext>
+        </SectionHeaderLeft>
         {showToggle && (
           <ShowMoreButtonInline onPress={() => setShowAllActive((prev) => !prev)}>
             <ShowMoreButtonText>{showAllActive ? '닫기' : '수강생 전체보기'}</ShowMoreButtonText>
@@ -575,21 +637,21 @@ function StudentsListContent() {
 
       {/* 헤더 및 검색 영역 */}
       <HeaderTopSection>
-        {/* 헤더: 서브텍스트 + 수강생 추가 버튼 */}
-        <Header>
-          <HeaderTexts>
-            <HeaderTitle>수강생</HeaderTitle>
-            <HeaderSubtext>
-              총 {totalActiveCount}명 · 계약중 {billingThisMonthCount}명
-            </HeaderSubtext>
-          </HeaderTexts>
-          <AddButton onPress={handleAddStudent}>
-            <AddButtonText>+ 수강생 추가</AddButtonText>
-          </AddButton>
-        </Header>
+      {/* 헤더: 서브텍스트 + 수강생 추가 버튼 */}
+      <Header>
+        <HeaderTexts>
+          <HeaderTitle>수강생</HeaderTitle>
+          <HeaderSubtext>
+              총 {totalStudentsCount}명 · 계약중 {totalActiveCount}명
+          </HeaderSubtext>
+        </HeaderTexts>
+        <AddButton onPress={handleAddStudent}>
+          <AddButtonText>+ 수강생 추가</AddButtonText>
+        </AddButton>
+      </Header>
 
-        {/* 검색 */}
-        <SearchRow>
+      {/* 검색 */}
+      <SearchRow>
         <SearchInputWrapper>
           <SearchIconImage source={require('../../assets/s1.png')} />
           <SearchInput
@@ -622,8 +684,8 @@ function StudentsListContent() {
             listEmptyComponent
           ) : (
             <>
-              {primaryCards.map((item) => (
-                <React.Fragment key={String(item.student.id)}>
+              {primaryCards.map((item, index) => (
+                <React.Fragment key={`${item.student.id}-${item.id ?? index}`}>
                   {renderStudentCard(item)}
                 </React.Fragment>
               ))}
@@ -743,10 +805,10 @@ const SearchInput = styled.TextInput`
   padding: 0;
 `;
 
-const Card = styled.View`
+const Card = styled.TouchableOpacity`
   background-color: #ffffff;
   border-radius: 12px;
-  padding: 16px;
+  padding: 12px 16px;
   margin: 8px 0;
   border-width: 1px;
   border-color: #f0f0f0;
@@ -754,13 +816,13 @@ const Card = styled.View`
   overflow: hidden;
 `;
 
-const CardLeftLine = styled.View`
+const CardLeftLine = styled.View<{ isExpired?: boolean }>`
   position: absolute;
   left: 0;
   top: 0;
   bottom: 0;
   width: 4px;
-  background-color: #0f1b4d;
+  background-color: ${(props) => (props.isExpired ? '#eef2ff' : '#0f1b4d')};
 `;
 
 const CardRow1 = styled.View`
@@ -789,15 +851,24 @@ const BadgeContainer = styled.View`
   gap: 6px;
 `;
 
-const Badge = styled.View<{ billingType?: boolean; absencePolicy?: boolean }>`
+const Badge = styled.View<{ contractType?: boolean; billingType?: boolean; absencePolicy?: boolean; billingTypeValue?: string }>`
   padding: 4px 8px;
-  background-color: ${(props) => (props.billingType ? '#e8f2ff' : '#f0f8f0')};
+  background-color: ${(props) => 
+    props.contractType ? '#ffe5e5' : 
+    props.billingType && props.billingTypeValue === 'prepaid' ? '#e8f2ff' : 
+    props.billingType && props.billingTypeValue === 'postpaid' ? '#fff4e6' : 
+    '#f0f8f0'};
   border-radius: 12px;
 `;
 
-const BadgeText = styled.Text<{ absencePolicy?: boolean }>`
+const BadgeText = styled.Text<{ contractType?: boolean; absencePolicy?: boolean; billingTypeValue?: string }>`
   font-size: 11px;
-  color: ${(props) => (props.absencePolicy ? '#34c759' : '#246bfd')};
+  color: ${(props) => 
+    props.contractType ? '#ff3b30' : 
+    props.absencePolicy ? '#34c759' : 
+    props.billingTypeValue === 'prepaid' ? '#246bfd' : 
+    props.billingTypeValue === 'postpaid' ? '#ff9500' : 
+    '#246bfd'};
   font-weight: 600;
 `;
 
@@ -805,13 +876,13 @@ const CardRow2Container = styled.View`
   flex-direction: row;
   align-items: center;
   flex-wrap: wrap;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 `;
 
 const CardRow2 = styled.Text`
   font-size: 14px;
   color: #666;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 `;
 
 const CardRow2Subject = styled.Text`
@@ -846,8 +917,14 @@ const RowWithFooter = styled.View`
   flex-direction: row;
   justify-content: space-between;
   align-items: flex-start;
-  margin-top: 8px;
+  margin-top: 6px;
   gap: 12px;
+  min-height: 32px;
+`;
+
+const FooterLeft = styled.View`
+  flex: 1;
+  justify-content: flex-start;
 `;
 
 const ButtonGroup = styled.View`
@@ -856,9 +933,6 @@ const ButtonGroup = styled.View`
   margin-left: 8px;
 `;
 
-const Spacer = styled.View`
-  flex: 1;
-`;
 
 const AmountContainer = styled.View`
   align-items: flex-end;
@@ -880,8 +954,8 @@ const NoBillingBadge = styled.Text`
 `;
 
 const ExtendNote = styled.Text`
-  margin-top: 8px;
-  font-size: 12px;
+  margin-top: 4px;
+  font-size: 13px;
   color: #4a4a4a;
 `;
 
@@ -901,8 +975,18 @@ const SectionIntro = styled.View`
   padding: 0 0 12px 0;
   margin-bottom: 12px;
   flex-direction: row;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+`;
+
+const SectionHeaderLeft = styled.View`
+  flex: 1;
+`;
+
+const SectionSubtext = styled.Text`
+  font-size: 12px;
+  color: #8e8e93;
+  margin-top: 4px;
 `;
 
 const SectionContainer = styled.View`
@@ -977,6 +1061,18 @@ const DetailButton = styled.TouchableOpacity`
 `;
 
 const DetailButtonText = styled.Text`
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+`;
+
+const DeleteButton = styled.TouchableOpacity`
+  padding: 8px 16px;
+  background-color: #ff3b30;
+  border-radius: 8px;
+`;
+
+const DeleteButtonText = styled.Text`
   color: #fff;
   font-size: 14px;
   font-weight: 600;

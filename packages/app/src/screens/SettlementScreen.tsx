@@ -8,6 +8,9 @@ import { useInvoicesStore } from '../store/useInvoicesStore';
 import { useAuthStore } from '../store/useStore';
 import { InvoiceHistoryGroup, InvoiceSummary, MonthlySettlement } from '../types/invoices';
 import { SettlementStackNavigationProp } from '../navigation/AppNavigator';
+import { invoicesApi } from '../api/invoices';
+
+const emptyStateIcon = require('../../assets/empty.png');
 
 const ContractsStub = () => (
   <StubContainer>
@@ -33,14 +36,12 @@ function SettlementContent() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [amountModalVisible, setAmountModalVisible] = useState(false);
   const [amountTargetInvoice, setAmountTargetInvoice] = useState<InvoiceSummary | null>(null);
-  const invoicesRequestedRef = useRef(false);
 
   const fetchSections = useInvoicesStore((state) => state.fetchSections);
   const updateInvoice = useInvoicesStore((state) => state.updateInvoice);
   const sections = useInvoicesStore((state) => state.sections);
   const invoicesStatus = useInvoicesStore((state) => state.status);
   const invoicesError = useInvoicesStore((state) => state.errorMessage);
-  const invoicesLoaded = useInvoicesStore((state) => state._loadedOnce);
   const invoicesInFlight = useInvoicesStore((state) => state._inFlight);
 
   // 현재 날짜 기준으로 이번 달 키 생성
@@ -49,7 +50,7 @@ function SettlementContent() {
   const currentMonth = now.getMonth() + 1;
   const currentMonthKey = `${currentYear}-${currentMonth}`;
 
-  // 초기 로드
+  // 화면 포커스 시마다 자동 새로고침
   useFocusEffect(
     useCallback(() => {
       // 인증 상태 확인
@@ -58,13 +59,11 @@ function SettlementContent() {
         return;
       }
 
-      if (!invoicesLoaded && !invoicesRequestedRef.current) {
-        invoicesRequestedRef.current = true;
-        fetchSections(true).catch((error: any) => {
-          console.error('[Invoices] error initial', error?.message);
-        });
-      }
-    }, [invoicesLoaded, fetchSections]),
+      // 매번 포커스될 때마다 새로고침 (fetchSections 내부에서 _inFlight 체크로 중복 호출 방지)
+      fetchSections(true).catch((error: any) => {
+        console.error('[Invoices] error on focus', error?.message);
+      });
+    }, [fetchSections]),
   );
 
   const calculateSettlement = useCallback((group: InvoiceHistoryGroup): MonthlySettlement => {
@@ -203,6 +202,36 @@ function SettlementContent() {
     setAmountModalVisible(true);
   }, []);
 
+  const handleMoveToTodayBilling = useCallback(async (invoice: InvoiceSummary) => {
+    if (invoice.send_status === 'sent') {
+      Alert.alert('정산', '이미 전송 완료된 청구서는 이동할 수 없습니다.');
+      return;
+    }
+
+    Alert.alert(
+      '오늘청구로 이동',
+      `${invoice.student?.name || '수강생'}의 청구서를 오늘청구로 이동하시겠습니까?\n\n조기 청구 시 금액은 수동으로 조정할 수 있습니다.`,
+      [
+        {
+          text: '취소',
+          style: 'cancel',
+        },
+        {
+          text: '이동',
+          onPress: async () => {
+            try {
+              await invoicesApi.moveToTodayBilling(invoice.id);
+              await fetchSections(true);
+              Alert.alert('완료', '청구서가 오늘청구로 이동되었습니다.');
+            } catch (error: any) {
+              Alert.alert('오류', error?.response?.data?.message || error?.message || '청구서 이동에 실패했습니다.');
+            }
+          },
+        },
+      ],
+    );
+  }, [fetchSections]);
+
   const handleSendInvoice = useCallback(
     (invoices: InvoiceSummary[]) => {
       // 전송 가능 상태인 인보이스만
@@ -295,35 +324,228 @@ function SettlementContent() {
     return `(결석 ${count}회 차감)`;
   }, []);
 
-  const formatStudentInfo = (invoice: InvoiceSummary): string => {
-    const parts: string[] = [];
-    const contract = invoice.contract;
+  // 횟수제: 정산중 섹션에서는 잔여회차 표시, 오늘청구 섹션에서는 "N월청구" 표시
+  // 기간제: PeriodText로만 표시하도록 라벨은 비움
+  const formatStudentInfo = (invoice: InvoiceSummary, isInProgress: boolean = false): string => {
+    const policySnapshot = invoice.contract?.policy_snapshot as any;
+    const totalSessions = typeof policySnapshot?.total_sessions === 'number' ? policySnapshot.total_sessions : 0;
+    const isSessionBased = totalSessions > 0 && !invoice.contract?.ended_at;
 
-    // 계약 정보 (billing_type과 absence_policy는 뱃지로 표시하므로 제거)
-    if (contract?.subject) {
-      parts.push(`월 ${invoice.base_amount.toLocaleString()}`);
+    if (invoice.send_status === 'sent') return '';
+    if (isSessionBased) {
+      // 정산중 섹션: 잔여회차 표시
+      if (isInProgress) {
+        const sessionsUsed = invoice.contract?.sessions_used ?? 0;
+        // 연장 정산서인 경우: target_sessions가 있으면 해당 연장의 회차를 사용
+        // 연장 전 계약 종료 후 연장: target_sessions = 연장한 회차 (예: 5회)
+        // 연장 전 계약 종료 전 연장: target_sessions가 없으면 전체 회차 사용
+        const targetSessions = invoice.contract?.target_sessions ?? totalSessions;
+        const remaining = Math.max(targetSessions - sessionsUsed, 0);
+        return `잔여 ${remaining}회`;
+      }
+      // 오늘청구 섹션: 기존대로 "N월청구" 표시
+      return `${invoice.month}월청구`;
     }
-
-    return parts.join(' · ');
+    // 기간제는 PeriodText로 한 번만 표시
+    return '';
   };
 
-  // 청구서 기간 포맷팅 (예: "12월분 (11월 15일~12월 15일)")
+  // 청구서 기간 포맷팅
+  // 테스트: 정산중/오늘청구/전송한 청구서 모두 날짜 표시
   const formatInvoicePeriod = (invoice: InvoiceSummary): string => {
-    if (!invoice.period_start || !invoice.period_end) {
-      return `${invoice.month}월분`;
+    // 일시납부 계약 확인 (월단위 로직과 완전 분리)
+    const isLumpSum = invoice.contract?.payment_schedule === 'lump_sum';
+    
+    // 일시납부 계약: 계약 시작일/종료일을 직접 사용 (period_start/period_end가 잘못 설정될 수 있으므로)
+    if (isLumpSum && invoice.contract?.started_at && invoice.contract?.ended_at) {
+      const parseDate = (dateValue: Date | string): { year: number; month: number; day: number } => {
+        const date = dateValue instanceof Date ? dateValue : new Date(dateValue);
+        // UTC로 저장된 날짜를 로컬 시간대로 변환하여 표시
+        // 예: 2025-12-17T15:00:00.000Z (한국 시간 12-18 00:00) -> 12월 18일로 표시
+        return {
+          year: date.getFullYear(),
+          month: date.getMonth() + 1,
+          day: date.getDate(),
+        };
+      };
+      
+      const startDate = parseDate(invoice.contract.started_at);
+      const endDate = parseDate(invoice.contract.ended_at);
+      
+      const startYearShort = String(startDate.year).slice(-2);
+      const endYearShort = String(endDate.year).slice(-2);
+      return `${invoice.month}월 (${startYearShort}.${startDate.month}.${startDate.day}일~${endYearShort}.${endDate.month}.${endDate.day}일)`;
     }
-
-    const startDate = new Date(invoice.period_start);
-    const endDate = new Date(invoice.period_end);
-    const startMonth = startDate.getMonth() + 1;
-    const startDay = startDate.getDate();
-    const endMonth = endDate.getMonth() + 1;
-    const endDay = endDate.getDate();
-
-    return `${invoice.month}월분 (${startMonth}월 ${startDay}일~${endMonth}월 ${endDay}일)`;
+    
+    // 횟수제 계약 확인
+    const policySnapshot = invoice.contract?.policy_snapshot as any;
+    const totalSessions = typeof policySnapshot?.total_sessions === 'number' ? policySnapshot.total_sessions : 0;
+    const isSessionBased = totalSessions > 0 && !invoice.contract?.ended_at; // 횟수계약 (계약기간없음)
+    
+    // 횟수제 계약은 기간 표시 안 함 (잔여 회차만 표시)
+    if (isSessionBased) {
+      if (invoice.send_status === 'sent' && invoice.display_period_start && invoice.display_period_end === '회') {
+        const sessionCount = invoice.display_period_start;
+        return `${invoice.month}월 (${sessionCount}회)`;
+      }
+      return `${invoice.month}월청구`;
+    }
+    
+    // 전송한 청구서: display_period_start/display_period_end 우선 사용 (일시납부 제외)
+    if (!isLumpSum && invoice.send_status === 'sent' && invoice.display_period_start && invoice.display_period_end) {
+      // 선불 횟수제 계약이 아닌 경우에만 날짜 범위 표시
+      if (!isSessionBased) {
+        // 전송 시점에 저장된 표시 기간을 그대로 사용 (YYYY-MM-DD 형식)
+        const parseStoredDate = (dateStr: string): { year: number; month: number; day: number } => {
+          const [year, month, day] = dateStr.split('-').map(Number);
+          return { year, month, day };
+        };
+        
+        const startDate = parseStoredDate(invoice.display_period_start);
+        const endDate = parseStoredDate(invoice.display_period_end);
+        
+        const startYearShort = String(startDate.year).slice(-2);
+        const endYearShort = String(endDate.year).slice(-2);
+        return `${invoice.month}월 (${startYearShort}.${startDate.month}.${startDate.day}일~${endYearShort}.${endDate.month}.${endDate.day}일)`;
+      }
+    }
+    
+    // period_start/period_end를 사용하여 기간 표시 (정산중/오늘청구/전송한 청구서 모두) - 월단위 납부만
+    if (invoice.contract?.started_at && invoice.contract?.ended_at) {
+      // 선불 계약의 첫 정산서: 항상 contract.started_at과 billing_day로 계산 (미리보기와 동일한 로직)
+      const parseContractDate = (dateValue: Date | string | null | undefined): { year: number; month: number; day: number } | null => {
+        if (!dateValue) return null;
+        
+        // Date 객체로 변환 (UTC를 로컬 시간으로 자동 변환)
+        let date: Date;
+        if (dateValue instanceof Date) {
+          date = dateValue;
+        } else {
+          // 문자열인 경우: Date 객체로 파싱 (UTC를 로컬 시간으로 자동 변환)
+          date = new Date(dateValue);
+        }
+        
+        // 로컬 시간대 기준으로 날짜 추출
+        return {
+          year: date.getFullYear(),
+          month: date.getMonth() + 1,
+          day: date.getDate(),
+        };
+      };
+      
+      const contractStartDate = parseContractDate(invoice.contract.started_at);
+      const contractEndDate = parseContractDate(invoice.contract.ended_at);
+      const billingDay = invoice.contract?.billing_day;
+      
+      // 선불 계약의 첫 정산서 판단: 
+      // period_start와 period_end를 로컬 시간으로 변환하여 비교
+      // 첫 정산서는 period_start와 period_end가 같은 날(또는 하루 차이)로 저장됨
+      const parseUTCToLocalForComparison = (dateValue: Date | string): { year: number; month: number; day: number } | null => {
+        if (!dateValue) return null;
+        let date: Date;
+        if (dateValue instanceof Date) {
+          date = dateValue;
+        } else {
+          date = new Date(dateValue);
+        }
+        return {
+          year: date.getFullYear(),
+          month: date.getMonth() + 1,
+          day: date.getDate()
+        };
+      };
+      
+      const periodStartLocal = invoice.period_start ? parseUTCToLocalForComparison(invoice.period_start) : null;
+      const periodEndLocal = invoice.period_end ? parseUTCToLocalForComparison(invoice.period_end) : null;
+      
+      // period_start와 period_end가 같은 날이거나 하루 차이면 첫 정산서로 판단
+      const isFirstInvoiceByPeriod = periodStartLocal && periodEndLocal && 
+        periodStartLocal.year === periodEndLocal.year &&
+        periodStartLocal.month === periodEndLocal.month &&
+        Math.abs(periodStartLocal.day - periodEndLocal.day) <= 1;
+      
+      const isPrepaidFirstInvoice = invoice.contract?.billing_type === 'prepaid' && isFirstInvoiceByPeriod;
+      
+      if (isPrepaidFirstInvoice && contractStartDate && contractEndDate && billingDay) {
+        // 첫 정산서: 계약 시작일~다음 달 청구일 하루 전 표시 (미리보기와 동일한 로직)
+        const startDate = contractStartDate;
+        const nextMonth = startDate.month === 12 ? 1 : startDate.month + 1;
+        const nextYear = startDate.month === 12 ? startDate.year + 1 : startDate.year;
+        const displayEnd = new Date(nextYear, nextMonth - 1, billingDay);
+        displayEnd.setDate(displayEnd.getDate() - 1); // Next month's billing day minus one day
+        
+        const startYearShort = String(startDate.year).slice(-2);
+        const endYearShort = String(displayEnd.getFullYear()).slice(-2);
+        const result = `${invoice.month}월 (${startYearShort}.${startDate.month}.${startDate.day}일~${endYearShort}.${displayEnd.getMonth() + 1}.${displayEnd.getDate()}일)`;
+        
+        return result;
+      } else if (invoice.contract?.billing_type === 'prepaid' && contractStartDate && billingDay) {
+        // 선불 계약의 두번째/세번째 정산서: contract.started_at과 billing_day로 직접 계산
+        // invoice.month와 contract.started_at의 월 차이로 몇 번째 정산서인지 판단
+        const contractMonth = contractStartDate.month;
+        const contractYear = contractStartDate.year;
+        const invoiceMonth = invoice.month;
+        const invoiceYear = invoice.year;
+        
+        // 몇 번째 정산서인지 계산 (첫 정산서는 이미 처리됨)
+        let invoiceNumber = 0;
+        if (invoiceYear === contractYear && invoiceMonth === contractMonth) {
+          invoiceNumber = 1; // 첫 정산서 (이미 처리됨)
+        } else {
+          // 두번째 이상: 월 차이 계산
+          const monthDiff = (invoiceYear - contractYear) * 12 + (invoiceMonth - contractMonth);
+          invoiceNumber = monthDiff + 1; // 첫 정산서가 1이므로 +1
+        }
+        
+        if (invoiceNumber > 1 && invoiceNumber <= 12) {
+          // 두번째 이상 정산서: 계약 시작일 + (invoiceNumber - 1)개월부터 시작
+          const startDate = new Date(contractYear, contractMonth - 1, contractStartDate.day);
+          startDate.setMonth(startDate.getMonth() + (invoiceNumber - 1));
+          
+          // 종료일: 시작일 + 1개월 - 1일
+          const endDate = new Date(startDate);
+          endDate.setMonth(endDate.getMonth() + 1);
+          endDate.setDate(endDate.getDate() - 1);
+          
+          const startYearShort = String(startDate.getFullYear()).slice(-2);
+          const endYearShort = String(endDate.getFullYear()).slice(-2);
+          return `${invoice.month}월 (${startYearShort}.${startDate.getMonth() + 1}.${startDate.getDate()}일~${endYearShort}.${endDate.getMonth() + 1}.${endDate.getDate()}일)`;
+        }
+      } else if (invoice.period_start && invoice.period_end) {
+        // 후불 계약 또는 선불이 아닌 경우: period_start ~ period_end를 그대로 표시
+        // 백엔드와 동일한 로직: UTC 시간을 한국 시간(로컬)으로 변환
+        const parseUTCToLocal = (dateValue: Date | string): { year: number; month: number; day: number } => {
+          let date: Date;
+          if (dateValue instanceof Date) {
+            date = dateValue;
+          } else {
+            // 문자열인 경우: Date 객체로 파싱
+            date = new Date(dateValue);
+          }
+          
+          // 로컬 시간대(한국 시간)로 변환
+          return {
+            year: date.getFullYear(),
+            month: date.getMonth() + 1,
+            day: date.getDate()
+          };
+        };
+        
+        const periodStart = parseUTCToLocal(invoice.period_start);
+        const periodEnd = parseUTCToLocal(invoice.period_end);
+        
+        // 백엔드와 동일한 형식으로 표시 (년도 2자리)
+        const startYearShort = String(periodStart.year).slice(-2);
+        const endYearShort = String(periodEnd.year).slice(-2);
+        return `${invoice.month}월 (${startYearShort}.${periodStart.month}.${periodStart.day}일~${endYearShort}.${periodEnd.month}.${periodEnd.day}일)`;
+      }
+    }
+    
+    // 오늘청구/정산중 섹션: 날짜 표기 없음
+    return `${invoice.month}월청구`;
   };
 
-  const isLoading = invoicesStatus === 'loading' && !invoicesLoaded;
+  const isLoading = invoicesStatus === 'loading' && !sections;
 
   // 선택된(전송 가능) 인보이스와 합계 계산 (오늘청구 + 정산중에서 선택된 것)
   const selectedSendableInvoices = useMemo(() => {
@@ -381,13 +603,14 @@ function SettlementContent() {
           {/* 1. 오늘청구 섹션 */}
           <SectionBlock>
             <SectionHeaderBlock>
-              <SectionBlockTitle>오늘청구</SectionBlockTitle>
+              <SectionBlockTitle>청구 가능한 정산서</SectionBlockTitle>
             </SectionHeaderBlock>
 
             {todayBillingSettlement.totalCount === 0 ? (
               <EmptyContainerSmall>
-                <EmptyTitle>오늘 청구할 내역이 없습니다.</EmptyTitle>
-                <EmptyDescription>청구일이 도래한 청구서가 여기 표시됩니다.</EmptyDescription>
+                <EmptyStateImage source={emptyStateIcon} resizeMode="contain" />
+                <EmptyTitle>오늘 청구 가능한 정산서가 없습니다.</EmptyTitle>
+                <EmptyDescription>청구일이 도래한 정산서는 여기에 표시됩니다.</EmptyDescription>
               </EmptyContainerSmall>
             ) : (
               <MonthlyCard>
@@ -486,7 +709,7 @@ function SettlementContent() {
           {/* 2. 정산중 섹션 */}
           <SectionBlock>
             <SectionHeaderBlock>
-              <SectionBlockTitle>정산중</SectionBlockTitle>
+              <SectionBlockTitle>정산중인 정산서</SectionBlockTitle>
             </SectionHeaderBlock>
 
             {inProgressSettlement.totalCount === 0 ? (
@@ -527,7 +750,7 @@ function SettlementContent() {
                               </BadgeContainer>
                             )}
                           </StudentNameContainer>
-                          <StudentInfo>{formatStudentInfo(invoice)}</StudentInfo>
+                          <StudentInfo>{formatStudentInfo(invoice, true)}</StudentInfo>
                           {invoice.period_start && invoice.period_end && (
                             <PeriodText>{formatInvoicePeriod(invoice)}</PeriodText>
                           )}
@@ -535,9 +758,14 @@ function SettlementContent() {
                       </StudentItemLeft>
                       <StudentItemRight>
                         <StudentAmount>{invoice.final_amount.toLocaleString()}원</StudentAmount>
-                        <AmountEditButton onPress={() => handleAmountEdit(invoice)}>
-                          <AmountEditButtonText>정산내역</AmountEditButtonText>
-                        </AmountEditButton>
+                        <ButtonRow>
+                          <MoveToTodayButton onPress={() => handleMoveToTodayBilling(invoice)}>
+                            <MoveToTodayButtonText>바로청구</MoveToTodayButtonText>
+                          </MoveToTodayButton>
+                          <AmountEditButton onPress={() => handleAmountEdit(invoice)}>
+                            <AmountEditButtonText>정산내역</AmountEditButtonText>
+                          </AmountEditButton>
+                        </ButtonRow>
                       </StudentItemRight>
                     </StudentItem>
                     );
@@ -550,7 +778,7 @@ function SettlementContent() {
           {/* 3. 전송한 청구서 섹션 */}
           <SectionBlock>
             <SectionHeaderBlock>
-              <SectionBlockTitle>전송한 청구서</SectionBlockTitle>
+              <SectionBlockTitle>전송(청구)한 정산서</SectionBlockTitle>
             </SectionHeaderBlock>
 
             {sentYears.length === 0 ? (
@@ -583,7 +811,7 @@ function SettlementContent() {
                               <MonthlyCardHeader onPress={() => toggleMonth(monthKey)}>
                                 <MonthlyCardHeaderLeft>
                                   <MonthlyCardTitle>
-                                    {settlement.month}월 정산
+                                    {settlement.month}월 전송한 정산서
                                   </MonthlyCardTitle>
                                   <MonthlyCardSummary>{formatSummary(settlement)}</MonthlyCardSummary>
                                 </MonthlyCardHeaderLeft>
@@ -602,10 +830,7 @@ function SettlementContent() {
                                       <StudentItemLeft>
                                         <StudentTexts>
                                           <StudentName>{invoice.student?.name || '이름 없음'}</StudentName>
-                                          <StudentInfo>{formatStudentInfo(invoice)}</StudentInfo>
-                                          {invoice.period_start && invoice.period_end && (
-                                            <PeriodText>{formatInvoicePeriod(invoice)}</PeriodText>
-                                          )}
+                                          {/* 전송한 청구서는 본문 라벨/기간 생략 */}
                                         </StudentTexts>
                                       </StudentItemLeft>
                                       <StudentItemRight>
@@ -648,7 +873,7 @@ function SettlementContent() {
                 <SecondaryButtonText>취소</SecondaryButtonText>
               </SecondaryButton>
               <PrimaryButton onPress={handleConfirmSendNow} disabled={selectedCount === 0}>
-                <PrimaryButtonText>전송하기</PrimaryButtonText>
+                <PrimaryButtonText>미리보기</PrimaryButtonText>
               </PrimaryButton>
             </ModalButtons>
           </ModalContent>
@@ -760,6 +985,13 @@ const EmptyContainerSmall = styled.View`
   border-color: #f1f1f1;
 `;
 
+const EmptyStateImage = styled.Image`
+  width: 48px;
+  height: 48px;
+  opacity: 0.5;
+  margin-bottom: 8px;
+`;
+
 const EmptyTitle = styled.Text`
   font-size: 16px;
   font-weight: 700;
@@ -776,7 +1008,7 @@ const EmptyDescription = styled.Text`
 const PrimaryButton = styled.TouchableOpacity`
   padding: 12px 24px;
   border-radius: 10px;
-  background-color: #ff6b00;
+  background-color: #1d42d8;
   align-items: center;
 `;
 
@@ -1030,8 +1262,8 @@ const BadgeText = styled.Text<{ absencePolicy?: boolean }>`
 `;
 
 const StudentInfo = styled.Text`
-  font-size: 13px;
-  color: #666666;
+  font-size: 12px;
+  color: #999999;
   line-height: 18px;
 `;
 
@@ -1052,13 +1284,32 @@ const StudentAmount = styled.Text`
   margin-bottom: 4px;
 `;
 
+const ButtonRow = styled.View`
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+`;
+
+const MoveToTodayButton = styled.TouchableOpacity`
+  padding: 4px 8px;
+  background-color: transparent;
+  border-radius: 6px;
+`;
+
+const MoveToTodayButtonText = styled.Text`
+  font-size: 12px;
+  color: #1d42d8;
+  font-weight: 600;
+`;
+
 const AmountEditButton = styled.TouchableOpacity`
   padding: 4px 0;
 `;
 
 const AmountEditButtonText = styled.Text`
   font-size: 12px;
-  color: #1d42d8;
+  color: #e53935;
+  font-weight: 700;
 `;
 
 const SmallStatusTag = styled.Text<{ $type: 'sent' }>`

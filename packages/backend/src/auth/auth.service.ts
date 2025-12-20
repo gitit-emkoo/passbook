@@ -275,6 +275,7 @@ export class AuthService {
    */
   private applyDefaultSettings(settings: Record<string, any>): Record<string, any> {
     const defaultSettings: Record<string, any> = {
+      default_lesson_type: 'monthly',
       default_billing_type: 'postpaid',
       default_absence_policy: 'deduct_next',
       default_send_target: 'guardian_only',
@@ -289,6 +290,7 @@ export class AuthService {
     return {
       ...defaultSettings,
       ...settings,
+      default_lesson_type: settings.default_lesson_type || defaultSettings.default_lesson_type,
       default_billing_type: settings.default_billing_type || defaultSettings.default_billing_type,
       default_absence_policy: settings.default_absence_policy || defaultSettings.default_absence_policy,
       default_send_target: settings.default_send_target || defaultSettings.default_send_target,

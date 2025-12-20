@@ -82,6 +82,10 @@ export class CreateContractDto {
   ended_at?: string | null;
 
   @IsOptional()
+  @IsString()
+  payment_schedule?: 'monthly' | 'lump_sum' | null; // 납부 방식: 월납 / 일시납
+
+  @IsOptional()
   policy_snapshot?: Record<string, any>;
 }
 

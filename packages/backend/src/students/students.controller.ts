@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseBoolPipe, ParseIntPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseBoolPipe, ParseIntPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { StudentsService } from './students.service';
 import { JwtAuthGuard } from '../auth/jwt-auth/jwt-auth.guard';
@@ -50,5 +50,11 @@ export class StudentsController {
 	) {
 		const user = req.user as any;
 		return this.studentsService.toggleActive((user.id ?? user.sub), id, isActive);
+	}
+
+	@Delete(':id')
+	async delete(@Param('id', ParseIntPipe) id: number, @Req() req: Request) {
+		const user = req.user as any;
+		return this.studentsService.delete((user.id ?? user.sub), id);
 	}
 }

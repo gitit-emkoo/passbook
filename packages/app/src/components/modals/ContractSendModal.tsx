@@ -95,11 +95,6 @@ export default function ContractSendModal({
 
         <ModalContent>
           <MainInfoText>계약서를 전송할 방법을 선택하세요.</MainInfoText>
-          {billingType === 'prepaid' && (
-            <PrepaidInfoText>
-              선불 조건의 계약은 계약서와 이번 달 분의 청구서가 동시에 전송됩니다.
-            </PrepaidInfoText>
-          )}
 
           <ChannelList>
             {CHANNEL_OPTIONS.map((option) => {

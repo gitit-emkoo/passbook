@@ -13,6 +13,9 @@ import { StudentsStackNavigationProp, StudentsStackParamList } from '../navigati
 import type { RouteProp } from '@react-navigation/native';
 import { StudentAttendanceLog, StudentContractDetail } from '../types/students';
 
+const changeIcon = require('../../assets/Change.png');
+const z11Icon = require('../../assets/z11.png');
+
 const StudentDetailStub = () => (
   <StubContainer>
     <StubTitle>수강생 상세</StubTitle>
@@ -39,6 +42,16 @@ function StudentDetailContent() {
   const [showExtendModal, setShowExtendModal] = useState(false);
   const [selectedAttendanceMonth, setSelectedAttendanceMonth] = useState<{ year: number; month: number } | null>(null);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [scheduleStep, setScheduleStep] = useState<'selectOriginal' | 'selectNew'>('selectOriginal');
+  const [selectedOriginalDate, setSelectedOriginalDate] = useState<Date | null>(null);
+  const [selectedNewDate, setSelectedNewDate] = useState<Date | null>(null);
+  const [scheduleSubmitting, setScheduleSubmitting] = useState(false);
+  const [scheduleCurrentMonth, setScheduleCurrentMonth] = useState<Date>(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return today;
+  });
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -58,7 +71,8 @@ function StudentDetailContent() {
 
   useFocusEffect(
     useCallback(() => {
-      fetchStudentDetail(studentId).catch((error: any) => {
+      // 화면 포커스 시마다 강제로 새로고침 (최신 출결 기록 반영)
+      fetchStudentDetail(studentId, { force: true }).catch((error: any) => {
         console.error('[Students] error detail initial', { studentId, message: error?.message });
       });
     }, [fetchStudentDetail, studentId]),
@@ -410,6 +424,128 @@ const guardianLine = useMemo(() => {
     return { extendEligible: false, extendReason: null };
   }, [primaryContract]);
 
+  // 일정 변경 달력에서 사용할 계약 기간 범위 계산
+  const scheduleDateRange = useMemo(() => {
+    if (!primaryContract) {
+      return { minDate: null as Date | null, maxDate: null as Date | null };
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    let minDate: Date | null = null;
+    if (primaryContract.started_at) {
+      const d = new Date(primaryContract.started_at);
+      d.setHours(0, 0, 0, 0);
+      minDate = d < today ? today : d;
+    } else {
+      minDate = today;
+    }
+
+    let maxDate: Date | null = null;
+    if (primaryContract.ended_at) {
+      const d = new Date(primaryContract.ended_at);
+      d.setHours(0, 0, 0, 0);
+      maxDate = d;
+    } else {
+      // 종료일이 없으면 일단 1년 이후까지 허용
+      const d = new Date(today);
+      d.setFullYear(d.getFullYear() + 1);
+      maxDate = d;
+    }
+
+    return { minDate, maxDate };
+  }, [primaryContract]);
+
+  const handleChangeScheduleMonth = useCallback(
+    (direction: 'prev' | 'next') => {
+      setScheduleCurrentMonth((prev) => {
+        const year = prev.getFullYear();
+        const month = prev.getMonth();
+        const next =
+          direction === 'prev'
+            ? new Date(year, month - 1, 1)
+            : new Date(year, month + 1, 1);
+        next.setHours(0, 0, 0, 0);
+
+        const { minDate, maxDate } = scheduleDateRange;
+        if (minDate && next < new Date(minDate.getFullYear(), minDate.getMonth(), 1)) {
+          return prev;
+        }
+        if (maxDate && next > new Date(maxDate.getFullYear(), maxDate.getMonth(), 1)) {
+          return prev;
+        }
+        return next;
+      });
+    },
+    [scheduleDateRange],
+  );
+
+  const handleOpenScheduleModal = useCallback(() => {
+    if (!primaryContract) {
+      Alert.alert('안내', '활성화된 계약이 있을 때만 일정 변경을 사용할 수 있습니다.');
+      return;
+    }
+    setScheduleStep('selectOriginal');
+    setSelectedOriginalDate(null);
+    setSelectedNewDate(null);
+
+    // 모달을 열 때 항상 현재 달(오늘 날짜 기준)을 표시
+    const today = new Date();
+    today.setDate(1);
+    today.setHours(0, 0, 0, 0);
+    setScheduleCurrentMonth(today);
+
+    setShowScheduleModal(true);
+  }, [primaryContract]);
+
+  const handleConfirmReschedule = useCallback(async () => {
+    if (!primaryContract || !selectedOriginalDate || !selectedNewDate) {
+      return;
+    }
+    try {
+      setScheduleSubmitting(true);
+      const toIsoDate = (d: Date) => {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      };
+
+      await contractsApi.rescheduleSession(primaryContract.id, {
+        original_date: toIsoDate(selectedOriginalDate),
+        new_date: toIsoDate(selectedNewDate),
+        student_id: detail.id,
+      });
+
+      // 일정 변경 후 데이터 새로고침
+      await fetchStudentDetail(studentId, { force: true });
+
+      // 일정 변경 후 오늘 수업 목록 즉시 갱신을 위해 Home 탭으로 navigation 이벤트 발생
+      // HomeScreen의 useFocusEffect가 자동으로 오늘 수업 목록을 새로고침함
+      try {
+        const parentNavigation = navigation.getParent();
+        if (parentNavigation) {
+          // Home 탭으로 이동하여 useFocusEffect 트리거 (이미 Home 탭에 있으면 갱신만)
+          parentNavigation.navigate('Home' as never);
+        }
+      } catch (e) {
+        // navigation 이벤트 실패해도 계속 진행
+        console.warn('[StudentDetail] failed to refresh today classes', e);
+      }
+
+      Alert.alert('완료', '수업 일정이 변경되었습니다.');
+      setShowScheduleModal(false);
+      setScheduleStep('selectOriginal');
+      setSelectedOriginalDate(null);
+      setSelectedNewDate(null);
+    } catch (error: any) {
+      console.error('[StudentDetail] reschedule error', error);
+      Alert.alert('오류', error?.response?.data?.message || error?.message || '일정 변경에 실패했습니다.');
+    } finally {
+      setScheduleSubmitting(false);
+    }
+  }, [primaryContract, selectedOriginalDate, selectedNewDate, detail?.id, fetchStudentDetail, studentId]);
+
   const handleExtendPress = useCallback(() => {
     if (!primaryContract) return;
     setShowExtendModal(true);
@@ -484,7 +620,10 @@ const guardianLine = useMemo(() => {
       <Content>
         <HeaderCard>
           <HeaderTexts>
-            <StudentName>{detail.name}</StudentName>
+            <StudentNameContainer>
+              <StudentNameIcon source={z11Icon} resizeMode="contain" />
+              <StudentName>{detail.name}</StudentName>
+            </StudentNameContainer>
             <HeaderMeta>
               {[primaryContract?.subject ?? undefined, formattedSchedule, guardianLine]
                 .filter(Boolean)
@@ -503,6 +642,31 @@ const guardianLine = useMemo(() => {
           </ButtonGroup>
         </HeaderCard>
 
+        {/* 수업 일정 전체 섹션 (기존 정보와 분리된 전용 섹션) */}
+        <ScheduleSectionCard>
+          <SectionHeader>
+            <SectionTitle>전체일정</SectionTitle>
+          </SectionHeader>
+          {primaryContract ? (
+            <>
+              <ScheduleSectionContent>
+                <ScheduleIcon source={changeIcon} resizeMode="contain" />
+                <ScheduleInfoText>
+                  수강생의 전체 수업 일정을 확인하고 변경할 수 있어요.
+                </ScheduleInfoText>
+              </ScheduleSectionContent>
+              <ScheduleButtonContainer>
+                <ScheduleButton onPress={handleOpenScheduleModal}>
+                  <ScheduleButtonText>일정변경</ScheduleButtonText>
+                </ScheduleButton>
+              </ScheduleButtonContainer>
+            </>
+          ) : (
+            <EmptyDescription>활성화된 계약이 없어서 수업 일정을 표시할 수 없습니다.</EmptyDescription>
+          )}
+        </ScheduleSectionCard>
+
+        {/* 기존 수업/기본 정보 섹션 (원래 구조 유지) */}
         <SectionCard>
           <SectionHeader>
             <SectionTitle>기본 정보</SectionTitle>
@@ -589,7 +753,7 @@ const guardianLine = useMemo(() => {
               <AttendanceList>
                 {displayedAttendanceLogs.map((log) => {
                   const statusText = formatAttendanceStatus(log.status);
-                  const memo = log.memo_internal || log.memo_public;
+                  const memo = log.memo_public; // 사유만 표시
                   const statusColor = getAttendanceStatusColor(log.status);
                   
                   // 단가 계산 (결석인 경우 차감 금액 표시용)
@@ -689,11 +853,40 @@ const guardianLine = useMemo(() => {
           ) : (
             <InvoiceList>
               {sentInvoices.map((invoice) => {
-                const billingType = invoice.contract?.billing_type ?? null;
-                const actualBilling = getActualBillingMonth(invoice);
-                const periodText = billingType === 'prepaid'
-                  ? `${invoice.year}년 ${invoice.month}월(${actualBilling.month}월분)`
-                  : `${invoice.year}년 ${invoice.month}월(${invoice.month}월분)`;
+                // 전송 시점에 저장된 display_period_start/display_period_end 우선 사용
+                // 없으면 period_start/period_end 사용
+                let periodText: string;
+                
+                if (invoice.display_period_start && invoice.display_period_end) {
+                  // display_period_end가 '회'인 경우 (횟수제)
+                  if (invoice.display_period_end === '회') {
+                    periodText = `${invoice.year}년${invoice.month}월(${invoice.display_period_start}회)`;
+                  } else {
+                    // 날짜 형식인 경우 (기간제)
+                    const startDate = new Date(invoice.display_period_start);
+                    const endDate = new Date(invoice.display_period_end);
+                    const startYear = startDate.getFullYear();
+                    const startMonth = startDate.getMonth() + 1;
+                    const startDay = startDate.getDate();
+                    const endYear = endDate.getFullYear();
+                    const endMonth = endDate.getMonth() + 1;
+                    const endDay = endDate.getDate();
+                    periodText = `${invoice.year}년${invoice.month}월 (${startYear}.${String(startMonth).padStart(2, '0')}.${String(startDay).padStart(2, '0')}~${endYear}.${String(endMonth).padStart(2, '0')}.${String(endDay).padStart(2, '0')})`;
+                  }
+                } else if (invoice.period_start && invoice.period_end) {
+                  // display_period가 없으면 period_start/period_end 사용 (fallback)
+                  const startDate = new Date(invoice.period_start);
+                  const endDate = new Date(invoice.period_end);
+                  const startYear = startDate.getFullYear();
+                  const startMonth = startDate.getMonth() + 1;
+                  const startDay = startDate.getDate();
+                  const endYear = endDate.getFullYear();
+                  const endMonth = endDate.getMonth() + 1;
+                  const endDay = endDate.getDate();
+                  periodText = `${invoice.year}년${invoice.month}월 (${startYear}.${String(startMonth).padStart(2, '0')}.${String(startDay).padStart(2, '0')}~${endYear}.${String(endMonth).padStart(2, '0')}.${String(endDay).padStart(2, '0')})`;
+                } else {
+                  periodText = `${invoice.year}년${invoice.month}월(${invoice.month}월분)`;
+                }
                 
                 return (
                 <InvoiceItem key={invoice.id}>
@@ -788,6 +981,284 @@ const guardianLine = useMemo(() => {
             })}
           </MonthPickerList>
         </MonthPickerModalContainer>
+      </Modal>
+
+      {/* 수업 일정 변경용 달력 모달 (간단 버전) */}
+      <Modal
+        isVisible={showScheduleModal}
+        onBackdropPress={() => setShowScheduleModal(false)}
+        onBackButtonPress={() => setShowScheduleModal(false)}
+        style={{ margin: 0, justifyContent: 'flex-end' }}
+      >
+        <ScheduleModalContainer>
+          <ScheduleModalHeader>
+            <ScheduleModalTitle $isNewStep={scheduleStep === 'selectNew'}>
+              {scheduleStep === 'selectOriginal'
+                ? '변경을 원하는 수업 일을 선택하세요.'
+                : '대체할 수업 일을 선택하세요'}
+            </ScheduleModalTitle>
+            <ScheduleModalSubtitle>
+              {scheduleStep === 'selectOriginal'
+                ? '변경 가능한 수업 일이 파란색으로 표시됩니다.'
+                : '새로운 수업 일을 선택할 수 있습니다.'}
+            </ScheduleModalSubtitle>
+          </ScheduleModalHeader>
+
+          {/* 달력 헤더 (월 이동) */}
+          <ScheduleCalendarHeader>
+            <ScheduleMonthButton onPress={() => handleChangeScheduleMonth('prev')}>
+              <ScheduleMonthButtonText>{'‹'}</ScheduleMonthButtonText>
+            </ScheduleMonthButton>
+            <ScheduleMonthLabel>
+              {scheduleCurrentMonth.getFullYear()}년 {scheduleCurrentMonth.getMonth() + 1}월
+            </ScheduleMonthLabel>
+            <ScheduleMonthButton onPress={() => handleChangeScheduleMonth('next')}>
+              <ScheduleMonthButtonText>{'›'}</ScheduleMonthButtonText>
+            </ScheduleMonthButton>
+          </ScheduleCalendarHeader>
+
+          {/* 요일 헤더 */}
+          <ScheduleWeekHeader>
+            {['일', '월', '화', '수', '목', '금', '토'].map((label) => (
+              <ScheduleWeekDay key={label}>{label}</ScheduleWeekDay>
+            ))}
+          </ScheduleWeekHeader>
+
+          {/* 날짜 그리드 */}
+          <ScheduleCalendarGrid>
+            {(() => {
+              const days: JSX.Element[] = [];
+              const year = scheduleCurrentMonth.getFullYear();
+              const month = scheduleCurrentMonth.getMonth();
+              const firstDay = new Date(year, month, 1);
+              const firstWeekday = firstDay.getDay(); // 0(Sun)~6(Sat)
+              const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+
+              // 횟수제 계약의 총 회차 제한 (달 무관하게 계약 회차만큼만 표시)
+              const contractSnapshot = (primaryContract?.policy_snapshot ?? {}) as Record<string, any>;
+              const totalSessions =
+                typeof contractSnapshot.total_sessions === 'number' ? contractSnapshot.total_sessions : 0;
+              // 계약 시작일 (없으면 오늘)
+              const contractStart =
+                primaryContract?.started_at ? new Date(primaryContract.started_at) : new Date();
+              contractStart.setHours(0, 0, 0, 0);
+
+              // 예정 수업일 판정 함수 (요일/일정변경 반영)
+              const isPlannedDay = (d: Date) => {
+                const cursorKey = d.getTime().toString();
+                const wk = dayKeys[d.getDay()];
+                const isOriginal = originalDates.has(cursorKey);
+                const isNew = newDates.has(cursorKey);
+                return (contractDays.includes(wk) && !isOriginal) || isNew;
+              };
+
+              // 계약 시작일부터 특정 날짜까지 예정 수업 누적 계산 (메모이징으로 중복 계산 방지)
+              const plannedCountCache = new Map<number, number>();
+              const countPlannedUntil = (to: Date): number => {
+                const key = to.getTime();
+                if (plannedCountCache.has(key)) return plannedCountCache.get(key)!;
+
+                let cnt = 0;
+                const cursor = new Date(contractStart);
+                cursor.setHours(0, 0, 0, 0);
+                while (cursor <= to) {
+                  if (isPlannedDay(cursor)) {
+                    cnt += 1;
+                  }
+                  cursor.setDate(cursor.getDate() + 1);
+                  cursor.setHours(0, 0, 0, 0);
+                }
+                plannedCountCache.set(key, cnt);
+                return cnt;
+              };
+
+              const { minDate, maxDate } = scheduleDateRange;
+              const minTime = minDate ? minDate.getTime() : null;
+              const maxTime = maxDate ? maxDate.getTime() : null;
+
+              const dayKeys = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'] as const;
+              const contractDays =
+                (primaryContract?.day_of_week as string[] | undefined) ?? [];
+
+              // 일정 예외(ScheduleException) 처리
+              const scheduleExceptions = primaryContract?.schedule_exceptions ?? [];
+              const originalDates = new Set<string>();
+              const newDates = new Set<string>();
+              scheduleExceptions.forEach((ex) => {
+                const originalDate = new Date(ex.original_date);
+                originalDate.setHours(0, 0, 0, 0);
+                const newDate = new Date(ex.new_date);
+                newDate.setHours(0, 0, 0, 0);
+                originalDates.add(originalDate.getTime().toString());
+                newDates.add(newDate.getTime().toString());
+              });
+
+              // 대체 수업 기록을 일정 변경처럼 반영 (원래 날짜는 제외, 대체 날짜는 포함)
+              if (Array.isArray(detail?.attendance_logs)) {
+                detail.attendance_logs.forEach((log) => {
+                  if (
+                    log.status === 'substitute' &&
+                    log.substitute_at &&
+                    log.occurred_at &&
+                    !log.voided
+                  ) {
+                    const originalDate = new Date(log.occurred_at);
+                    originalDate.setHours(0, 0, 0, 0);
+                    const substituteDate = new Date(log.substitute_at);
+                    substituteDate.setHours(0, 0, 0, 0);
+                    originalDates.add(originalDate.getTime().toString());
+                    newDates.add(substituteDate.getTime().toString());
+                  }
+                });
+              }
+
+              // 출결기록이 있는 날짜 확인 (출결처리가 완료된 날짜는 일정변경 불가)
+              const attendanceDates = new Set<string>();
+              if (Array.isArray(detail?.attendance_logs)) {
+                detail.attendance_logs.forEach((log) => {
+                  if (log.occurred_at && !log.voided) {
+                    const logDate = new Date(log.occurred_at);
+                    logDate.setHours(0, 0, 0, 0);
+                    attendanceDates.add(logDate.getTime().toString());
+                  }
+                });
+              }
+
+              const isSameDate = (a: Date | null, b: Date | null) => {
+                if (!a || !b) return false;
+                return (
+                  a.getFullYear() === b.getFullYear() &&
+                  a.getMonth() === b.getMonth() &&
+                  a.getDate() === b.getDate()
+                );
+              };
+
+              // 앞쪽 빈 칸
+              for (let i = 0; i < firstWeekday; i += 1) {
+                days.push(<ScheduleDayCell key={`empty-${i}`} />);
+              }
+
+              // 실제 날짜 셀
+              for (let day = 1; day <= daysInMonth; day += 1) {
+                const date = new Date(year, month, day);
+                date.setHours(0, 0, 0, 0);
+                const time = date.getTime();
+
+                const weekdayIndex = date.getDay();
+                const weekdayKey = dayKeys[weekdayIndex];
+
+                const isBeforeToday = time < today.getTime();
+                const outOfRange =
+                  (minTime !== null && time < minTime) ||
+                  (maxTime !== null && time > maxTime);
+
+                const dateTimeStr = time.toString();
+                const isOriginalDate = originalDates.has(dateTimeStr);
+                const isNewDate = newDates.has(dateTimeStr);
+                const hasAttendance = attendanceDates.has(dateTimeStr); // 출결기록이 있는 날짜
+
+                // 기본 요일 기반 수업일이지만 original_date로 변경된 경우는 제외
+                // new_date인 경우는 요일과 무관하게 표시
+                let hasPlannedClass =
+                  (contractDays.includes(weekdayKey) && !isOriginalDate) || isNewDate;
+
+                // 횟수제 계약이면 총 계약 회차를 초과하지 않도록 제한 (달과 무관)
+                if (totalSessions > 0 && hasPlannedClass) {
+                  const plannedSoFar = countPlannedUntil(date);
+                  if (plannedSoFar > totalSessions) {
+                    hasPlannedClass = false;
+                  }
+                }
+
+                const selectableOriginal =
+                  scheduleStep === 'selectOriginal' &&
+                  !isBeforeToday &&
+                  !outOfRange &&
+                  hasPlannedClass &&
+                  !hasAttendance; // 출결기록이 있는 날짜는 선택 불가
+
+                const selectableNew =
+                  scheduleStep === 'selectNew' && !isBeforeToday && !outOfRange;
+
+                const disabled =
+                  scheduleStep === 'selectOriginal'
+                    ? !selectableOriginal
+                    : !selectableNew;
+
+                const isSelectedOriginal = isSameDate(date, selectedOriginalDate);
+                const isSelectedNew = isSameDate(date, selectedNewDate);
+
+                const isSelected = isSelectedOriginal || isSelectedNew;
+
+                const onPress = () => {
+                  if (disabled) return;
+                  if (scheduleStep === 'selectOriginal') {
+                    setSelectedOriginalDate(date);
+                    setScheduleStep('selectNew');
+                    setSelectedNewDate(null);
+                  } else {
+                    setSelectedNewDate(date);
+                  }
+                };
+
+                days.push(
+                  <ScheduleDayCell key={`day-${day}`}>
+                    <ScheduleDayButton disabled={disabled} onPress={onPress}>
+                    <ScheduleDayInner
+                      $selected={isSelected}
+                      $isOriginalSelection={isSelectedOriginal}
+                      $isNewSelection={isSelectedNew}
+                        $hasPlannedClass={hasPlannedClass}
+                        $disabled={disabled}
+                      >
+                      <ScheduleDayText
+                        $selected={isSelected}
+                        $isOriginalSelection={isSelectedOriginal}
+                        $isNewSelection={isSelectedNew}
+                        $disabled={disabled}
+                      >
+                          {day}
+                        </ScheduleDayText>
+                        {hasPlannedClass && (
+                          <ScheduleDot
+                            $selected={isSelected}
+                            $isNewSelection={isSelectedNew}
+                            $disabled={disabled}
+                          />
+                        )}
+                      </ScheduleDayInner>
+                    </ScheduleDayButton>
+                  </ScheduleDayCell>,
+                );
+              }
+
+              return days;
+            })()}
+          </ScheduleCalendarGrid>
+
+          <ScheduleLegend>
+            <ScheduleLegendText>● 표시된 날짜가 원래 수업 예정일입니다.</ScheduleLegendText>
+          </ScheduleLegend>
+
+          <ScheduleModalFooter>
+            <ScheduleCloseButton onPress={() => setShowScheduleModal(false)}>
+              <ScheduleCloseButtonText>닫기</ScheduleCloseButtonText>
+            </ScheduleCloseButton>
+            {scheduleStep === 'selectNew' && (
+              <ScheduleConfirmButton
+                disabled={!selectedOriginalDate || !selectedNewDate || scheduleSubmitting}
+                onPress={handleConfirmReschedule}
+              >
+                <ScheduleConfirmButtonText>
+                  {scheduleSubmitting ? '변경 중...' : '일정 변경 확정'}
+                </ScheduleConfirmButtonText>
+              </ScheduleConfirmButton>
+            )}
+          </ScheduleModalFooter>
+        </ScheduleModalContainer>
       </Modal>
     </Container>
   );
@@ -917,11 +1388,22 @@ const HeaderTexts = styled.View`
   padding-right: 12px;
 `;
 
+const StudentNameContainer = styled.View`
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+`;
+
+const StudentNameIcon = styled.Image`
+  width: 24px;
+  height: 24px;
+`;
+
 const StudentName = styled.Text`
   font-size: 24px;
   font-weight: 700;
   color: #111;
-  margin-bottom: 6px;
 `;
 
 const HeaderMeta = styled.Text`
@@ -971,11 +1453,33 @@ const SectionCard = styled.View`
   elevation: 3;
 `;
 
+const ScheduleSectionCard = styled.View`
+  background-color: #ffffff;
+  border-radius: 16px;
+  padding: 16px 20px;
+  shadow-color: #000;
+  shadow-opacity: 0.06;
+  shadow-offset: 0px 4px;
+  shadow-radius: 10px;
+  elevation: 3;
+`;
+
 const SectionHeader = styled.View`
   flex-direction: row;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
+`;
+
+const SectionHeaderWithIcon = styled.View`
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+`;
+
+const SectionIcon = styled.Image`
+  width: 20px;
+  height: 20px;
 `;
 
 const SectionHeaderLeft = styled.View`
@@ -1117,9 +1621,9 @@ const InvoiceItem = styled.View`
 `;
 
 const InvoiceInfo = styled.View`
-  flex-direction: row;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
 `;
 
 const InvoicePeriod = styled.Text`
@@ -1336,4 +1840,228 @@ const MonthPickerCheckmark = styled.Text`
   font-size: 16px;
   color: #1d42d8;
   font-weight: 600;
+`;
+
+const ScheduleButtonContainer = styled.View`
+  margin-top: 4px;
+  align-items: flex-end;
+`;
+
+const ScheduleButton = styled.TouchableOpacity`
+  padding: 8px 14px;
+  border-radius: 8px;
+  background-color: #1d42d8;
+`;
+
+const ScheduleButtonText = styled.Text`
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+`;
+
+const ScheduleSectionContent = styled.View`
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+`;
+
+const ScheduleIcon = styled.Image`
+  width: 32px;
+  height: 32px;
+  opacity: 0.7;
+`;
+
+const ScheduleInfoText = styled.Text`
+  flex: 1;
+  font-size: 13px;
+  color: #666666;
+  line-height: 18px;
+`;
+
+const ScheduleModalContainer = styled.View`
+  background-color: #ffffff;
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+  max-height: 80%;
+  padding-bottom: 24px;
+`;
+
+const ScheduleModalHeader = styled.View`
+  padding: 20px 20px 12px;
+  border-bottom-width: 1px;
+  border-bottom-color: #e0e0e0;
+`;
+
+const ScheduleModalTitle = styled.Text<{ $isNewStep?: boolean }>`
+  font-size: 18px;
+  font-weight: 700;
+  color: ${({ $isNewStep }) => ($isNewStep ? '#ff6b00' : '#1d42d8')};
+  margin-bottom: 4px;
+  text-align: center;
+`;
+
+const ScheduleModalSubtitle = styled.Text`
+  font-size: 13px;
+  color: #666666;
+  text-align: center;
+`;
+
+const ScheduleCalendarPlaceholder = styled.View`
+  padding: 24px 20px;
+  align-items: center;
+  justify-content: center;
+`;
+
+const SchedulePlaceholderText = styled.Text`
+  font-size: 13px;
+  color: #8e8e93;
+  text-align: center;
+  line-height: 18px;
+`;
+
+const ScheduleModalFooter = styled.View`
+  flex-direction: row;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 12px 20px 16px;
+  border-top-width: 1px;
+  border-top-color: #f0f0f0;
+  gap: 8px;
+`;
+
+const ScheduleCloseButton = styled.TouchableOpacity`
+  padding: 10px 16px;
+  border-radius: 999px;
+  background-color: #f0f0f0;
+`;
+
+const ScheduleCloseButtonText = styled.Text`
+  font-size: 14px;
+  font-weight: 600;
+  color: #333333;
+`;
+
+const ScheduleConfirmButton = styled.TouchableOpacity<{ disabled?: boolean }>`
+  padding: 10px 18px;
+  border-radius: 999px;
+  background-color: ${({ disabled }: { disabled?: boolean }) => (disabled ? '#c7d2fe' : '#1d42d8')};
+  opacity: ${({ disabled }: { disabled?: boolean }) => (disabled ? 0.7 : 1)};
+`;
+
+const ScheduleConfirmButtonText = styled.Text`
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+`;
+
+const ScheduleCalendarHeader = styled.View`
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px 8px;
+`;
+
+const ScheduleMonthButton = styled.TouchableOpacity`
+  padding: 6px 10px;
+`;
+
+const ScheduleMonthButtonText = styled.Text`
+  font-size: 18px;
+  color: #1d42d8;
+  font-weight: 600;
+`;
+
+const ScheduleMonthLabel = styled.Text`
+  font-size: 16px;
+  font-weight: 600;
+  color: #111111;
+`;
+
+const ScheduleWeekHeader = styled.View`
+  flex-direction: row;
+  padding: 0 20px 4px;
+`;
+
+const ScheduleWeekDay = styled.Text`
+  flex: 1;
+  text-align: center;
+  font-size: 12px;
+  color: #8e8e93;
+`;
+
+const ScheduleCalendarGrid = styled.View`
+  flex-direction: row;
+  flex-wrap: wrap;
+  padding: 4px 20px 8px;
+`;
+
+const ScheduleDayCell = styled.View`
+  width: 14.28%;
+  align-items: center;
+  margin-bottom: 8px;
+`;
+
+const ScheduleDayButton = styled.TouchableOpacity<{ disabled?: boolean }>`
+  opacity: ${({ disabled }: { disabled?: boolean }) => (disabled ? 0.35 : 1)};
+`;
+
+const ScheduleDayInner = styled.View<{
+  $selected?: boolean;
+  $isOriginalSelection?: boolean;
+  $isNewSelection?: boolean;
+  $hasPlannedClass?: boolean;
+  $disabled?: boolean;
+}>`
+  width: 34px;
+  height: 34px;
+  border-radius: 17px;
+  align-items: center;
+  justify-content: center;
+  background-color: ${({ $isOriginalSelection, $isNewSelection }) => {
+    if ($isOriginalSelection) return '#1d42d8'; // 원본 선택: 진한 파랑
+    if ($isNewSelection) return '#ff6b00'; // 변경될 날짜 선택: 주황
+    return 'transparent';
+  }};
+`;
+
+const ScheduleDayText = styled.Text<{
+  $selected?: boolean;
+  $isOriginalSelection?: boolean;
+  $isNewSelection?: boolean;
+  $disabled?: boolean;
+}>`
+  font-size: 13px;
+  font-weight: ${({ $selected }) => ($selected ? 700 : 500)};
+  color: ${({ $isOriginalSelection, $isNewSelection, $disabled }) => {
+    if ($isOriginalSelection || $isNewSelection) return '#ffffff';
+    if ($disabled) return '#c0c0c0';
+    return '#111111';
+  }};
+`;
+
+const ScheduleDot = styled.View<{
+  $selected?: boolean;
+  $isNewSelection?: boolean;
+  $disabled?: boolean;
+}>`
+  width: 4px;
+  height: 4px;
+  border-radius: 2px;
+  margin-top: 3px;
+  background-color: ${({ $selected, $isNewSelection, $disabled }) => {
+    if ($selected) return '#ffffff';
+    if ($disabled) return '#c0c0c0';
+    if ($isNewSelection) return '#ff6b00';
+    return '#1d42d8';
+  }};
+`;
+
+const ScheduleLegend = styled.View`
+  padding: 4px 20px 8px;
+`;
+
+const ScheduleLegendText = styled.Text`
+  font-size: 12px;
+  color: #8e8e93;
 `;

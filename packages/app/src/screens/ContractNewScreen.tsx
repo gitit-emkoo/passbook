@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { usersApi } from '../api/users';
 import { Alert, ScrollView, ActivityIndicator, Modal, Platform } from 'react-native';
 import styled from 'styled-components/native';
@@ -8,8 +8,8 @@ import { contractsApi } from '../api/contracts';
 import { studentsApi } from '../api/students';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
-const DAYS_OF_WEEK = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'ANY'];
-const DAY_LABELS = ['일', '월', '화', '수', '목', '금', '토', '무관/기타'];
+const DAYS_OF_WEEK = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+const DAY_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
 
 const DAY_INDEX_MAP: Record<string, number> = {
   SUN: 0,
@@ -35,7 +35,7 @@ const ABSENCE_POLICIES = [
 const RECIPIENT_POLICIES = [
   { value: 'student_only', label: '수강생만' },
   { value: 'guardian_only', label: '보호자만' },
-  { value: 'both', label: '둘 다' },
+  { value: 'both', label: '모두' },
 ];
 
 export default function ContractNewScreen() {
@@ -68,17 +68,26 @@ export default function ContractNewScreen() {
   // 수업 형태/단가 방식
   const [lessonType, setLessonType] = useState<'monthly' | 'sessions'>('monthly');
   const [pricingMode, setPricingMode] = useState<'monthly_flat' | 'per_session'>('per_session'); // 월단위: 월정액/회차×단가
+  const [paymentSchedule, setPaymentSchedule] = useState<'monthly' | 'lump_sum'>('monthly'); // 납부 방식: 월납 / 일시납
   const [perSessionAmount, setPerSessionAmount] = useState<string>(''); // 숫자 문자열(자동 산출 기본값, 사용자가 수정 가능)
   const [totalSessions, setTotalSessions] = useState<string>(''); // 횟수제 총 회차
   const [sessionsTotalAmount, setSessionsTotalAmount] = useState<string>(''); // 횟수제 전체금액
-  const [plannedCountOverride, setPlannedCountOverride] = useState<string>(''); // '무관/기타'일 때 직접 입력
+  const [plannedCountOverride, setPlannedCountOverride] = useState<string>(''); // 예정 회차 수동 입력 (사용 안 함)
+  const lastEditedField = useRef<'perSession' | 'totalAmount' | null>(null); // 양방향 계산을 위한 마지막 수정 필드 추적
 
   // 계약 기간
   const [startDate, setStartDate] = useState<Date>(new Date());
   const [endDate, setEndDate] = useState<Date>(() => {
     const date = new Date();
     date.setMonth(date.getMonth() + 1); // 기본값: 오늘부터 1개월 후
+    date.setDate(date.getDate() - 1); // -1일 (실무 기준: 12.8~1.7 = 한달)
     return date;
+  });
+  const [endDateDay, setEndDateDay] = useState<number>(() => {
+    const date = new Date();
+    date.setMonth(date.getMonth() + 1);
+    date.setDate(date.getDate() - 1);
+    return date.getDate(); // 기본 일자 저장
   });
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
@@ -90,10 +99,74 @@ export default function ContractNewScreen() {
   const [accountNumber, setAccountNumber] = useState('');
   const [accountHolder, setAccountHolder] = useState('');
 
+  // 날짜를 YYYY-MM-DD 문자열로 변환 (타임존 보정 없이 날짜만 전송)
+  const formatDateOnly = (date: Date) => {
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
   const plannedCount = useMemo(
     () => plannedCountUsed(selectedDays, plannedCountOverride, startDate, endDate),
     [selectedDays, plannedCountOverride, startDate, endDate],
   );
+
+  // 첫 달의 수업일수 계산 (선불 여러달 계약의 경우 월단위 수업료 계산용)
+  // 확정 개념: 첫 정산서의 period_end는 첫 달 마지막일(다음 달 billing_day)
+  const firstMonthPlannedCount = useMemo(() => {
+    if (!startDate || !selectedDays || selectedDays.length === 0) return 0;
+    
+    // 첫 달 마지막일 계산: 다음 달의 billing_day (startDate의 일자)
+    // 예: 12.7일부터 계약이면 첫 달 마지막일은 1.7일
+    const billingDay = startDate.getDate();
+    const firstMonthEnd = new Date(startDate.getFullYear(), startDate.getMonth() + 1, billingDay);
+    firstMonthEnd.setHours(23, 59, 59, 999);
+    
+    return plannedCountUsed(selectedDays, plannedCountOverride, startDate, firstMonthEnd);
+  }, [selectedDays, plannedCountOverride, startDate]);
+
+  // 계약 개월수 계산 (선불 여러달 계약의 단가 계산용)
+  // 실제 일수 차이로 판단: 32일 이상이면 여러달 계약
+  // 예: 12.9~1.8 = 약 30일 = 1개월
+  // 예: 12.9~3.8 = 약 89일 = 3개월
+  const contractMonths = useMemo(() => {
+    if (!startDate || !endDate) return 1;
+    
+    // 날짜를 정규화 (시간 제거)
+    const start = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+    const end = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+    
+    // 실제 일수 차이 계산
+    const daysDiff = Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+    
+    // 32일 이상이면 여러달 계약, 그렇지 않으면 한달 계약
+    // 한달 계약의 경우 contractMonths = 1
+    if (daysDiff >= 32) {
+      // 여러달 계약: 일수 차이를 기준으로 개월수 계산
+      // 한달은 대략 30일이므로, 일수 차이를 30으로 나눈 후 반올림
+      // 예: 61일 = 2개월, 89일 = 3개월
+      const result = Math.round(daysDiff / 30);
+      
+      console.log('[계약개월수계산] 여러달', {
+        start: start.toISOString().split('T')[0],
+        end: end.toISOString().split('T')[0],
+        daysDiff,
+        result,
+      });
+      
+      return result;
+    } else {
+      // 한달 계약
+      console.log('[계약개월수계산] 한달', {
+        start: start.toISOString().split('T')[0],
+        end: end.toISOString().split('T')[0],
+        daysDiff,
+      });
+      
+      return 1;
+    }
+  }, [startDate, endDate]);
 
   const effectivePerSessionAmount = useMemo(() => {
     const trimmed = perSessionAmount.trim();
@@ -106,8 +179,65 @@ export default function ContractNewScreen() {
     if (lessonType === 'sessions') {
       return calculateAutoPerSessionFromSessions(totalSessions, sessionsTotalAmount);
     }
-    return calculateAutoPerSessionFromMonthly(monthlyAmount, plannedCount);
-  }, [perSessionAmount, lessonType, totalSessions, sessionsTotalAmount, monthlyAmount, plannedCount]);
+    // 일시납부의 경우: 총 금액 / 총 회차
+    if (paymentSchedule === 'lump_sum') {
+      const cleanedAmount = monthlyAmount.replace(/,/g, '');
+      const totalAmount = Number(cleanedAmount) || 0;
+      console.log('[effectivePerSessionAmount계산] 일시납부', { 
+        monthlyAmount, 
+        cleanedAmount, 
+        totalAmount, 
+        plannedCount, 
+        paymentSchedule 
+      });
+      if (plannedCount > 0 && totalAmount > 0) {
+        const result = roundToNearestHundred(totalAmount / plannedCount);
+        console.log('[effectivePerSessionAmount계산] 일시납부 결과', { result });
+        return result;
+      }
+      return 0;
+    }
+    // 확정 개념: 선불 여러달 계약의 경우 (월납부)
+    // 단가 = (월금액 × 계약 개월수) ÷ 전체 계약기간 수업일수
+    // 예: (10만원 × 3개월) ÷ 13회 = 단가
+    console.log('[effectivePerSessionAmount계산] 월납부', { monthlyAmount, plannedCount, contractMonths, paymentSchedule });
+    return calculateAutoPerSessionFromMonthly(monthlyAmount, plannedCount, contractMonths);
+  }, [perSessionAmount, lessonType, totalSessions, sessionsTotalAmount, monthlyAmount, plannedCount, contractMonths, paymentSchedule]);
+
+  // 전체금액/월 수업료 변경 시 단가 자동 계산 (양방향 계산)
+  useEffect(() => {
+    if (lessonType === 'sessions' && lastEditedField.current === 'totalAmount') {
+      const totalAmount = Number(sessionsTotalAmount) || 0;
+      const totalCount = Number(totalSessions) || 0;
+      if (totalAmount > 0 && totalCount > 0) {
+        const calculatedPerSession = roundToNearestHundred(totalAmount / totalCount);
+        if (calculatedPerSession > 0) {
+          setPerSessionAmount(String(calculatedPerSession));
+        }
+      }
+      lastEditedField.current = null;
+    } else if (lessonType === 'monthly' && lastEditedField.current === 'totalAmount') {
+      const totalAmount = Number(monthlyAmount.replace(/,/g, '')) || 0;
+      if (totalAmount > 0 && plannedCount > 0) {
+        // 일시납부: 총금액 / 전체 회차
+        if (paymentSchedule === 'lump_sum') {
+          const calculatedPerSession = roundToNearestHundred(totalAmount / plannedCount);
+          if (calculatedPerSession > 0) {
+            setPerSessionAmount(String(calculatedPerSession));
+          }
+        } else {
+          // 월납부: (월 수업료 × 계약 개월수) ÷ 전체 계약기간 수업일수
+          const months = contractMonths || 1;
+          const totalForPeriod = totalAmount * months;
+          const calculatedPerSession = roundToNearestHundred(totalForPeriod / plannedCount);
+          if (calculatedPerSession > 0) {
+            setPerSessionAmount(String(calculatedPerSession));
+          }
+        }
+      }
+      lastEditedField.current = null;
+    }
+  }, [sessionsTotalAmount, totalSessions, monthlyAmount, plannedCount, lessonType, contractMonths, paymentSchedule]);
 
   const toggleDay = useCallback((day: string) => {
     setSelectedDays((prev) => {
@@ -230,6 +360,11 @@ export default function ContractNewScreen() {
           }
           
           // 기본값 설정
+          if (settings.default_lesson_type) {
+            // 'session' -> 'sessions' 변환
+            const lessonTypeValue = settings.default_lesson_type === 'session' ? 'sessions' : settings.default_lesson_type;
+            setLessonType(lessonTypeValue as 'monthly' | 'sessions');
+          }
           if (settings.default_billing_type) {
             setBillingType(settings.default_billing_type);
           }
@@ -347,8 +482,9 @@ export default function ContractNewScreen() {
         recipient_targets: finalRecipientTargets,
         ...(lessonType === 'monthly'
           ? {
-              started_at: startDate.toISOString(),
-              ended_at: endDate.toISOString(),
+              started_at: formatDateOnly(startDate),
+              ended_at: formatDateOnly(endDate),
+              payment_schedule: paymentSchedule, // 월납 / 일시납
             }
           : {}),
         status: 'draft', // 초안 저장
@@ -390,6 +526,7 @@ export default function ContractNewScreen() {
     effectivePerSessionAmount,
     startDate,
     endDate,
+    paymentSchedule,
     bankName,
     accountNumber,
     accountHolder,
@@ -493,7 +630,15 @@ export default function ContractNewScreen() {
               <OptionButton
                 key={opt.value}
                 selected={lessonType === (opt.value as any)}
-                onPress={() => setLessonType(opt.value as 'monthly' | 'sessions')}
+                onPress={() => {
+                  const newLessonType = opt.value as 'monthly' | 'sessions';
+                  setLessonType(newLessonType);
+                  // 확정 개념: 횟수제 계약은 차감 옵션 없음
+                  // 횟수제로 변경 시 차감 옵션이 선택되어 있으면 자동으로 이월로 변경
+                  if (newLessonType === 'sessions' && absencePolicy === 'deduct_next') {
+                    setAbsencePolicy('carry_over');
+                  }
+                }}
               >
                 <OptionButtonText selected={lessonType === (opt.value as any)}>
                   {opt.label}
@@ -538,6 +683,7 @@ export default function ContractNewScreen() {
                       if (selectedDate > endDate) {
                         const newEndDate = new Date(selectedDate);
                         newEndDate.setMonth(newEndDate.getMonth() + 1);
+                        newEndDate.setDate(newEndDate.getDate() - 1); // -1일 (실무 기준)
                         setEndDate(newEndDate);
                       }
                     }
@@ -546,7 +692,11 @@ export default function ContractNewScreen() {
               )}
 
               <FormLabel label="계약 종료일" required />
-              <DatePickerButton onPress={() => setShowEndDatePicker(true)}>
+              <DatePickerButton onPress={() => {
+                // 캘린더를 열 때 현재 일자 저장
+                setEndDateDay(endDate.getDate());
+                setShowEndDatePicker(true);
+              }}>
                 <DatePickerText>
                   {endDate.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })}
                 </DatePickerText>
@@ -561,10 +711,68 @@ export default function ContractNewScreen() {
                   onChange={(event, selectedDate) => {
                     setShowEndDatePicker(Platform.OS === 'ios');
                     if (selectedDate) {
-                      setEndDate(selectedDate);
+                      // 선택된 날짜의 월이 변경되었는지 확인
+                      const selectedMonth = selectedDate.getMonth();
+                      const selectedYear = selectedDate.getFullYear();
+                      const currentMonth = endDate.getMonth();
+                      const currentYear = endDate.getFullYear();
+                      
+                      // 월이 변경되었으면 일자는 유지
+                      if (selectedMonth !== currentMonth || selectedYear !== currentYear) {
+                        // 해당 월의 마지막 날짜 확인
+                        const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
+                        const dayToUse = Math.min(endDateDay, daysInMonth);
+                        
+                        const newEndDate = new Date(selectedYear, selectedMonth, dayToUse);
+                        // 최소 날짜 체크
+                        if (newEndDate >= startDate) {
+                          setEndDate(newEndDate);
+                        } else {
+                          // 최소 날짜보다 이전이면 선택된 날짜 사용
+                          setEndDate(selectedDate);
+                          setEndDateDay(selectedDate.getDate());
+                        }
+                      } else {
+                        // 월이 변경되지 않았으면 선택된 날짜 사용 (일자 변경)
+                        setEndDate(selectedDate);
+                        setEndDateDay(selectedDate.getDate());
+                      }
                     }
                   }}
                 />
+              )}
+
+              {/* 납부 방식 선택 (한달 이상 계약만 표시) */}
+              {contractMonths > 1 && (
+                <>
+                  <FormLabel label="납부 방식" required />
+                  <OptionsContainer>
+                    <OptionButton
+                      selected={paymentSchedule === 'monthly'}
+                      onPress={() => {
+                        setPaymentSchedule('monthly');
+                        // 월납부로 변경 시 단가 초기화하여 재계산
+                        setPerSessionAmount('');
+                      }}
+                    >
+                      <OptionButtonText selected={paymentSchedule === 'monthly'}>
+                        월납
+                      </OptionButtonText>
+                    </OptionButton>
+                    <OptionButton
+                      selected={paymentSchedule === 'lump_sum'}
+                      onPress={() => {
+                        setPaymentSchedule('lump_sum');
+                        // 일시납부로 변경 시 단가 초기화하여 재계산
+                        setPerSessionAmount('');
+                      }}
+                    >
+                      <OptionButtonText selected={paymentSchedule === 'lump_sum'}>
+                        일시납
+                      </OptionButtonText>
+                    </OptionButton>
+                  </OptionsContainer>
+                </>
               )}
             </>
           ) : (
@@ -573,10 +781,21 @@ export default function ContractNewScreen() {
 
           {lessonType === 'monthly' && (
             <>
-              <FormLabel label="월 수업료 (원)" required />
+              <FormLabel 
+                label={paymentSchedule === 'lump_sum' ? '총 수업료 (원)' : '월 수업료 (원)'} 
+                required 
+              />
               <TextInput
                 value={monthlyAmount}
-                onChangeText={setMonthlyAmount}
+                onChangeText={(text) => {
+                  console.log('[월수업료입력]', { text, length: text.length });
+                  lastEditedField.current = 'totalAmount';
+                  setMonthlyAmount(text);
+                  // 월 수업료 입력 시 단가 필드 초기화하여 자동 계산이 실행되도록 함
+                  if (text.length > 0) {
+                    setPerSessionAmount('');
+                  }
+                }}
                 placeholder="예: 120000"
                 keyboardType="number-pad"
                 autoCapitalize="none"
@@ -595,7 +814,10 @@ export default function ContractNewScreen() {
               <FormLabel label="전체 금액(원)" required />
               <TextInput
                 value={sessionsTotalAmount}
-                onChangeText={setSessionsTotalAmount}
+                onChangeText={(text) => {
+                  lastEditedField.current = 'totalAmount';
+                  setSessionsTotalAmount(text);
+                }}
                 placeholder="예: 300000"
                 keyboardType="number-pad"
               />
@@ -632,6 +854,8 @@ export default function ContractNewScreen() {
                       totalSessions,
                       sessionsTotalAmount,
                       plannedCount,
+                      contractMonths,
+                      paymentSchedule,
                     ).toLocaleString()}원
                   </PreviewValue>
                 </PreviewRow>
@@ -648,7 +872,17 @@ export default function ContractNewScreen() {
               <InputLabel>회차 단가(자동 계산) · 수정 가능</InputLabel>
               <TextInput
                 value={autoPerSessionFromSessions(totalSessions, sessionsTotalAmount, perSessionAmount)}
-                onChangeText={setPerSessionAmount}
+                onChangeText={(text) => {
+                  lastEditedField.current = 'perSession';
+                  setPerSessionAmount(text);
+                  // 단가 입력 시 전체금액 자동 계산
+                  const perSession = Number(text) || 0;
+                  const totalCount = Number(totalSessions) || 0;
+                  if (perSession > 0 && totalCount > 0) {
+                    const calculatedTotal = perSession * totalCount;
+                    setSessionsTotalAmount(String(calculatedTotal));
+                  }
+                }}
                 placeholder="예: 30000"
                 keyboardType="number-pad"
                 autoCapitalize="none"
@@ -659,12 +893,32 @@ export default function ContractNewScreen() {
             <>
               <InputLabel>회차 단가(자동 계산) · 수정 가능</InputLabel>
               <TextInput
-                value={autoPerSessionFromMonthly(
-                  monthlyAmount,
-                  plannedCount,
-                  perSessionAmount,
-                )}
-                onChangeText={setPerSessionAmount}
+                value={
+                  perSessionAmount.trim().length > 0
+                    ? perSessionAmount
+                    : String(effectivePerSessionAmount || '')
+                }
+                onChangeText={(text) => {
+                  lastEditedField.current = 'perSession';
+                  setPerSessionAmount(text);
+                  // 단가 입력 시 수업료 자동 계산
+                  const perSession = Number(text) || 0;
+                  if (paymentSchedule === 'lump_sum') {
+                    // 일시납부: 단가 × 총 회차 = 총 수업료
+                    if (perSession > 0 && plannedCount > 0) {
+                      const calculatedTotal = perSession * plannedCount;
+                      setMonthlyAmount(String(calculatedTotal));
+                    }
+                  } else {
+                    // 월납부: 단가 × 첫 달 회차 = 월 수업료
+                    // 확정 개념: 선불 여러달 계약의 경우 월단위 수업료는 첫 달 기준으로 계산
+                    const countForMonthly = firstMonthPlannedCount > 0 ? firstMonthPlannedCount : plannedCount;
+                    if (perSession > 0 && countForMonthly > 0) {
+                      const calculatedMonthly = perSession * countForMonthly;
+                      setMonthlyAmount(String(calculatedMonthly));
+                    }
+                  }
+                }}
                 placeholder="예: 30000"
                 keyboardType="number-pad"
                 autoCapitalize="none"
@@ -685,9 +939,15 @@ export default function ContractNewScreen() {
               </OptionButton>
             ))}
           </OptionsContainer>
-          <FormLabel label="결석 처리 조건" required />
+          <FormLabel label="결석시 수업료 처리조건" required />
           <OptionsContainer>
-            {ABSENCE_POLICIES.map((policy) => (
+            {ABSENCE_POLICIES.filter((policy) => {
+              // 확정 개념: 횟수제 계약은 차감 옵션 없음 (선불이든 후불이든 출결기록 반영 차감 없음)
+              if (lessonType === 'sessions' && policy.value === 'deduct_next') {
+                return false;
+              }
+              return true;
+            }).map((policy) => (
               <OptionButton
                 key={policy.value}
                 selected={absencePolicy === policy.value}
@@ -1023,21 +1283,24 @@ const SelectedTimeHint = styled.Text`
 
 const DaysContainer = styled.View`
   flex-direction: row;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-wrap: nowrap;
+  gap: 6px;
   margin-top: 8px;
 `;
 
 const DayButton = styled.TouchableOpacity<{ selected: boolean }>`
-  padding: 10px 16px;
-  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  border-radius: 16px;
   border-width: 1px;
   border-color: ${(props) => (props.selected ? '#1d42d8' : '#e0e0e0')};
   background-color: ${(props) => (props.selected ? '#1d42d8' : '#ffffff')};
+  align-items: center;
+  justify-content: center;
 `;
 
 const DayButtonText = styled.Text<{ selected: boolean }>`
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   color: ${(props) => (props.selected ? '#ffffff' : '#333333')};
 `;
@@ -1157,13 +1420,6 @@ function computePlannedCount(days: string[], startDate?: Date, endDate?: Date): 
 
 function plannedCountUsed(days: string[], override: string, startDate?: Date, endDate?: Date): number {
   if (!startDate || !endDate) return 0;
-  if (days.includes('ANY')) {
-    if (override?.trim()) {
-      const manual = Number(override);
-      return Number.isNaN(manual) ? 0 : manual;
-    }
-    return countTotalDaysInclusive(startDate, endDate);
-  }
   return computePlannedCount(days, startDate, endDate);
 }
 
@@ -1175,13 +1431,31 @@ function autoBaseAmount(
   totalSessions?: string,
   sessionsTotalAmount?: string,
   plannedCount?: number,
+  contractMonths?: number,
+  paymentSchedule?: 'monthly' | 'lump_sum',
 ): number {
   if (lessonType === 'sessions') {
     return Number(sessionsTotalAmount) || 0;
   }
+  
+  // 일시납의 경우: 이미 총 금액이므로 그대로 반환
+  if (paymentSchedule === 'lump_sum') {
+    const cleanedAmount = monthlyAmount.replace(/,/g, '');
+    return Number(cleanedAmount) || 0;
+  }
+  
   if (pricingMode === 'monthly_flat') {
     return Number(monthlyAmount) || 0;
   }
+  // 확정 개념: 선불 여러달 계약의 경우 (월납만)
+  // 총금액 = 월 수업료 × 계약 개월수 (반올림된 단가 × 총수업일이 아님)
+  // 예: 15만원 × 3개월 = 45만원
+  if (lessonType === 'monthly' && contractMonths && contractMonths > 1) {
+    const cleanedAmount = monthlyAmount.replace(/,/g, '');
+    const monthlyAmt = Number(cleanedAmount) || 0;
+    return monthlyAmt * contractMonths;
+  }
+  // 한달 계약이거나 contractMonths가 없는 경우: 반올림된 단가 × 총수업일
   const count = plannedCount ?? 0;
   return count * (perSessionAmountValue || 0);
 }
@@ -1194,11 +1468,26 @@ function autoPerSessionFromSessions(total: string, totalAmount: string, current:
   return autoValue > 0 ? String(autoValue) : '';
 }
 
-function autoPerSessionFromMonthly(monthAmt: string, planned: number, current: string): string {
+function autoPerSessionFromMonthly(monthAmt: string, planned: number, current: string, contractMonths?: number, paymentSchedule?: 'monthly' | 'lump_sum'): string {
+  console.log('[autoPerSessionFromMonthly]', { monthAmt, planned, current, contractMonths, paymentSchedule });
   if (current?.trim().length) {
+    console.log('[autoPerSessionFromMonthly] 기존 값 사용:', current);
     return current;
   }
-  const autoValue = calculateAutoPerSessionFromMonthly(monthAmt, planned);
+  // 일시납부의 경우: 총 금액 / 총 회차
+  if (paymentSchedule === 'lump_sum') {
+    const cleanedAmount = monthAmt.replace(/,/g, '');
+    const totalAmount = Number(cleanedAmount) || 0;
+    if (planned > 0 && totalAmount > 0) {
+      const autoValue = roundToNearestHundred(totalAmount / planned);
+      console.log('[autoPerSessionFromMonthly] 일시납부 계산:', { totalAmount, planned, autoValue });
+      return autoValue > 0 ? String(autoValue) : '';
+    }
+    return '';
+  }
+  // 월납부의 경우: 기존 로직
+  const autoValue = calculateAutoPerSessionFromMonthly(monthAmt, planned, contractMonths);
+  console.log('[autoPerSessionFromMonthly] 월납부 계산:', { autoValue });
   return autoValue > 0 ? String(autoValue) : '';
 }
 
@@ -1211,11 +1500,34 @@ function calculateAutoPerSessionFromSessions(total: string, totalAmount: string)
   return 0;
 }
 
-function calculateAutoPerSessionFromMonthly(monthAmt: string, planned: number): number {
+function calculateAutoPerSessionFromMonthly(monthAmt: string, planned: number, contractMonths?: number): number {
   const plannedCount = planned || 0;
-  const amount = Number(monthAmt) || 0;
-  if (plannedCount > 0 && amount > 0) {
-    return roundToNearestHundred(amount / plannedCount);
+  // 문자열에서 쉼표 제거 후 숫자 변환 (예: "100,000" → 100000)
+  const cleanedAmount = monthAmt.replace(/,/g, '');
+  const monthlyAmount = Number(cleanedAmount) || 0;
+  // contractMonths가 undefined이거나 0 이하일 때만 1 사용
+  const months = (contractMonths && contractMonths > 0) ? contractMonths : 1;
+  
+  if (plannedCount > 0 && monthlyAmount > 0) {
+    // 확정 개념: 선불 여러달 계약의 경우
+    // 단가 = (월금액 × 계약 개월수) ÷ 전체 계약기간 수업일수
+    // 예: (10만원 × 3개월) ÷ 26회 = 단가
+    const totalAmount = monthlyAmount * months;
+    const result = roundToNearestHundred(totalAmount / plannedCount);
+    
+    // 디버깅: 계산 값 확인
+    console.log('[단가계산]', {
+      monthAmt,
+      cleanedAmount,
+      monthlyAmount,
+      months,
+      plannedCount,
+      totalAmount,
+      result,
+      contractMonths,
+    });
+    
+    return result;
   }
   return 0;
 }

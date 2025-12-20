@@ -52,6 +52,14 @@ export const studentsApi = {
     const response = await apiClient.patch(`/api/v1/students/${id}`, data);
     return response.data;
   },
+
+  /**
+   * 수강생 삭제
+   */
+  delete: async (id: number) => {
+    const response = await apiClient.delete(`/api/v1/students/${id}`);
+    return response.data;
+  },
 };
 
 

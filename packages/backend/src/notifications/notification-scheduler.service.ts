@@ -327,7 +327,7 @@ export class NotificationSchedulerService {
 
         for (let d = new Date(checkStart); d <= checkEndDate && !hasUnprocessed; d.setDate(d.getDate() + 1)) {
           const dayOfWeek = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'][d.getDay()];
-          if (!dayOfWeekArray.includes(dayOfWeek) && !dayOfWeekArray.includes('ANY')) continue;
+          if (!dayOfWeekArray.includes(dayOfWeek)) continue;
 
           const dateStart = new Date(d);
           dateStart.setHours(0, 0, 0, 0);
@@ -353,6 +353,7 @@ export class NotificationSchedulerService {
       }
 
       if (hasUnprocessed) {
+        this.logger.log(`Creating unprocessed attendance notification for user ${userId}`);
         await this.notificationsService.createAndSendNotification(
           userId,
           'attendance',
@@ -361,8 +362,12 @@ export class NotificationSchedulerService {
           '/attendance',
           {
             isScheduled: true,
+            skipDuplicateCheck: false, // 중복 체크는 유지하되 로그 추가
           },
         );
+        this.logger.log(`Unprocessed attendance notification created for user ${userId}`);
+      } else {
+        this.logger.log(`No unprocessed attendance found for user ${userId}`);
       }
 
       // 장기 미출석 체크 (3주 이상 출결 기록 없음)

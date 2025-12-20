@@ -16,6 +16,7 @@ export default function ContractSettingsModal({
   onSave,
 }: ContractSettingsModalProps) {
   const [loading, setLoading] = useState(false);
+  const [lessonType, setLessonType] = useState<'monthly' | 'session'>('monthly');
   const [billingType, setBillingType] = useState<'prepaid' | 'postpaid'>('postpaid');
   const [absencePolicy, setAbsencePolicy] = useState<'carry_over' | 'deduct_next' | 'vanish'>('deduct_next');
   const [sendTarget, setSendTarget] = useState<'student_only' | 'guardian_only' | 'both'>('guardian_only');
@@ -30,6 +31,7 @@ export default function ContractSettingsModal({
     try {
       const user = await usersApi.getMe();
       const settings = (user.settings || {}) as Record<string, unknown>;
+      if (settings.default_lesson_type) setLessonType(settings.default_lesson_type as 'monthly' | 'session');
       if (settings.default_billing_type) setBillingType(settings.default_billing_type as 'prepaid' | 'postpaid');
       if (settings.default_absence_policy) setAbsencePolicy(settings.default_absence_policy as 'carry_over' | 'deduct_next' | 'vanish');
       if (settings.default_send_target) setSendTarget(settings.default_send_target as 'student_only' | 'guardian_only' | 'both');
@@ -42,6 +44,7 @@ export default function ContractSettingsModal({
     try {
       setLoading(true);
       await usersApi.updateSettings({
+        default_lesson_type: lessonType,
         default_billing_type: billingType,
         default_absence_policy: absencePolicy,
         default_send_target: sendTarget,
@@ -73,6 +76,18 @@ export default function ContractSettingsModal({
         </ModalHeader>
 
         <ModalContent>
+          <SettingSection>
+            <SettingLabel>수업 유형</SettingLabel>
+            <OptionRow>
+              <OptionButton $active={lessonType === 'monthly'} onPress={() => setLessonType('monthly')}>
+                <OptionText $active={lessonType === 'monthly'}>월단위</OptionText>
+              </OptionButton>
+              <OptionButton $active={lessonType === 'session'} onPress={() => setLessonType('session')}>
+                <OptionText $active={lessonType === 'session'}>횟수제</OptionText>
+              </OptionButton>
+            </OptionRow>
+          </SettingSection>
+
           <SettingSection>
             <SettingLabel>결제 방식</SettingLabel>
             <OptionRow>

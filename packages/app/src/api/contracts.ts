@@ -63,8 +63,18 @@ export const contractsApi = {
     const baseURL = apiClient.defaults.baseURL || '';
     return `${baseURL}/api/v1/contracts/${id}/view`;
   },
-  extend: async (id: number, data: { added_sessions?: number; extended_end_date?: string }) => {
+  extend: async (id: number, data: { added_sessions?: number; extension_amount?: number; extended_end_date?: string }) => {
     const response = await apiClient.patch(`/api/v1/contracts/${id}/extend`, data);
+    return response.data;
+  },
+  /**
+   * 사전 일정 변경 (특정 수업일을 다른 날로 이동)
+   */
+  rescheduleSession: async (
+    contractId: number,
+    payload: { original_date: string; new_date: string; student_id?: number; reason?: string },
+  ) => {
+    const response = await apiClient.post(`/api/v1/contracts/${contractId}/reschedule`, payload);
     return response.data;
   },
 };

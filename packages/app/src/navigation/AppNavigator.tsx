@@ -6,6 +6,8 @@ import { TouchableOpacity, View, ImageSourcePropType } from 'react-native';
 import { useAuthStore } from '../store/useStore';
 import { registerForPushNotificationsAsync, setupNotificationListeners } from '../services/pushNotificationService';
 import PhoneAuthScreen from '../screens/PhoneAuthScreen';
+import AuthSplashScreen from '../screens/AuthSplashScreen';
+import AuthPromoScreen from '../screens/AuthPromoScreen';
 import SignupScreen from '../screens/SignupScreen';
 import HomeScreen from '../screens/HomeScreen';
 import StudentsListScreen from '../screens/StudentsListScreen';
@@ -25,6 +27,8 @@ import UnprocessedAttendanceScreen from '../screens/UnprocessedAttendanceScreen'
 import styled from 'styled-components/native';
 
 export type AuthStackParamList = {
+  AuthSplash: undefined;
+  AuthPromo: undefined;
   PhoneAuth: undefined;
   Signup: {
     phone: string;
@@ -353,24 +357,15 @@ function MainTabs() {
         listeners={({ navigation }) => ({
           tabPress: (e) => {
             // Students 탭 클릭 시 항상 목록 화면으로 리셋
-            const state = navigation.getState();
-            const studentsTab = state.routes.find((r) => r.name === 'Students');
-            if (studentsTab?.state) {
-              const studentsStackState = studentsTab.state as any;
-              // 스택에 화면이 2개 이상이면 (목록 + 상세) 목록으로 리셋
-              if (studentsStackState?.routes && studentsStackState.routes.length > 1) {
-                e.preventDefault(); // 기본 탭 전환 방지
-                // Students 스택을 목록 화면으로 리셋
-                navigation.dispatch(
-                  CommonActions.navigate({
-                    name: 'Students',
-                    params: {
-                      screen: 'StudentsList',
-                    },
-                  }),
-                );
-              }
-            }
+            e.preventDefault(); // 기본 탭 전환 방지
+            navigation.dispatch(
+              CommonActions.navigate({
+                name: 'Students',
+                params: {
+                  screen: 'StudentsList',
+                },
+              }),
+            );
           },
         })}
       />
@@ -404,6 +399,29 @@ function MainTabs() {
             <TabIconImage source={invoiceIcon} focused={focused} />
           ),
         }}
+        listeners={({ navigation }) => ({
+          tabPress: (e) => {
+            // 정산 탭 클릭 시 항상 정산 메인 화면으로 리셋
+            const state = navigation.getState();
+            const settlementTab = state.routes.find((r) => r.name === 'Settlement');
+            if (settlementTab?.state) {
+              const settlementStackState = settlementTab.state as any;
+              // 스택에 화면이 2개 이상이면 (메인 + 미리보기) 메인으로 리셋
+              if (settlementStackState?.routes && settlementStackState.routes.length > 1) {
+                e.preventDefault(); // 기본 탭 전환 방지
+                // Settlement 스택을 메인 화면으로 리셋
+                navigation.dispatch(
+                  CommonActions.navigate({
+                    name: 'Settlement',
+                    params: {
+                      screen: 'SettlementMain',
+                    },
+                  }),
+                );
+              }
+            }
+          },
+        })}
       />
       <Tab.Screen
         name="Settings"
@@ -526,7 +544,12 @@ export default function AppNavigator() {
   if (!isAuthenticated) {
     return (
       <NavigationContainer ref={navigationRef}>
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Navigator
+          initialRouteName="AuthSplash"
+          screenOptions={{ headerShown: false }}
+        >
+          <Stack.Screen name="AuthSplash" component={AuthSplashScreen} />
+          <Stack.Screen name="AuthPromo" component={AuthPromoScreen} />
           <Stack.Screen name="PhoneAuth" component={PhoneAuthScreen} />
           <Stack.Screen name="Signup" component={SignupScreen} />
         </Stack.Navigator>

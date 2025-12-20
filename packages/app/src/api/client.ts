@@ -31,12 +31,29 @@ apiClient.interceptors.request.use((config) => {
 
   // 이미 Authorization 헤더가 설정되어 있으면 (예: temporaryToken) 덮어쓰지 않음
   if (config.headers?.Authorization) {
+    if (__DEV__) {
+      console.log('[API Client] Request with existing Authorization header:', config.url);
+    }
     return config;
   }
 
   // accessToken이 있으면 Authorization 헤더 설정
   if (accessToken) {
     config.headers.Authorization = `Bearer ${accessToken}`;
+    if (__DEV__) {
+      console.log('[API Client] Request with accessToken:', {
+        url: config.url,
+        hasToken: !!accessToken,
+        tokenLength: accessToken?.length,
+      });
+    }
+  } else {
+    if (__DEV__) {
+      console.log('[API Client] Request without accessToken:', {
+        url: config.url,
+        isAuthEndpoint: config.url?.includes('/auth/'),
+      });
+    }
   }
 
   return config;
@@ -50,28 +67,25 @@ apiClient.interceptors.response.use(
   (error) => {
     // 401 Unauthorized 에러 처리
     if (error?.response?.status === 401) {
-      const { isAuthenticated, logout } = useAuthStore.getState();
+      const { isAuthenticated } = useAuthStore.getState();
       
-      // 이미 로그아웃된 상태면 무시 (로그아웃 과정에서 발생하는 401 에러)
+      // 이미 로그아웃된 상태면 그대로 둠
       if (!isAuthenticated) {
-        // 에러 오버레이를 표시하지 않도록 조용히 reject
         return Promise.reject(error);
       }
-      
+
       // 개발 모드에서만 로그 출력 (에러 오버레이 방지)
       if (__DEV__) {
-        console.log('[HTTP] 401 Unauthorized (handled)', {
+        console.log('[HTTP] 401 Unauthorized (handled - no auto logout)', {
           url: error.config?.url,
           message: '인증 토큰이 유효하지 않습니다.',
         });
       }
-      
-      // 토큰이 유효하지 않으면 로그아웃 처리
-      logout().catch((err) => {
-        if (__DEV__) {
-          console.log('[HTTP] Logout error (handled)', err);
-        }
-      });
+
+      // 기존에는 여기서 바로 logout()을 호출해서 토큰/유저 상태가 초기화되었음.
+      // A 휴대폰에서처럼 토큰은 유효하지만 일부 엔드포인트에서 401이 발생할 때
+      // 전체 앱이 강제 로그아웃되는 부작용이 있어, 자동 로그아웃은 제거하고
+      // 각 화면/스토어에서 401을 개별적으로 처리하도록 둔다.
     }
     
     // 400 Bad Request 에러 메시지 처리

@@ -151,6 +151,11 @@ function SettingsContent() {
 
   useFocusEffect(
     useCallback(() => {
+      // accessToken이 있을 때만 설정 로드
+      const { accessToken, isAuthenticated } = useAuthStore.getState();
+      if (!isAuthenticated || !accessToken) {
+        return;
+      }
       loadSettings();
     }, [loadSettings]),
   );
@@ -244,7 +249,7 @@ function SettingsContent() {
             </ProfileAvatar>
           </ProfileAvatarTouchable>
           <ProfileNameRow onPress={() => setProfileEditModalVisible(true)}>
-            <ProfileName>{orgCode || '상호명 없음'}</ProfileName>
+          <ProfileName>{orgCode || '상호명 없음'}</ProfileName>
             <ChevronIcon>›</ChevronIcon>
           </ProfileNameRow>
           <ProfileEmail>{userName || '이름 없음'}</ProfileEmail>

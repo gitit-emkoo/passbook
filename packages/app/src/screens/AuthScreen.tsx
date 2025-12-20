@@ -1,8 +1,10 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { Alert, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { Alert, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Image } from 'react-native';
 import styled from 'styled-components/native';
 import { authApi, CompleteSignupRequest } from '../api/auth';
 import { useAuthStore } from '../store/useStore';
+
+const logoImage = require('../../assets/login3.png');
 
 type Step = 1 | 2 | 3 | 4;
 
@@ -199,6 +201,12 @@ export default function AuthScreen() {
           contentContainerStyle={{ flexGrow: 1 }}
           keyboardShouldPersistTaps="handled"
         >
+          <HeaderArea>
+            <AppTitle>THE LESSON</AppTitle>
+            <LogoImage source={logoImage} resizeMode="contain" />
+            <AppSlogan>소규모 레슨 운영 자동화</AppSlogan>
+            <AppSubtitle>계약 출결 정산 발송이 더 편리해집니다.</AppSubtitle>
+          </HeaderArea>
           <Content>
             {/* Step 표시 */}
             <StepIndicator>
@@ -390,6 +398,41 @@ export default function AuthScreen() {
 const Container = styled.SafeAreaView`
   flex: 1;
   background-color: #f2f2f7;
+`;
+
+const HeaderArea = styled.View`
+  padding: 40px 20px 20px;
+  align-items: center;
+  gap: 16px;
+`;
+
+const AppTitle = styled.Text`
+  font-size: 28px;
+  font-weight: 700;
+  color: #111111;
+  text-align: center;
+  margin-bottom: 8px;
+`;
+
+const LogoImage = styled.Image`
+  width: 80px;
+  height: 80px;
+  margin-bottom: 8px;
+`;
+
+const AppSlogan = styled.Text`
+  font-size: 18px;
+  font-weight: 700;
+  color: #1d42d8;
+  text-align: center;
+`;
+
+const AppSubtitle = styled.Text`
+  font-size: 14px;
+  font-weight: 400;
+  color: #8e8e93;
+  text-align: center;
+  margin-top: 4px;
 `;
 
 const Content = styled.View`
