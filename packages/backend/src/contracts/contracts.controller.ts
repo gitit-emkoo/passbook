@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { ContractsService } from './contracts.service';
 import { CreateContractDto } from './dto/create-contract.dto';
@@ -6,6 +6,8 @@ import { JwtAuthGuard } from '../auth/jwt-auth/jwt-auth.guard';
 import { UpdateContractStatusDto } from './dto/update-contract-status.dto';
 import { ExtendContractDto } from './dto/extend-contract.dto';
 import { RescheduleSessionDto } from './dto/reschedule-session.dto';
+import { CreateReservationDto } from './dto/create-reservation.dto';
+import { UpdateReservationDto } from './dto/update-reservation.dto';
 
 @Controller('api/v1/contracts')
 export class ContractsController {
@@ -88,5 +90,50 @@ export class ContractsController {
     // 공개 엔드포인트: 인증 없이 계약서 조회 가능
     const html = await this.contractsService.generateContractHtml(id);
     return { html };
+  }
+
+  // 예약 관련 API
+  @Post(':id/reservations')
+  @UseGuards(JwtAuthGuard)
+  async createReservation(
+    @Req() req: Request,
+    @Param('id', ParseIntPipe) contractId: number,
+    @Body() dto: CreateReservationDto,
+  ) {
+    const user = req.user as any;
+    return this.contractsService.createReservation(user.id ?? user.sub, contractId, dto);
+  }
+
+  @Get(':id/reservations')
+  @UseGuards(JwtAuthGuard)
+  async getReservations(
+    @Req() req: Request,
+    @Param('id', ParseIntPipe) contractId: number,
+  ) {
+    const user = req.user as any;
+    return this.contractsService.getReservations(user.id ?? user.sub, contractId);
+  }
+
+  @Patch(':id/reservations/:reservationId')
+  @UseGuards(JwtAuthGuard)
+  async updateReservation(
+    @Req() req: Request,
+    @Param('id', ParseIntPipe) contractId: number,
+    @Param('reservationId', ParseIntPipe) reservationId: number,
+    @Body() dto: UpdateReservationDto,
+  ) {
+    const user = req.user as any;
+    return this.contractsService.updateReservation(user.id ?? user.sub, contractId, reservationId, dto);
+  }
+
+  @Delete(':id/reservations/:reservationId')
+  @UseGuards(JwtAuthGuard)
+  async deleteReservation(
+    @Req() req: Request,
+    @Param('id', ParseIntPipe) contractId: number,
+    @Param('reservationId', ParseIntPipe) reservationId: number,
+  ) {
+    const user = req.user as any;
+    return this.contractsService.deleteReservation(user.id ?? user.sub, contractId, reservationId);
   }
 }

@@ -155,17 +155,41 @@ export class StudentsService {
 			const thisMonthAttendance = student.attendance_logs || [];
 
 			let sessionsUsed = 0;
+			let amountUsed = 0;
 			if (latestContract) {
-				sessionsUsed = await this.prisma.attendanceLog.count({
-					where: {
-						user_id: userId,
-						contract_id: latestContract.id,
-						voided: false,
-						status: {
-							in: ['present', 'absent', 'substitute', 'vanish'],
+				const snapshot = (latestContract.policy_snapshot ?? {}) as Record<string, any>;
+				const totalSessions = typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
+				const isSessionBased = totalSessions > 0 && !latestContract.ended_at; // 횟수권
+				const isAmountBased = latestContract.ended_at; // 금액권 (유효기간이 있음)
+				
+				if (isSessionBased) {
+					// 횟수권: 사용된 횟수 계산
+					sessionsUsed = await this.prisma.attendanceLog.count({
+						where: {
+							user_id: userId,
+							contract_id: latestContract.id,
+							voided: false,
+							status: {
+								in: ['present', 'absent', 'substitute', 'vanish'],
+							},
 						},
-					},
-				});
+					});
+				} else if (isAmountBased) {
+					// 금액권: 사용된 금액 합계 계산
+					const attendanceLogsWithAmount = await this.prisma.attendanceLog.findMany({
+						where: {
+							user_id: userId,
+							contract_id: latestContract.id,
+							voided: false,
+							status: { in: ['present', 'absent', 'substitute', 'vanish'] },
+							amount: { not: null },
+						},
+						select: {
+							amount: true,
+						},
+					});
+					amountUsed = attendanceLogsWithAmount.reduce((sum, log) => sum + (log.amount || 0), 0);
+				}
 			}
 
 			// 이번 달 상태 요약 계산
@@ -177,7 +201,7 @@ export class StudentsService {
 			} else if (substituteCount > 0) {
 				statusSummary = `${substituteCount}회 대체수업`;
 			} else if (thisMonthAttendance.length > 0) {
-				statusSummary = `${thisMonthAttendance.length}회 출석`;
+				statusSummary = `${thisMonthAttendance.length}회 관리`;
 			}
 
 			// 수업 정보 문자열 생성
@@ -224,6 +248,7 @@ export class StudentsService {
 							ended_at: latestContract.ended_at,
 							policy_snapshot: latestContract.policy_snapshot,
 							sessions_used: sessionsUsed,
+							amount_used: amountUsed,
 						}
 					: null,
 				// 이번 달 청구 정보
@@ -368,25 +393,6 @@ export class StudentsService {
 			data: { user_id: userId, is_active: isActive },
 		});
 
-		// 수강생 비활성화 알림 (이벤트 기반, 1회만 발송)
-		// true에서 false로 변경될 때만 알림 발송
-		if (student.is_active === true && isActive === false) {
-			try {
-				await this.notificationsService.createAndSendNotification(
-					userId,
-					'student',
-					'수강생 비활성화',
-					`비활성화된 수강생이 있습니다. (${student.name})`,
-					`/students/${id}`,
-					{
-						relatedId: `student:${id}:deactivated`,
-					},
-				);
-			} catch (error) {
-				// 알림 실패해도 상태 업데이트는 유지
-				console.error('[Students] Failed to send notification:', error);
-			}
-		}
 
 		return updated;
 	}

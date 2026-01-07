@@ -23,26 +23,20 @@ const DAY_INDEX_MAP: Record<string, number> = {
 
 const BILLING_TYPES = [
   { value: 'prepaid', label: '선불' },
-  { value: 'postpaid', label: '후불' },
 ];
 
 const ABSENCE_POLICIES = [
-  { value: 'carry_over', label: '이월' },
-  { value: 'deduct_next', label: '차감' },
+  { value: 'carry_over', label: '대체' },
   { value: 'vanish', label: '소멸' },
 ];
 
-const RECIPIENT_POLICIES = [
-  { value: 'student_only', label: '수강생만' },
-  { value: 'guardian_only', label: '보호자만' },
-  { value: 'both', label: '모두' },
-];
+// 뷰티 앱에서는 고객 전화번호만 사용
 
 export default function ContractNewScreen() {
   const navigation = useNavigation<HomeStackNavigationProp>();
   const [loading, setLoading] = useState(false);
 
-  // 수강생 정보
+  // 수강생 정보 (뷰티앱: 고객 정보)
   const [studentName, setStudentName] = useState('');
   const [studentPhone, setStudentPhone] = useState('');
   const [guardianName, setGuardianName] = useState('');
@@ -52,18 +46,12 @@ export default function ContractNewScreen() {
   const [subject, setSubject] = useState('');
   const [lessonNotes, setLessonNotes] = useState('');
   const [selectedDays, setSelectedDays] = useState<string[]>([]);
-  const [selectedHour, setSelectedHour] = useState<number | null>(null);
-  const [selectedMinute, setSelectedMinute] = useState<number | null>(null);
-  const [showHourPicker, setShowHourPicker] = useState(false);
-  const [showMinutePicker, setShowMinutePicker] = useState(false);
-  // 수업 시간(선택 입력: HH:MM)
-  const [lessonTime, setLessonTime] = useState<string>('');
 
 // 결제 및 정책
   const [monthlyAmount, setMonthlyAmount] = useState('');
   const [billingType, setBillingType] = useState<'prepaid' | 'postpaid'>('prepaid');
-  const [absencePolicy, setAbsencePolicy] = useState<'carry_over' | 'deduct_next' | 'vanish'>('carry_over');
-  const [attendanceRequiresSignature, setAttendanceRequiresSignature] = useState(false);
+  const [absencePolicy, setAbsencePolicy] = useState<'carry_over' | 'vanish'>('vanish');
+  const [attendanceRequiresSignature, setAttendanceRequiresSignature] = useState(true); // 뷰티 앱에서는 필수
 
   // 수업 형태/단가 방식
   const [lessonType, setLessonType] = useState<'monthly' | 'sessions'>('monthly');
@@ -79,15 +67,15 @@ export default function ContractNewScreen() {
   const [startDate, setStartDate] = useState<Date>(new Date());
   const [endDate, setEndDate] = useState<Date>(() => {
     const date = new Date();
-    date.setMonth(date.getMonth() + 1); // 기본값: 오늘부터 1개월 후
-    date.setDate(date.getDate() - 1); // -1일 (실무 기준: 12.8~1.7 = 한달)
+    date.setFullYear(date.getFullYear() + 1); // 기본값: 오늘부터 1년 후
+    date.setDate(date.getDate() - 1); // 하루전 (예: 12.24 ~ 다음년 12.23)
     return date;
   });
   const [endDateDay, setEndDateDay] = useState<number>(() => {
     const date = new Date();
-    date.setMonth(date.getMonth() + 1);
-    date.setDate(date.getDate() - 1);
-    return date.getDate(); // 기본 일자 저장
+    date.setFullYear(date.getFullYear() + 1);
+    date.setDate(date.getDate() - 1); // 하루전
+    return date.getDate(); // 기본 일자 저장 (유효기간 종료일)
   });
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
@@ -148,21 +136,12 @@ export default function ContractNewScreen() {
       // 예: 61일 = 2개월, 89일 = 3개월
       const result = Math.round(daysDiff / 30);
       
-      console.log('[계약개월수계산] 여러달', {
-        start: start.toISOString().split('T')[0],
-        end: end.toISOString().split('T')[0],
-        daysDiff,
-        result,
-      });
+      // 디버그 로그 제거
       
       return result;
     } else {
       // 한달 계약
-      console.log('[계약개월수계산] 한달', {
-        start: start.toISOString().split('T')[0],
-        end: end.toISOString().split('T')[0],
-        daysDiff,
-      });
+      // 디버그 로그 제거
       
       return 1;
     }
@@ -183,16 +162,10 @@ export default function ContractNewScreen() {
     if (paymentSchedule === 'lump_sum') {
       const cleanedAmount = monthlyAmount.replace(/,/g, '');
       const totalAmount = Number(cleanedAmount) || 0;
-      console.log('[effectivePerSessionAmount계산] 일시납부', { 
-        monthlyAmount, 
-        cleanedAmount, 
-        totalAmount, 
-        plannedCount, 
-        paymentSchedule 
-      });
+      // 디버그 로그 제거
       if (plannedCount > 0 && totalAmount > 0) {
         const result = roundToNearestHundred(totalAmount / plannedCount);
-        console.log('[effectivePerSessionAmount계산] 일시납부 결과', { result });
+        // 디버그 로그 제거
         return result;
       }
       return 0;
@@ -200,11 +173,11 @@ export default function ContractNewScreen() {
     // 확정 개념: 선불 여러달 계약의 경우 (월납부)
     // 단가 = (월금액 × 계약 개월수) ÷ 전체 계약기간 수업일수
     // 예: (10만원 × 3개월) ÷ 13회 = 단가
-    console.log('[effectivePerSessionAmount계산] 월납부', { monthlyAmount, plannedCount, contractMonths, paymentSchedule });
+    // 디버그 로그 제거
     return calculateAutoPerSessionFromMonthly(monthlyAmount, plannedCount, contractMonths);
   }, [perSessionAmount, lessonType, totalSessions, sessionsTotalAmount, monthlyAmount, plannedCount, contractMonths, paymentSchedule]);
 
-  // 전체금액/월 수업료 변경 시 단가 자동 계산 (양방향 계산)
+  // 전체금액/금액 변경 시 단가 자동 계산 (양방향 계산)
   useEffect(() => {
     if (lessonType === 'sessions' && lastEditedField.current === 'totalAmount') {
       const totalAmount = Number(sessionsTotalAmount) || 0;
@@ -249,22 +222,11 @@ export default function ContractNewScreen() {
     });
   }, []);
 
-  const handleRecipientPolicyChange = useCallback((policy: string) => {
-    setRecipientPolicy(policy);
-    // 정책에 따라 recipient_targets 자동 설정
-    if (policy === 'student_only' && studentPhone) {
-      setRecipientTargets([studentPhone]);
-    } else if (policy === 'guardian_only' && guardianPhone) {
-      setRecipientTargets([guardianPhone]);
-    } else if (policy === 'both') {
-      const targets: string[] = [];
-      if (studentPhone) targets.push(studentPhone);
-      if (guardianPhone) targets.push(guardianPhone);
-      setRecipientTargets(targets);
-    } else {
-      setRecipientTargets([]);
+  const handleUseCustomerPhone = useCallback(() => {
+    if (studentPhone.trim()) {
+      setRecipientTargets([studentPhone.trim()]);
     }
-  }, [studentPhone, guardianPhone]);
+  }, [studentPhone]);
 
   const validateForm = useCallback((): boolean => {
     if (!studentName.trim()) {
@@ -281,21 +243,11 @@ export default function ContractNewScreen() {
       Alert.alert('입력 오류', '수강생 연락처는 010-1234-5678 형식으로 입력해주세요.');
       return false;
     }
-    if (guardianPhone.trim()) {
-      const trimmedGuardianPhone = guardianPhone.trim();
-      if (!phoneRegex.test(trimmedGuardianPhone.replace(/\s+/g, ''))) {
-        Alert.alert('입력 오류', '보호자 연락처는 010-1234-5678 형식으로 입력해주세요.');
-        return false;
-      }
-    }
     if (!subject.trim()) {
       Alert.alert('입력 오류', '과목명을 입력해주세요.');
       return false;
     }
-    if (selectedDays.length === 0) {
-      Alert.alert('입력 오류', '수업 요일을 선택해주세요.');
-      return false;
-    }
+    // 뷰티 앱에서는 요일 선택 불필요 (예약 방식으로 변경)
     if (lessonType === 'sessions') {
       if (!totalSessions.trim() || isNaN(Number(totalSessions)) || Number(totalSessions) <= 0) {
         Alert.alert('입력 오류', '총 회차를 올바르게 입력해주세요.');
@@ -365,9 +317,8 @@ export default function ContractNewScreen() {
             const lessonTypeValue = settings.default_lesson_type === 'session' ? 'sessions' : settings.default_lesson_type;
             setLessonType(lessonTypeValue as 'monthly' | 'sessions');
           }
-          if (settings.default_billing_type) {
-            setBillingType(settings.default_billing_type);
-          }
+          // 뷰티앱: 결제 방식은 항상 선불로 고정하므로
+          // settings.default_billing_type이 있어도 무시하고 'prepaid'를 사용
           if (settings.default_absence_policy) {
             setAbsencePolicy(settings.default_absence_policy);
           }
@@ -417,26 +368,25 @@ export default function ContractNewScreen() {
         const newStudent = await studentsApi.create({
           name: studentName,
           phone: normalizedStudentPhone,
-          guardian_name: guardianName || undefined,
-          guardian_phone: normalizedGuardianPhone,
         });
         studentId = newStudent.id;
       }
 
       // 2. recipient_targets 최종 설정 (정규화된 전화번호 사용)
       const finalRecipientTargets: string[] = [];
-      if (recipientPolicy === 'student_only' && normalizedStudentPhone) {
+      // recipientTargets가 비어있으면 고객 전화번호 사용
+      if (recipientTargets.length > 0) {
+        recipientTargets.forEach((target) => {
+          const normalized = normalizePhone(target);
+          if (normalized) finalRecipientTargets.push(normalized);
+        });
+      } else if (normalizedStudentPhone) {
         finalRecipientTargets.push(normalizedStudentPhone);
-      } else if (recipientPolicy === 'guardian_only' && normalizedGuardianPhone) {
-        finalRecipientTargets.push(normalizedGuardianPhone);
-      } else if (recipientPolicy === 'both') {
-        if (normalizedStudentPhone) finalRecipientTargets.push(normalizedStudentPhone);
-        if (normalizedGuardianPhone) finalRecipientTargets.push(normalizedGuardianPhone);
       }
 
       // 3. 계약서 생성 (초안 저장 - draft 상태)
-      // 시간은 선택값: HH:MM 형식일 때만 전송
-      const timeString = /^\d{2}:\d{2}$/.test(lessonTime.trim()) ? lessonTime.trim() : undefined;
+      // 시간은 선택값: 뷰티 앱에서는 예약 시점에 시간을 설정하므로 계약 생성 시에는 시간 없음
+      const timeString = undefined;
       // 백엔드 400 방지: 현재 허용 필드만 전송
       // policy_snapshot에 회차제 정보/보조 정보를 담아 정산 계산 시 정확한 단가를 사용하게 함
       const policySnapshot: Record<string, any> = {
@@ -471,14 +421,14 @@ export default function ContractNewScreen() {
       const contractData = {
         student_id: studentId,
         subject: subject.trim(),
-        day_of_week: selectedDays,
+        day_of_week: [], // 뷰티 앱에서는 요일 미설정 (예약 방식 사용)
         ...(timeString ? { time: timeString } : {}),
         billing_type: billingType,
         absence_policy: absencePolicy,
         monthly_amount: Number(lessonType === 'sessions' ? sessionsTotalAmount : monthlyAmount),
         policy_snapshot: policySnapshot,
         attendance_requires_signature: attendanceRequiresSignature,
-        recipient_policy: recipientPolicy,
+        recipient_policy: 'student_only', // 뷰티 앱에서는 고객만
         recipient_targets: finalRecipientTargets,
         ...(lessonType === 'monthly'
           ? {
@@ -508,17 +458,14 @@ export default function ContractNewScreen() {
     normalizePhone,
     studentName,
     studentPhone,
-    guardianName,
-    guardianPhone,
     subject,
     selectedDays,
-    lessonTime,
     lessonType,
     monthlyAmount,
     billingType,
     absencePolicy,
     attendanceRequiresSignature,
-    recipientPolicy,
+    recipientTargets,
     perSessionAmount,
     totalSessions,
     sessionsTotalAmount,
@@ -538,94 +485,50 @@ export default function ContractNewScreen() {
     <Container>
       <ScrollView 
         showsVerticalScrollIndicator={false}
-        onScrollBeginDrag={() => {
-          setShowHourPicker(false);
-          setShowMinutePicker(false);
-        }}
       >
-        {/* 수강생 정보 */}
+        {/* 고객 정보 */}
         <Section>
-          <SectionTitle>수강생 정보</SectionTitle>
+          <SectionTitle>고객 정보</SectionTitle>
           <FormLabel label="이름" required />
           <TextInput
             value={studentName}
             onChangeText={setStudentName}
-            placeholder="수강생 이름을 입력하세요"
+            placeholder="고객 이름을 입력하세요"
             autoCapitalize="none"
           />
           <FormLabel label="연락처" required />
           <TextInput
             value={studentPhone}
-            onChangeText={(text) => {
-              setStudentPhone(text);
-              // 연락처 변경 시 recipient_targets 업데이트
-              if (recipientPolicy === 'student_only' || recipientPolicy === 'both') {
-                handleRecipientPolicyChange(recipientPolicy);
-              }
-            }}
-            placeholder="010-0000-0000"
-            keyboardType="phone-pad"
-            autoCapitalize="none"
-          />
-          <InputLabel>보호자 이름</InputLabel>
-          <TextInput
-            value={guardianName}
-            onChangeText={setGuardianName}
-            placeholder="보호자 이름을 입력하세요"
-            autoCapitalize="none"
-          />
-          <InputLabel>보호자 연락처</InputLabel>
-          <TextInput
-            value={guardianPhone}
-            onChangeText={(text) => {
-              setGuardianPhone(text);
-              // 보호자 연락처 변경 시 recipient_targets 업데이트
-              if (recipientPolicy === 'guardian_only' || recipientPolicy === 'both') {
-                handleRecipientPolicyChange(recipientPolicy);
-              }
-            }}
+            onChangeText={setStudentPhone}
             placeholder="010-0000-0000"
             keyboardType="phone-pad"
             autoCapitalize="none"
           />
         </Section>
 
-        {/* 수업 정보 */}
+        {/* 이용권 정보 */}
         <Section>
-          <SectionTitle>수업 정보</SectionTitle>
-          <FormLabel label="과목명" required />
+          <SectionTitle>이용권 정보</SectionTitle>
+          <FormLabel label="이용권 명" required />
           <TextInput
             value={subject}
             onChangeText={setSubject}
-            placeholder="예: 수학, 영어, 피아노"
+            placeholder="예: 네일, 피부관리, PT, 미용 등"
             autoCapitalize="none"
           />
-          <FormLabel label="수업 내용 (선택)" />
+          <FormLabel label="이용권 정보 (선택)" />
           <TextArea
             value={lessonNotes}
             onChangeText={setLessonNotes}
-            placeholder="수업 범위, 특약 사항 등을 입력하세요"
+            placeholder="제공 서비스 내용, 특약 사항 등을 입력하세요"
             multiline
             textAlignVertical="top"
           />
-          <InputLabel>수업 시간 (선택)</InputLabel>
-          <TimeSelectRow>
-            <TimeSelectButton onPress={() => setShowHourPicker(true)}>
-              <TimeSelectText>{selectedHour !== null ? String(selectedHour).padStart(2, '0') : '시'}</TimeSelectText>
-              <TimeSelectCaret>▾</TimeSelectCaret>
-            </TimeSelectButton>
-            <TimeDivider>:</TimeDivider>
-            <TimeSelectButton onPress={() => setShowMinutePicker(true)}>
-              <TimeSelectText>{selectedMinute !== null ? String(selectedMinute).padStart(2, '0') : '분'}</TimeSelectText>
-              <TimeSelectCaret>▾</TimeSelectCaret>
-            </TimeSelectButton>
-          </TimeSelectRow>
-          {!!lessonTime && <SelectedTimeHint>선택됨: {lessonTime}</SelectedTimeHint>}
-          <FormLabel label="수업 형태" required />
+          <FormLabel label="이용권 선택" required />
           <OptionsContainer>
             {[
-              { value: 'monthly', label: '월단위' },
-              { value: 'sessions', label: '횟수제' },
+              { value: 'monthly', label: '선불권' },
+              { value: 'sessions', label: '횟수권' },
             ].map((opt) => (
               <OptionButton
                 key={opt.value}
@@ -646,25 +549,11 @@ export default function ContractNewScreen() {
               </OptionButton>
             ))}
           </OptionsContainer>
-          <FormLabel label="수업 요일" required />
-          <DaysContainer>
-            {DAYS_OF_WEEK.map((day, index) => (
-              <DayButton
-                key={day}
-                selected={selectedDays.includes(day)}
-                onPress={() => toggleDay(day)}
-              >
-                <DayButtonText selected={selectedDays.includes(day)}>
-                  {DAY_LABELS[index]}
-                </DayButtonText>
-              </DayButton>
-            ))}
-          </DaysContainer>
 
           {/* 계약 기간 */}
           {lessonType === 'monthly' ? (
             <>
-              <FormLabel label="계약 시작일" required />
+              <FormLabel label="이용권 발행일" required />
               <DatePickerButton onPress={() => setShowStartDatePicker(true)}>
                 <DatePickerText>
                   {startDate.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })}
@@ -682,8 +571,8 @@ export default function ContractNewScreen() {
                       setStartDate(selectedDate);
                       if (selectedDate > endDate) {
                         const newEndDate = new Date(selectedDate);
-                        newEndDate.setMonth(newEndDate.getMonth() + 1);
-                        newEndDate.setDate(newEndDate.getDate() - 1); // -1일 (실무 기준)
+                        newEndDate.setFullYear(newEndDate.getFullYear() + 1);
+                        newEndDate.setDate(newEndDate.getDate() - 1); // 하루전 (예: 12.24 ~ 다음년 12.23)
                         setEndDate(newEndDate);
                       }
                     }
@@ -691,7 +580,7 @@ export default function ContractNewScreen() {
                 />
               )}
 
-              <FormLabel label="계약 종료일" required />
+              <FormLabel label="이용권 종료일" required />
               <DatePickerButton onPress={() => {
                 // 캘린더를 열 때 현재 일자 저장
                 setEndDateDay(endDate.getDate());
@@ -741,39 +630,6 @@ export default function ContractNewScreen() {
                   }}
                 />
               )}
-
-              {/* 납부 방식 선택 (한달 이상 계약만 표시) */}
-              {contractMonths > 1 && (
-                <>
-                  <FormLabel label="납부 방식" required />
-                  <OptionsContainer>
-                    <OptionButton
-                      selected={paymentSchedule === 'monthly'}
-                      onPress={() => {
-                        setPaymentSchedule('monthly');
-                        // 월납부로 변경 시 단가 초기화하여 재계산
-                        setPerSessionAmount('');
-                      }}
-                    >
-                      <OptionButtonText selected={paymentSchedule === 'monthly'}>
-                        월납
-                      </OptionButtonText>
-                    </OptionButton>
-                    <OptionButton
-                      selected={paymentSchedule === 'lump_sum'}
-                      onPress={() => {
-                        setPaymentSchedule('lump_sum');
-                        // 일시납부로 변경 시 단가 초기화하여 재계산
-                        setPerSessionAmount('');
-                      }}
-                    >
-                      <OptionButtonText selected={paymentSchedule === 'lump_sum'}>
-                        일시납
-                      </OptionButtonText>
-                    </OptionButton>
-                  </OptionsContainer>
-                </>
-              )}
             </>
           ) : (
             <HelperText>횟수제 계약은 기간 입력 없이 회차만으로 관리됩니다.</HelperText>
@@ -782,16 +638,16 @@ export default function ContractNewScreen() {
           {lessonType === 'monthly' && (
             <>
               <FormLabel 
-                label={paymentSchedule === 'lump_sum' ? '총 수업료 (원)' : '월 수업료 (원)'} 
+                label="금액 (원)" 
                 required 
               />
               <TextInput
                 value={monthlyAmount}
                 onChangeText={(text) => {
-                  console.log('[월수업료입력]', { text, length: text.length });
+                  // 디버그 로그 제거
                   lastEditedField.current = 'totalAmount';
                   setMonthlyAmount(text);
-                  // 월 수업료 입력 시 단가 필드 초기화하여 자동 계산이 실행되도록 함
+                  // 금액 입력 시 단가 필드 초기화하여 자동 계산이 실행되도록 함
                   if (text.length > 0) {
                     setPerSessionAmount('');
                   }
@@ -811,7 +667,7 @@ export default function ContractNewScreen() {
                 placeholder="예: 10"
                 keyboardType="number-pad"
               />
-              <FormLabel label="전체 금액(원)" required />
+              <FormLabel label="금액 (원)" required />
               <TextInput
                 value={sessionsTotalAmount}
                 onChangeText={(text) => {
@@ -833,18 +689,27 @@ export default function ContractNewScreen() {
                   <PreviewValue>{Number(totalSessions || '0')}회</PreviewValue>
                 </PreviewRow>
                 <PreviewRow>
-                  <PreviewLabel>수업료</PreviewLabel>
+                  <PreviewLabel>금액</PreviewLabel>
                   <PreviewValue>{(Number(sessionsTotalAmount) || 0).toLocaleString()}원</PreviewValue>
                 </PreviewRow>
               </>
             ) : (
               <>
                 <PreviewRow>
-                  <PreviewLabel>회차</PreviewLabel>
-                  <PreviewValue>{plannedCount}회</PreviewValue>
+                  <PreviewLabel>유효기간</PreviewLabel>
+                  <PreviewValue>
+                    {startDate && endDate
+                      ? `${startDate.getFullYear()}.${String(startDate.getMonth() + 1).padStart(2, '0')}.${String(
+                          startDate.getDate(),
+                        ).padStart(2, '0')} ~ ${endDate.getFullYear()}.${String(endDate.getMonth() + 1).padStart(
+                          2,
+                          '0',
+                        )}.${String(endDate.getDate()).padStart(2, '0')}`
+                      : '-'}
+                  </PreviewValue>
                 </PreviewRow>
                 <PreviewRow>
-                  <PreviewLabel>수업료</PreviewLabel>
+                  <PreviewLabel>금액</PreviewLabel>
                   <PreviewValue>
                     {autoBaseAmount(
                       lessonType,
@@ -898,30 +763,11 @@ export default function ContractNewScreen() {
                     ? perSessionAmount
                     : String(effectivePerSessionAmount || '')
                 }
-                onChangeText={(text) => {
-                  lastEditedField.current = 'perSession';
-                  setPerSessionAmount(text);
-                  // 단가 입력 시 수업료 자동 계산
-                  const perSession = Number(text) || 0;
-                  if (paymentSchedule === 'lump_sum') {
-                    // 일시납부: 단가 × 총 회차 = 총 수업료
-                    if (perSession > 0 && plannedCount > 0) {
-                      const calculatedTotal = perSession * plannedCount;
-                      setMonthlyAmount(String(calculatedTotal));
-                    }
-                  } else {
-                    // 월납부: 단가 × 첫 달 회차 = 월 수업료
-                    // 확정 개념: 선불 여러달 계약의 경우 월단위 수업료는 첫 달 기준으로 계산
-                    const countForMonthly = firstMonthPlannedCount > 0 ? firstMonthPlannedCount : plannedCount;
-                    if (perSession > 0 && countForMonthly > 0) {
-                      const calculatedMonthly = perSession * countForMonthly;
-                      setMonthlyAmount(String(calculatedMonthly));
-                    }
-                  }
-                }}
-                placeholder="예: 30000"
+                editable={false}
+                placeholder="선불권에서는 사용하지 않음"
                 keyboardType="number-pad"
                 autoCapitalize="none"
+                style={{ backgroundColor: '#f5f5f5', color: '#999999' }}
               />
             </>
           )}
@@ -939,19 +785,13 @@ export default function ContractNewScreen() {
               </OptionButton>
             ))}
           </OptionsContainer>
-          <FormLabel label="결석시 수업료 처리조건" required />
+          <FormLabel label="노쇼 정책" required />
           <OptionsContainer>
-            {ABSENCE_POLICIES.filter((policy) => {
-              // 확정 개념: 횟수제 계약은 차감 옵션 없음 (선불이든 후불이든 출결기록 반영 차감 없음)
-              if (lessonType === 'sessions' && policy.value === 'deduct_next') {
-                return false;
-              }
-              return true;
-            }).map((policy) => (
+            {ABSENCE_POLICIES.map((policy) => (
               <OptionButton
                 key={policy.value}
                 selected={absencePolicy === policy.value}
-                onPress={() => setAbsencePolicy(policy.value as 'carry_over' | 'deduct_next' | 'vanish')}
+                onPress={() => setAbsencePolicy(policy.value as 'carry_over' | 'vanish')}
               >
                 <OptionButtonText selected={absencePolicy === policy.value}>
                   {policy.label}
@@ -959,7 +799,7 @@ export default function ContractNewScreen() {
               </OptionButton>
             ))}
           </OptionsContainer>
-          <InputLabel>출석 시 서명 필수</InputLabel>
+          <InputLabel>관리 시 서명 필수</InputLabel>
           <ToggleContainer>
             <ToggleButton
               onPress={() => setAttendanceRequiresSignature(!attendanceRequiresSignature)}
@@ -975,20 +815,17 @@ export default function ContractNewScreen() {
         {/* 전송 옵션 */}
         <Section>
           <SectionTitle>전송 옵션</SectionTitle>
-          <FormLabel label="청구서 수신자" required />
-          <OptionsContainer>
-            {RECIPIENT_POLICIES.map((policy) => (
-              <OptionButton
-                key={policy.value}
-                selected={recipientPolicy === policy.value}
-                onPress={() => handleRecipientPolicyChange(policy.value)}
-              >
-                <OptionButtonText selected={recipientPolicy === policy.value}>
-                  {policy.label}
-                </OptionButtonText>
-              </OptionButton>
-            ))}
-          </OptionsContainer>
+          <FormLabel label="청구서를 받으실 전화번호" required />
+          <CustomerPhoneButton onPress={handleUseCustomerPhone}>
+            <CustomerPhoneButtonText>고객정보의 연락처 사용</CustomerPhoneButtonText>
+          </CustomerPhoneButton>
+          <TextInput
+            value={recipientTargets.length > 0 ? recipientTargets[0] : ''}
+            onChangeText={(text) => setRecipientTargets(text.trim() ? [text.trim()] : [])}
+            placeholder="청구서가 발송될 전화번호를 입력하세요."
+            keyboardType="phone-pad"
+            autoCapitalize="none"
+          />
           <FormLabel label="계좌 정보" required />
           <HelperText>설정에서 등록한 계좌가 없다면 여기에서 직접 입력해 주세요.</HelperText>
           <FormLabel label="은행명" required />
@@ -1026,35 +863,6 @@ export default function ContractNewScreen() {
         </SaveButtonContainer>
       </ScrollView>
 
-      {/* 시간 선택 모달 */}
-      <TimePickerModalComponent
-        visible={showHourPicker}
-        onClose={() => setShowHourPicker(false)}
-        options={Array.from({ length: 24 }, (_, i) => i)}
-        selected={selectedHour}
-        onSelect={(hour) => {
-          setSelectedHour(hour);
-          setShowHourPicker(false);
-          const mm = selectedMinute ?? 0;
-          const t = `${String(hour).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
-          setLessonTime(t);
-        }}
-        label="시"
-      />
-      <TimePickerModalComponent
-        visible={showMinutePicker}
-        onClose={() => setShowMinutePicker(false)}
-        options={Array.from({ length: 12 }, (_, i) => i * 5)}
-        selected={selectedMinute}
-        onSelect={(minute) => {
-          setSelectedMinute(minute);
-          setShowMinutePicker(false);
-          const hh = selectedHour ?? 0;
-          const t = `${String(hh).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-          setLessonTime(t);
-        }}
-        label="분"
-      />
     </Container>
   );
 }
@@ -1393,6 +1201,17 @@ const PreviewValue = styled.Text`
   font-weight: 700;
 `;
 
+const CustomerPhoneButton = styled.TouchableOpacity`
+  margin-top: 8px;
+  margin-bottom: 8px;
+`;
+
+const CustomerPhoneButtonText = styled.Text`
+  font-size: 14px;
+  color: #1d42d8;
+  text-decoration-line: underline;
+`;
+
 // 유틸: 계약 기간 내 특정 요일 개수 계산
 function computePlannedCount(days: string[], startDate?: Date, endDate?: Date): number {
   if (!Array.isArray(days) || days.length === 0 || !startDate || !endDate) return 0;
@@ -1447,13 +1266,10 @@ function autoBaseAmount(
   if (pricingMode === 'monthly_flat') {
     return Number(monthlyAmount) || 0;
   }
-  // 확정 개념: 선불 여러달 계약의 경우 (월납만)
-  // 총금액 = 월 수업료 × 계약 개월수 (반올림된 단가 × 총수업일이 아님)
-  // 예: 15만원 × 3개월 = 45만원
-  if (lessonType === 'monthly' && contractMonths && contractMonths > 1) {
+  // 뷰티앱: 금액권은 입력한 금액 그대로 사용 (기간과 연동된 계산식 없음)
+  if (lessonType === 'monthly') {
     const cleanedAmount = monthlyAmount.replace(/,/g, '');
-    const monthlyAmt = Number(cleanedAmount) || 0;
-    return monthlyAmt * contractMonths;
+    return Number(cleanedAmount) || 0;
   }
   // 한달 계약이거나 contractMonths가 없는 경우: 반올림된 단가 × 총수업일
   const count = plannedCount ?? 0;

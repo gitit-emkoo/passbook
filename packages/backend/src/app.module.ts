@@ -10,10 +10,10 @@ import { ContractsModule } from './contracts/contracts.module';
 import { AttendanceModule } from './attendance/attendance.module';
 import { InvoicesModule } from './invoices/invoices.module';
 import { NotificationsModule } from './notifications/notifications.module';
-import { SettlementsModule } from './settlements/settlements.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { UsersModule } from './users/users.module';
 import { NoticesModule } from './notices/notices.module';
+import { SmsModule } from './sms/sms.module';
 
 @Module({
   imports: [
@@ -28,10 +28,10 @@ import { NoticesModule } from './notices/notices.module';
     AttendanceModule,
     InvoicesModule,
     NotificationsModule,
-    SettlementsModule,
     DashboardModule,
     UsersModule,
     NoticesModule,
+    SmsModule,
   ],
   controllers: [AppController],
   providers: [AppService, PrismaService],

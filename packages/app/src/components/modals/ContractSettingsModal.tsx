@@ -17,9 +17,8 @@ export default function ContractSettingsModal({
 }: ContractSettingsModalProps) {
   const [loading, setLoading] = useState(false);
   const [lessonType, setLessonType] = useState<'monthly' | 'session'>('monthly');
-  const [billingType, setBillingType] = useState<'prepaid' | 'postpaid'>('postpaid');
-  const [absencePolicy, setAbsencePolicy] = useState<'carry_over' | 'deduct_next' | 'vanish'>('deduct_next');
-  const [sendTarget, setSendTarget] = useState<'student_only' | 'guardian_only' | 'both'>('guardian_only');
+  const [absencePolicy, setAbsencePolicy] = useState<'carry_over' | 'deduct_next' | 'vanish'>('carry_over');
+  const [sendTarget, setSendTarget] = useState<'student_only' | 'guardian_only' | 'both'>('student_only');
 
   useEffect(() => {
     if (visible) {
@@ -32,7 +31,6 @@ export default function ContractSettingsModal({
       const user = await usersApi.getMe();
       const settings = (user.settings || {}) as Record<string, unknown>;
       if (settings.default_lesson_type) setLessonType(settings.default_lesson_type as 'monthly' | 'session');
-      if (settings.default_billing_type) setBillingType(settings.default_billing_type as 'prepaid' | 'postpaid');
       if (settings.default_absence_policy) setAbsencePolicy(settings.default_absence_policy as 'carry_over' | 'deduct_next' | 'vanish');
       if (settings.default_send_target) setSendTarget(settings.default_send_target as 'student_only' | 'guardian_only' | 'both');
     } catch (error) {
@@ -45,9 +43,10 @@ export default function ContractSettingsModal({
       setLoading(true);
       await usersApi.updateSettings({
         default_lesson_type: lessonType,
-        default_billing_type: billingType,
         default_absence_policy: absencePolicy,
         default_send_target: sendTarget,
+        // 뷰티앱: 결제 방식은 항상 선불로 고정
+        default_billing_type: 'prepaid',
       });
       Alert.alert('완료', '계약서 기본값이 저장되었습니다.');
       onSave();
@@ -69,7 +68,7 @@ export default function ContractSettingsModal({
     >
       <ModalContainer>
         <ModalHeader>
-          <ModalTitle>계약서 기본값 설정</ModalTitle>
+          <ModalTitle>이용권 기본값 설정</ModalTitle>
           <CloseButton onPress={onClose}>
             <CloseButtonText>닫기</CloseButtonText>
           </CloseButton>
@@ -77,37 +76,32 @@ export default function ContractSettingsModal({
 
         <ModalContent>
           <SettingSection>
-            <SettingLabel>수업 유형</SettingLabel>
+            <SettingLabel>이용권 타입</SettingLabel>
             <OptionRow>
               <OptionButton $active={lessonType === 'monthly'} onPress={() => setLessonType('monthly')}>
-                <OptionText $active={lessonType === 'monthly'}>월단위</OptionText>
+                <OptionText $active={lessonType === 'monthly'}>선불권</OptionText>
               </OptionButton>
               <OptionButton $active={lessonType === 'session'} onPress={() => setLessonType('session')}>
-                <OptionText $active={lessonType === 'session'}>횟수제</OptionText>
+                <OptionText $active={lessonType === 'session'}>횟수권</OptionText>
               </OptionButton>
             </OptionRow>
           </SettingSection>
 
           <SettingSection>
             <SettingLabel>결제 방식</SettingLabel>
+            {/* 뷰티앱에서는 결제 방식은 항상 선불로 고정, 버튼은 선택된 상태로만 표시 (클릭 불가) */}
             <OptionRow>
-              <OptionButton $active={billingType === 'prepaid'} onPress={() => setBillingType('prepaid')}>
-                <OptionText $active={billingType === 'prepaid'}>선불</OptionText>
-              </OptionButton>
-              <OptionButton $active={billingType === 'postpaid'} onPress={() => setBillingType('postpaid')}>
-                <OptionText $active={billingType === 'postpaid'}>후불</OptionText>
+              <OptionButton $active>
+                <OptionText $active>선불</OptionText>
               </OptionButton>
             </OptionRow>
           </SettingSection>
 
           <SettingSection>
-            <SettingLabel>결석 처리</SettingLabel>
+            <SettingLabel>노쇼처리</SettingLabel>
             <OptionRow>
               <OptionButton $active={absencePolicy === 'carry_over'} onPress={() => setAbsencePolicy('carry_over')}>
-                <OptionText $active={absencePolicy === 'carry_over'}>이월</OptionText>
-              </OptionButton>
-              <OptionButton $active={absencePolicy === 'deduct_next'} onPress={() => setAbsencePolicy('deduct_next')}>
-                <OptionText $active={absencePolicy === 'deduct_next'}>차감</OptionText>
+                <OptionText $active={absencePolicy === 'carry_over'}>대체</OptionText>
               </OptionButton>
               <OptionButton $active={absencePolicy === 'vanish'} onPress={() => setAbsencePolicy('vanish')}>
                 <OptionText $active={absencePolicy === 'vanish'}>소멸</OptionText>
@@ -116,16 +110,10 @@ export default function ContractSettingsModal({
           </SettingSection>
 
           <SettingSection>
-            <SettingLabel>전송 대상</SettingLabel>
+            <SettingLabel>청구서 전송</SettingLabel>
             <OptionRow>
               <OptionButton $active={sendTarget === 'student_only'} onPress={() => setSendTarget('student_only')}>
-                <OptionText $active={sendTarget === 'student_only'}>수강생</OptionText>
-              </OptionButton>
-              <OptionButton $active={sendTarget === 'guardian_only'} onPress={() => setSendTarget('guardian_only')}>
-                <OptionText $active={sendTarget === 'guardian_only'}>보호자</OptionText>
-              </OptionButton>
-              <OptionButton $active={sendTarget === 'both'} onPress={() => setSendTarget('both')}>
-                <OptionText $active={sendTarget === 'both'}>둘 다</OptionText>
+                <OptionText $active={sendTarget === 'student_only'}>고객</OptionText>
               </OptionButton>
             </OptionRow>
           </SettingSection>
@@ -190,6 +178,11 @@ const SettingLabel = styled.Text`
   font-weight: 600;
   color: #111111;
   margin-bottom: 12px;
+`;
+
+const SettingValue = styled.Text`
+  font-size: 14px;
+  color: #333333;
 `;
 
 const OptionRow = styled.View`

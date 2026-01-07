@@ -3,7 +3,7 @@ import 'dotenv/config';
 export default ({ config }) => ({
   ...config,
   expo: {
-    name: 'KimSaem',
+    name: 'Passbook',
     slug: 'kimssam',
     version: '1.0.0',
     orientation: 'portrait',

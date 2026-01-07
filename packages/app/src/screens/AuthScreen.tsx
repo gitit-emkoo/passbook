@@ -202,10 +202,10 @@ export default function AuthScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <HeaderArea>
-            <AppTitle>THE LESSON</AppTitle>
+            <AppTitle>Passbook</AppTitle>
             <LogoImage source={logoImage} resizeMode="contain" />
-            <AppSlogan>소규모 레슨 운영 자동화</AppSlogan>
-            <AppSubtitle>계약 출결 정산 발송이 더 편리해집니다.</AppSubtitle>
+            <AppSlogan>샵 이용권 운영 자동화</AppSlogan>
+            <AppSubtitle>이용권 발행부터 사용처리까지 더 편리해집니다.</AppSubtitle>
           </HeaderArea>
           <Content>
             {/* Step 표시 */}
@@ -423,7 +423,7 @@ const LogoImage = styled.Image`
 const AppSlogan = styled.Text`
   font-size: 18px;
   font-weight: 700;
-  color: #1d42d8;
+  color: #303643;
   text-align: center;
 `;
 
@@ -432,7 +432,7 @@ const AppSubtitle = styled.Text`
   font-weight: 400;
   color: #8e8e93;
   text-align: center;
-  margin-top: 4px;
+  margin-top: 2px;
 `;
 
 const Content = styled.View`

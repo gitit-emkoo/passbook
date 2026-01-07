@@ -170,7 +170,7 @@ export default function InvoiceAmountModal({
   };
 
   const signedManual = sign * Number((manualAdjustmentInput || '0').replace(/[^0-9]/g, ''));
-  const calculatedFinalAmount = baseAmount + autoAdjustment + signedManual;
+  const calculatedFinalAmount = baseAmount + signedManual; // autoAdjustment 제거 (차감금액 삭제)
 
   return (
     <Modal isVisible={visible} onBackdropPress={onClose}>
@@ -184,17 +184,7 @@ export default function InvoiceAmountModal({
             <AmountValue>{baseAmount.toLocaleString()}원</AmountValue>
           </AmountRow>
           <AmountRow>
-            <AmountLabel>
-              차감금액
-              {autoAdjustmentDetail ? ` ${autoAdjustmentDetail}` : ''}
-            </AmountLabel>
-            <AmountValue>
-              {autoAdjustment >= 0 ? '+' : ''}
-              {autoAdjustment.toLocaleString()}원
-            </AmountValue>
-          </AmountRow>
-          <AmountRow>
-            <AmountLabel>수동 조정</AmountLabel>
+            <AmountLabel>금액조정</AmountLabel>
             <AmountValue>
               {signedManual >= 0 ? '+' : ''}
               {Math.abs(signedManual).toLocaleString()}원
@@ -203,7 +193,7 @@ export default function InvoiceAmountModal({
           <FinalAmount>최종 금액: {calculatedFinalAmount.toLocaleString()}원</FinalAmount>
         </AmountInfo>
 
-        <InputLabel>수동 조정 금액</InputLabel>
+        <InputLabel>할인 및 추가금액 입력</InputLabel>
         <SignRow>
           <SignToggle $active={sign === 1} onPress={() => setSign(1)}>
             <SignToggleText $active={sign === 1}>+ 추가</SignToggleText>

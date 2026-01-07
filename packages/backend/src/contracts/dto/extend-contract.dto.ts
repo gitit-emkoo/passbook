@@ -11,8 +11,13 @@ export class ExtendContractDto {
   @IsOptional()
   extension_amount?: number;
 
+  @IsNumber()
+  @Min(1)
+  @IsOptional()
+  added_amount?: number; // 금액권: 추가할 금액
+
   @IsDateString()
   @IsOptional()
-  extended_end_date?: string;
+  extended_end_date?: string; // 레거시: 뷰티앱에서는 사용하지 않음
 }
 

@@ -20,6 +20,7 @@ export interface StudentSummary {
     ended_at: string | null;
     policy_snapshot: Record<string, unknown>;
     sessions_used: number;
+    amount_used?: number; // 금액권 사용 금액
   } | null;
   this_month_invoice: {
     id: number;
@@ -77,6 +78,8 @@ export interface StudentAttendanceLog {
   change_reason: string | null;
   voided: boolean;
   void_reason: string | null;
+  sms_sent?: boolean; // SMS 전송 여부
+  amount?: number | null; // 차감 금액 (금액권) 또는 사용 횟수 (횟수권)
   user?: {
     id: number;
     name: string | null;
@@ -89,6 +92,7 @@ export interface StudentDetail {
   phone: string;
   guardian_name?: string | null;
   guardian_phone?: string | null;
+  memo?: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;

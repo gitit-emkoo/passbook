@@ -61,9 +61,9 @@ const STUB_NOTIFICATIONS: NotificationItem[] = [
 
 const FILTERS: { label: string; value: 'all' | NotificationCategory }[] = [
   { label: '전체', value: 'all' },
-  { label: '정산', value: 'settlement' },
-  { label: '수강생', value: 'student' },
-  { label: '출결', value: 'attendance' },
+  { label: '청구서', value: 'settlement' },
+  { label: '관리', value: 'attendance' },
+  { label: '이용권', value: 'contract' },
 ];
 
 const CATEGORY_ICON: Record<NotificationCategory, string> = {
@@ -75,10 +75,10 @@ const CATEGORY_ICON: Record<NotificationCategory, string> = {
 };
 
 const CATEGORY_LABEL: Record<NotificationCategory, string> = {
-  settlement: '정산',
-  student: '수강생',
-  attendance: '출결',
-  contract: '계약',
+  settlement: '청구서',
+  student: '고객',
+  attendance: '관리',
+  contract: '이용권',
   system: '시스템',
 };
 
@@ -222,7 +222,6 @@ export default function NotificationsScreen() {
   const renderItem = useCallback(
     ({ item }: { item: NotificationItem }) => (
       <Card onPress={() => handleCardPress(item)}>
-        <CardIcon>{CATEGORY_ICON[item.category]}</CardIcon>
         <CardContent>
           <CardHeader>
             <CardTitle numberOfLines={1}>{item.title}</CardTitle>
@@ -272,7 +271,7 @@ export default function NotificationsScreen() {
             <EmptyIcon>🔔</EmptyIcon>
           </EmptyIconWrapper>
           <EmptyTitle>새로운 알림이 없어요</EmptyTitle>
-          <EmptyDescription>정산, 출결, 계약 알림이 이곳에 표시됩니다.</EmptyDescription>
+          <EmptyDescription>청구, 관리, 계약 알림이 이곳에 표시됩니다.</EmptyDescription>
         </EmptyContainer>
       ) : (
         <FlatList
@@ -409,11 +408,6 @@ const Card = styled.TouchableOpacity`
   shadow-offset: 0px 6px;
   shadow-radius: 10px;
   elevation: 2;
-`;
-
-const CardIcon = styled.Text`
-  font-size: 26px;
-  margin-right: 14px;
 `;
 
 const CardContent = styled.View`

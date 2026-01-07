@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Modal, Alert, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import styled from 'styled-components/native';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -87,6 +87,7 @@ interface AttendanceAbsenceModalProps {
     reason: string; // 사유 (필수)
   }) => void;
   studentName: string;
+  initialStatus?: 'absent' | 'substitute'; // 기본 선택값 (마이페이지 설정값)
 }
 
 /**
@@ -97,11 +98,21 @@ export default function AttendanceAbsenceModal({
   onClose,
   onConfirm,
   studentName,
+  initialStatus,
 }: AttendanceAbsenceModalProps) {
-  const [status, setStatus] = useState<'absent' | 'substitute'>('absent');
+  const [status, setStatus] = useState<'absent' | 'substitute'>(initialStatus || 'absent');
   const [substituteDate, setSubstituteDate] = useState<Date | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [reason, setReason] = useState(''); // 사유 (필수)
+
+  // 모달이 열릴 때 initialStatus 적용
+  useEffect(() => {
+    if (visible && initialStatus) {
+      setStatus(initialStatus);
+    } else if (visible && !initialStatus) {
+      setStatus('absent'); // 기본값이 없으면 'absent' (소멸)
+    }
+  }, [visible, initialStatus]);
 
   const handleConfirm = () => {
     // 사유 필수 검증
@@ -122,7 +133,7 @@ export default function AttendanceAbsenceModal({
     });
 
     // 초기화
-    setStatus('absent');
+    setStatus(initialStatus || 'absent');
     setSubstituteDate(null);
     setReason('');
     onClose();
@@ -130,7 +141,7 @@ export default function AttendanceAbsenceModal({
 
   const handleClose = () => {
     // 초기화
-    setStatus('absent');
+    setStatus(initialStatus || 'absent');
     setSubstituteDate(null);
     setReason('');
     onClose();
@@ -149,7 +160,7 @@ export default function AttendanceAbsenceModal({
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={{ paddingBottom: 20 }}
             >
-              <ModalTitle>{studentName} 결석/대체 처리</ModalTitle>
+              <ModalTitle>{studentName} 소멸/대체일 지정</ModalTitle>
 
               <InputLabel>처리 유형</InputLabel>
               <ButtonRow>
@@ -157,13 +168,13 @@ export default function AttendanceAbsenceModal({
                   variant={status === 'absent' ? 'primary' : 'secondary'}
                   onPress={() => setStatus('absent')}
                 >
-                  <ButtonText variant={status === 'absent' ? 'primary' : 'secondary'}>결석</ButtonText>
+                  <ButtonText variant={status === 'absent' ? 'primary' : 'secondary'}>소멸</ButtonText>
                 </Button>
                 <ButtonLast
                   variant={status === 'substitute' ? 'primary' : 'secondary'}
                   onPress={() => setStatus('substitute')}
                 >
-                  <ButtonText variant={status === 'substitute' ? 'primary' : 'secondary'}>대체</ButtonText>
+                  <ButtonText variant={status === 'substitute' ? 'primary' : 'secondary'}>대체일 지정</ButtonText>
                 </ButtonLast>
               </ButtonRow>
 
@@ -193,7 +204,7 @@ export default function AttendanceAbsenceModal({
 
               <InputLabel>사유 *</InputLabel>
               <TextInput
-                placeholder="결석/대체 사유를 입력하세요"
+                placeholder="소멸/대체일 지정 사유를 입력하세요"
                 value={reason}
                 onChangeText={setReason}
                 multiline

@@ -19,8 +19,8 @@ export default function AttendanceDeleteModal({
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <ModalOverlay>
         <ModalContent>
-          <ModalTitle>출결 기록 삭제</ModalTitle>
-          <ModalMessage>{studentName}의 출결 기록을 삭제하시겠습니까?</ModalMessage>
+          <ModalTitle>관리 기록 삭제</ModalTitle>
+          <ModalMessage>{studentName}의 관리 기록을 삭제하시겠습니까?</ModalMessage>
           <ButtonRow>
             <Button onPress={onClose} variant="secondary">
               <ButtonText variant="secondary">취소</ButtonText>

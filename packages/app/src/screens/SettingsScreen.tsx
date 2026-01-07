@@ -3,7 +3,6 @@ import { ActivityIndicator, Alert, ScrollView, Switch, TextInput } from 'react-n
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import styled from 'styled-components/native';
 import { usersApi } from '../api/users';
-import { featureFlags } from '../config/features';
 import { useAuthStore } from '../store/useStore';
 import { env } from '../config/env';
 import axios from 'axios';
@@ -28,13 +27,6 @@ const getBusinessIconEmoji = (iconId: string): string => {
   };
   return iconMap[iconId] || '?';
 };
-
-const SettingsStub = () => (
-  <StubContainer>
-    <StubTitle>마이</StubTitle>
-    <StubDescription>STEP 1: 네비게이션 테스트</StubDescription>
-  </StubContainer>
-);
 
 function SettingsContent() {
   const navigation = useNavigation();
@@ -101,13 +93,17 @@ function SettingsContent() {
       const settings = user.settings || {};
       const summaryParts: string[] = [];
       
+      if (settings.default_lesson_type) {
+        const lessonLabel = settings.default_lesson_type === 'monthly' ? '선불권' : '횟수권';
+        summaryParts.push(lessonLabel);
+      }
       if (settings.default_billing_type) {
         const billingLabel = settings.default_billing_type === 'prepaid' ? '선불' : '후불';
         summaryParts.push(billingLabel);
       }
       if (settings.default_absence_policy) {
         const absenceLabels: Record<string, string> = {
-          carry_over: '이월',
+          carry_over: '대체',
           deduct_next: '차감',
           vanish: '소멸',
         };
@@ -115,8 +111,8 @@ function SettingsContent() {
       }
       if (settings.default_send_target) {
         const recipientLabels: Record<string, string> = {
-          student_only: '수강생만',
-          guardian_only: '보호자만',
+          student_only: '고객',
+          guardian_only: '보호자',
           both: '둘 다',
         };
         summaryParts.push(recipientLabels[settings.default_send_target] || settings.default_send_target);
@@ -248,6 +244,7 @@ function SettingsContent() {
               )}
             </ProfileAvatar>
           </ProfileAvatarTouchable>
+          <ProfileIconHint>이미지를 터치해서 업종을 선택하세요.</ProfileIconHint>
           <ProfileNameRow onPress={() => setProfileEditModalVisible(true)}>
           <ProfileName>{orgCode || '상호명 없음'}</ProfileName>
             <ChevronIcon>›</ChevronIcon>
@@ -259,9 +256,9 @@ function SettingsContent() {
         <QuickAccessSection>
           <QuickAccessCard onPress={() => setContractSettingsModalVisible(true)}>
             <QuickAccessIconWrapper>
-              <QuickAccessIconImage source={require('../../assets/b2.png')} resizeMode="contain" />
+              <QuickAccessIconImage source={require('../../assets/bbb2.png')} resizeMode="contain" />
             </QuickAccessIconWrapper>
-            <QuickAccessLabel>계약서 기본조건</QuickAccessLabel>
+            <QuickAccessLabel>기본 조건 설정</QuickAccessLabel>
           </QuickAccessCard>
           <QuickAccessCard onPress={() => setAccountInfoModalVisible(true)}>
             <QuickAccessIconWrapper>
@@ -269,11 +266,11 @@ function SettingsContent() {
             </QuickAccessIconWrapper>
             <QuickAccessLabel>계좌 정보</QuickAccessLabel>
           </QuickAccessCard>
-          <QuickAccessCard onPress={() => navigation.navigate('UnprocessedAttendance' as never)}>
+          <QuickAccessCard onPress={() => navigation.navigate('Statistics' as never)}>
             <QuickAccessIconWrapper>
-              <QuickAccessIconImage source={require('../../assets/p3.png')} resizeMode="contain" />
+              <QuickAccessIconImage source={require('../../assets/Statistics.png')} resizeMode="contain" />
             </QuickAccessIconWrapper>
-            <QuickAccessLabel>출결 미처리</QuickAccessLabel>
+            <QuickAccessLabel>통계</QuickAccessLabel>
           </QuickAccessCard>
         </QuickAccessSection>
 
@@ -552,25 +549,6 @@ const Divider = styled.View`
   margin: 8px 0;
 `;
 
-const StubContainer = styled.View`
-  flex: 1;
-  justify-content: center;
-  align-items: center;
-  background-color: #f5f5f5;
-`;
-
-const StubTitle = styled.Text`
-  font-size: 24px;
-  font-weight: bold;
-  color: #000;
-  margin-bottom: 10px;
-`;
-
-const StubDescription = styled.Text`
-  font-size: 16;
-  color: #666;
-`;
-
 const ToastContainer = styled.View`
   position: absolute;
   bottom: 100px;
@@ -687,4 +665,12 @@ const QuickAccessLabel = styled.Text`
   color: #6b7280;
   font-weight: 500;
   text-align: center;
+`;
+
+const ProfileIconHint = styled.Text`
+  font-size: 12px;
+  color: #6b7280;
+  font-weight: 500;
+  text-align: center;
+  margin-bottom: 12px;
 `;

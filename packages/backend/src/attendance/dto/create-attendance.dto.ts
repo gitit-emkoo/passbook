@@ -40,6 +40,10 @@ export class CreateAttendanceDto {
   @IsOptional()
   @IsString()
   signature_data?: string | null; // 출석 서명 데이터 (base64)
+
+  @IsOptional()
+  @IsNumber()
+  amount?: number | null; // 차감 금액 (금액권) 또는 사용 횟수 (횟수권, 기본값 1)
 }
 
 export class UpdateAttendanceDto {

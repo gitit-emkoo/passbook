@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateContractDto, BillingType, AbsencePolicy, ContractStatus } from './dto/create-contract.dto';
 import { UpdateContractStatusDto } from './dto/update-contract-status.dto';
@@ -7,13 +7,21 @@ import { Prisma } from '@prisma/client';
 import { InvoicesService } from '../invoices/invoices.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RescheduleSessionDto } from './dto/reschedule-session.dto';
+import { CreateReservationDto } from './dto/create-reservation.dto';
+import { UpdateReservationDto } from './dto/update-reservation.dto';
+import { SmsService } from '../sms/sms.service';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class ContractsService {
+  private readonly logger = new Logger(ContractsService.name);
+
   constructor(
     private prisma: PrismaService,
     private invoicesService: InvoicesService,
     private notificationsService: NotificationsService,
+    private smsService: SmsService,
+    private configService: ConfigService,
   ) {}
 
   /**
@@ -70,7 +78,7 @@ export class ContractsService {
         user_id: userId,
         student_id: dto.student_id,
         subject: dto.subject,
-        day_of_week: dto.day_of_week,
+        day_of_week: dto.day_of_week ?? [], // 뷰티 앱에서는 빈 배열 허용 (예약 방식 사용)
         time: dto.time ?? null,
         billing_type: dto.billing_type as BillingType,
         absence_policy: dto.absence_policy as AbsencePolicy,
@@ -85,7 +93,7 @@ export class ContractsService {
         started_at: startedAt,
         ended_at: endedAt,
         billing_day: billingDay,
-        payment_schedule: (dto.payment_schedule ?? 'monthly') as 'monthly' | 'lump_sum',
+        payment_schedule: (dto.payment_schedule ?? 'monthly') as 'monthly' | 'lump_sum' | null,
         status: (dto.status ?? ContractStatus.draft) as ContractStatus,
       },
       include: {
@@ -166,24 +174,57 @@ export class ContractsService {
    */
   async findTodayClasses(userId: number) {
     const today = new Date();
-    const todayDayOfWeek = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'][today.getDay()];
-    const todayStart = new Date(today);
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date(today);
-    todayEnd.setHours(23, 59, 59, 999);
+    // UTC 기준으로 오늘 날짜 생성 (시간대 문제 방지)
+    const todayStart = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0));
+    const todayEnd = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999));
     
-    // 날짜만 비교하기 위한 today 정규화 (시간 제거)
-    const todayDateOnly = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      today.getDate(),
-      0, 0, 0, 0
-    );
+    // 로컬 시간 기준으로도 생성 (비교용)
+    const todayLocalStart = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
+    const todayLocalEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
 
-    // 활성화된 계약서 조회
+    // 뷰티 앱: 오늘 날짜에 예약된 Reservation 조회
+    // reserved_date는 DateTime 타입이지만 날짜만 저장되므로, 날짜만 비교
+    // 두 가지 방식으로 조회 시도 (UTC와 로컬 시간)
+    const todayReservations = await this.prisma.reservation.findMany({
+      where: {
+        OR: [
+          {
+            reserved_date: {
+              gte: todayStart,
+              lte: todayEnd,
+            },
+          },
+          {
+            reserved_date: {
+              gte: todayLocalStart,
+              lte: todayLocalEnd,
+            },
+          },
+        ],
+      },
+      select: {
+        id: true,
+        contract_id: true,
+        reserved_date: true,
+        reserved_time: true,
+      },
+    });
+    
+
+    // 예약된 계약 ID 목록
+    const reservedContractIds = todayReservations.map((r: any) => r.contract_id);
+    
+    if (reservedContractIds.length === 0) {
+      return [];
+    }
+
+    // 예약된 계약서 조회
     const contracts = await this.prisma.contract.findMany({
       where: {
         user_id: userId,
+        id: {
+          in: reservedContractIds,
+        },
         status: {
           in: ['confirmed', 'sent'],
         },
@@ -200,8 +241,9 @@ export class ContractsService {
         billing_type: true,
         absence_policy: true,
         monthly_amount: true,
-        started_at: true, // 계약기간 체크를 위해 필요
-        ended_at: true, // 계약기간 체크를 위해 필요
+        started_at: true,
+        ended_at: true,
+        policy_snapshot: true,
         student: {
           select: {
             id: true,
@@ -214,242 +256,21 @@ export class ContractsService {
       },
     });
 
-    // 1. 오늘 요일이 포함된 계약서 필터링 (계약기간 내에 있는지 확인)
-    const todayContractsByDay = contracts.filter((contract) => {
-      const dayOfWeekArray = contract.day_of_week as string[];
-      // day_of_week가 없거나 빈 배열이면 제외
-      if (!Array.isArray(dayOfWeekArray) || dayOfWeekArray.length === 0) {
-        return false;
-      }
-      // 오늘 요일이 포함되어 있는지 확인
-      if (!dayOfWeekArray.includes(todayDayOfWeek)) {
-        return false;
-      }
-      
-      // 계약기간 체크: 계약기간 내에 있는지 확인
-      // 횟수제 계약(ended_at이 없는 경우)은 계약기간 체크 제외
-      if (contract.ended_at) {
-        const contractStartDate = contract.started_at ? new Date(contract.started_at) : null;
-        const contractEndDate = new Date(contract.ended_at);
-        
-        // 계약 시작일 체크
-        if (contractStartDate) {
-          const startDateOnly = new Date(
-            contractStartDate.getUTCFullYear(),
-            contractStartDate.getUTCMonth(),
-            contractStartDate.getUTCDate(),
-            0, 0, 0, 0
-          );
-          if (todayDateOnly < startDateOnly) {
-            return false; // 계약 시작일 이전
-          }
-        }
-        
-        // 계약 종료일 체크
-        const endDateOnly = new Date(
-          contractEndDate.getUTCFullYear(),
-          contractEndDate.getUTCMonth(),
-          contractEndDate.getUTCDate(),
-          0, 0, 0, 0
-        );
-        if (todayDateOnly > endDateOnly) {
-          return false; // 계약 종료일 이후
-        }
-      }
-      
-      return true;
-    });
-
-    // 1-1. 일정 예외(사전 일정 변경) 조회
-    // - original_date가 오늘인 경우: 기본 요일 기반 일정에서 제외
-    // - new_date가 오늘인 경우: 요일과 무관하게 포함
-    const scheduleExceptions = await this.prisma.scheduleException.findMany({
-      where: {
-        user_id: userId,
-        OR: [
-          {
-            original_date: {
-              gte: todayStart,
-              lte: todayEnd,
-            },
-          },
-          {
-            new_date: {
-              gte: todayStart,
-              lte: todayEnd,
-            },
-          },
-        ],
-      },
-      select: {
-        contract_id: true,
-        original_date: true,
-        new_date: true,
-      },
-    });
-
-    const skipContractIds = new Set<number>();
-    const extraContractIds = new Set<number>();
-
-    scheduleExceptions.forEach((ex: { contract_id: number; original_date: Date; new_date: Date }) => {
-      if (ex.original_date >= todayStart && ex.original_date <= todayEnd) {
-        skipContractIds.add(ex.contract_id);
-      }
-      if (ex.new_date >= todayStart && ex.new_date <= todayEnd) {
-        extraContractIds.add(ex.contract_id);
-      }
-    });
-
-    // 2. 대체 수업(substitute_at)이 오늘인 출결 로그 찾기
-    // 원래 수업 날짜(occurred_at)가 계약기간 내에 있어야 함
-    const substituteLogs = await this.prisma.attendanceLog.findMany({
-      where: {
-        user_id: userId,
-        status: 'substitute',
-        substitute_at: {
-          gte: todayStart,
-          lte: todayEnd,
-        },
-        voided: false,
-      },
-      select: {
-        id: true,
-        contract_id: true,
-        occurred_at: true, // 원래 수업 날짜
-      },
-    });
-
-    // 3. 대체 수업의 contract_id로 계약서 찾기 (계약기간 체크 포함)
-    const substituteContractIds = new Set<number>();
-    const substituteLogsByContractId = new Map<number, Date>();
-    
-    substituteLogs.forEach((log) => {
-      const contract = contracts.find((c) => c.id === log.contract_id);
-      if (!contract) return;
-      
-      // 원래 수업 날짜(occurred_at)가 계약기간 내에 있는지 확인
-      const occurredAt = new Date(log.occurred_at);
-      const occurredDateOnly = new Date(
-        occurredAt.getUTCFullYear(),
-        occurredAt.getUTCMonth(),
-        occurredAt.getUTCDate(),
-        0, 0, 0, 0
-      );
-      
-      // 횟수제 계약(ended_at이 없는 경우)은 계약기간 체크 제외
-      if (contract.ended_at) {
-        const contractStartDate = contract.started_at ? new Date(contract.started_at) : null;
-        const contractEndDate = new Date(contract.ended_at);
-        
-        // 계약 시작일 체크
-        if (contractStartDate) {
-          const startDateOnly = new Date(
-            contractStartDate.getUTCFullYear(),
-            contractStartDate.getUTCMonth(),
-            contractStartDate.getUTCDate(),
-            0, 0, 0, 0
-          );
-          if (occurredDateOnly < startDateOnly) {
-            return; // 원래 수업 날짜가 계약 시작일 이전
-          }
-        }
-        
-        // 계약 종료일 체크
-        const endDateOnly = new Date(
-          contractEndDate.getUTCFullYear(),
-          contractEndDate.getUTCMonth(),
-          contractEndDate.getUTCDate(),
-          0, 0, 0, 0
-        );
-        if (occurredDateOnly > endDateOnly) {
-          return; // 원래 수업 날짜가 계약 종료일 이후
-        }
-      }
-      
-      // 계약기간 내에 있으면 포함
-      substituteContractIds.add(log.contract_id);
-      substituteLogsByContractId.set(log.contract_id, log.occurred_at);
-    });
-    
-    const substituteContracts = contracts.filter((contract) =>
-      substituteContractIds.has(contract.id),
-    );
-
-    // 4. 두 리스트 합치기 (중복 제거) + 일정 예외 반영
-    const allContractIds = new Set<number>();
-    const todayContracts: typeof contracts = [];
-
-    // 오늘 요일 계약서 추가 (일정 예외에서 original_date가 오늘인 계약은 제외)
-    todayContractsByDay.forEach((contract) => {
-      if (skipContractIds.has(contract.id)) {
-        return;
-      }
-      if (!allContractIds.has(contract.id)) {
-        allContractIds.add(contract.id);
-        todayContracts.push(contract);
-      }
-    });
-
-    // 대체 수업 계약서 추가
-    substituteContracts.forEach((contract) => {
-      if (!allContractIds.has(contract.id)) {
-        allContractIds.add(contract.id);
-        todayContracts.push(contract);
-      }
-    });
-
-    // 일정 예외에서 new_date가 오늘인 계약 추가 (요일과 무관, 계약기간 체크 포함)
-    if (extraContractIds.size > 0) {
-      const extraContracts = contracts.filter((contract) => {
-        if (!extraContractIds.has(contract.id)) {
-          return false;
-        }
-        
-        // 일정 예외의 new_date가 계약기간 내에 있는지 확인
-        // 횟수제 계약(ended_at이 없는 경우)은 계약기간 체크 제외
-        if (contract.ended_at) {
-          const contractStartDate = contract.started_at ? new Date(contract.started_at) : null;
-          const contractEndDate = new Date(contract.ended_at);
-          
-          // 계약 시작일 체크
-          if (contractStartDate) {
-            const startDateOnly = new Date(
-              contractStartDate.getUTCFullYear(),
-              contractStartDate.getUTCMonth(),
-              contractStartDate.getUTCDate(),
-              0, 0, 0, 0
-            );
-            if (todayDateOnly < startDateOnly) {
-              return false; // 일정 변경 날짜가 계약 시작일 이전
-            }
-          }
-          
-          // 계약 종료일 체크
-          const endDateOnly = new Date(
-            contractEndDate.getUTCFullYear(),
-            contractEndDate.getUTCMonth(),
-            contractEndDate.getUTCDate(),
-            0, 0, 0, 0
-          );
-          if (todayDateOnly > endDateOnly) {
-            return false; // 일정 변경 날짜가 계약 종료일 이후
-          }
-        }
-        
-        return true;
+    // 예약 정보를 contract_id로 매핑
+    const reservationMap = new Map<number, { id: number; reserved_time?: string | null }>();
+    todayReservations.forEach((r: any) => {
+      reservationMap.set(r.contract_id, {
+        id: r.id,
+        reserved_time: r.reserved_time,
       });
-      
-      extraContracts.forEach((contract) => {
-        if (!allContractIds.has(contract.id)) {
-          allContractIds.add(contract.id);
-          todayContracts.push(contract);
-        }
-      });
-    }
+    });
 
-    // 5. 오늘 날짜에 이미 출석 로그가 있는 계약서 조회
-    // - occurred_at이 오늘인 경우만 "이미 처리됨"으로 표시
-    // - substitute_at이 오늘이지만 occurred_at이 오늘이 아닌 경우(대체 수업)는 오늘에 새로운 출결 처리가 가능해야 함
+    // 뷰티 앱: 예약된 계약서만 오늘 예약으로 표시
+    const todayContracts = contracts;
+
+    // 오늘 날짜에 이미 출석 로그가 있는 계약서 조회
+    // occurred_at만 확인 (substitute_at은 대체일 정보일 뿐, 해당 날짜의 출결 처리 여부와 무관)
+    // UTC와 로컬 시간 기준으로 두 가지 범위 모두 조회 (시간대 문제 방지)
     const contractIds = todayContracts.map((c) => c.id);
     const attendanceLogs = await this.prisma.attendanceLog.findMany({
       where: {
@@ -457,42 +278,91 @@ export class ContractsService {
         contract_id: {
           in: contractIds,
         },
-        occurred_at: {
-          gte: todayStart,
-          lte: todayEnd,
-        },
+        OR: [
+          {
+            occurred_at: {
+              gte: todayStart,
+              lte: todayEnd,
+            },
+          },
+          {
+            occurred_at: {
+              gte: todayLocalStart,
+              lte: todayLocalEnd,
+            },
+          },
+        ],
         voided: false,
       },
       select: {
         id: true,
         contract_id: true,
         status: true,
+        occurred_at: true,
       },
     });
 
     // contract_id를 키로 하는 Map 생성
-    // 오늘 날짜에 실제로 발생한 출결(occurred_at이 오늘)만 처리
     const attendanceLogMap = new Map<number, { id: number; status: string }>();
     attendanceLogs.forEach((log) => {
       attendanceLogMap.set(log.contract_id, { id: log.id, status: log.status });
     });
 
-    // 각 계약서에 출석 로그 여부와 ID 추가
-    // 카드 자체는 항상 오늘 수업 섹션에 노출하고,
-    // hasAttendanceLog/attendanceLogId를 통해 프론트에서 버튼 활성/비활성만 제어한다.
-    return todayContracts.map((contract) => {
-      const attendanceLogInfo = attendanceLogMap.get(contract.id);
-      const attendanceLogId = attendanceLogInfo?.id;
-      const isSubstitute = substituteContractIds.has(contract.id);
-      const originalOccurredAt = isSubstitute ? substituteLogsByContractId.get(contract.id) : null;
-      return {
-        ...contract,
-        hasAttendanceLog: attendanceLogId !== undefined,
-        attendanceLogId: attendanceLogId || null,
-        isSubstitute: isSubstitute,
-        originalOccurredAt: originalOccurredAt ? originalOccurredAt.toISOString() : null,
-      };
-    });
+    // 각 계약서에 출석 로그 여부와 ID, 예약 정보, sessions_used 추가
+    return Promise.all(
+      todayContracts.map(async (contract) => {
+        const attendanceLogInfo = attendanceLogMap.get(contract.id);
+        const attendanceLogId = attendanceLogInfo?.id;
+        const reservationInfo = reservationMap.get(contract.id);
+        const reservationId = reservationInfo?.id || null;
+        const reservedTime = reservationInfo?.reserved_time || contract.time || null;
+        
+        // sessions_used 계산 (횟수제 계약인 경우)
+        // amount_used 계산 (금액권인 경우)
+        const snapshot = (contract.policy_snapshot ?? {}) as Record<string, any>;
+        const totalSessions = typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
+        let sessionsUsed = 0;
+        let amountUsed = 0;
+        if (totalSessions > 0) {
+          // 횟수제 계약: 사용된 횟수 계산
+          sessionsUsed = await this.prisma.attendanceLog.count({
+            where: {
+              user_id: userId,
+              contract_id: contract.id,
+              voided: false,
+              status: {
+                in: ['present', 'absent', 'substitute', 'vanish'],
+              },
+            },
+          });
+        } else if (contract.ended_at) {
+          // 금액권 계약: 사용된 금액 합계 계산
+          const attendanceLogsWithAmount = await this.prisma.attendanceLog.findMany({
+            where: {
+              user_id: userId,
+              contract_id: contract.id,
+              voided: false,
+              status: { in: ['present', 'absent', 'substitute', 'vanish'] },
+              amount: { not: null },
+            },
+            select: {
+              amount: true,
+            },
+          });
+          amountUsed = attendanceLogsWithAmount.reduce((sum, log) => sum + (log.amount || 0), 0);
+        }
+        
+        return {
+          ...contract,
+          hasAttendanceLog: attendanceLogId !== undefined,
+          attendanceLogId: attendanceLogId || null,
+          reservation_id: reservationId,
+          time: reservedTime, // 예약 시간 또는 계약 시간
+          sessions_used: sessionsUsed,
+          amount_used: amountUsed,
+        };
+      })
+    );
   }
 
   /**
@@ -799,13 +669,15 @@ export class ContractsService {
           const year = now.getFullYear();
           const month = now.getMonth() + 1;
 
+          // 첫 정산서만 확인 (invoice_number: 1)
           const existingInvoice = await this.prisma.invoice.findUnique({
             where: {
-              student_id_contract_id_year_month: {
+              student_id_contract_id_year_month_invoice_number: {
                 student_id: contract.student_id,
                 contract_id: contract.id,
                 year,
                 month,
+                invoice_number: 1,
               },
             },
           });
@@ -840,14 +712,15 @@ export class ContractsService {
           const invoiceYear = nextBillingDate.getFullYear();
           const invoiceMonth = nextBillingDate.getMonth() + 1;
           
-          // 이미 생성된 정산서가 있는지 확인
+          // 첫 정산서만 확인 (invoice_number: 1)
           const existingInvoice = await this.prisma.invoice.findUnique({
             where: {
-              student_id_contract_id_year_month: {
+              student_id_contract_id_year_month_invoice_number: {
                 student_id: contract.student_id,
                 contract_id: contract.id,
                 year: invoiceYear,
                 month: invoiceMonth,
+                invoice_number: 1,
               },
             },
           });
@@ -863,22 +736,55 @@ export class ContractsService {
       }
     }
 
-    // 계약서 전송 완료 알림 (이벤트 기반, 1회만 발송)
+    // 계약서 전송 완료 알림 (이벤트 기반)
     if (dto.status === 'sent' && contract.status !== 'sent') {
       try {
+        const studentName = updatedContract.student?.name || contract.student?.name || '고객';
         await this.notificationsService.createAndSendNotification(
           userId,
           'contract',
-          '계약서 전송 완료',
-          `${updatedContract.student.name}님의 계약서가 성공적으로 전송되었습니다.`,
+          '이용권 계약 전송완료',
+          `${studentName}님의 이용권 계약이 성공적으로 전송되었습니다.`,
           `/contracts/${id}`,
           {
             relatedId: `contract:${id}`,
+            skipDuplicateCheck: true, // 계약서 전송은 매번 알림 생성
           },
         );
-      } catch (error) {
+      } catch (error: any) {
         // 알림 실패해도 상태 업데이트는 유지
-        console.error('[Contracts] Failed to send notification:', error);
+        this.logger.error(`[Contracts] Failed to send notification for contract ${id}:`, error?.message || error);
+      }
+
+      // SMS 발송 (계약서 링크)
+      try {
+        const recipientTargets = (contract.recipient_targets as string[]) || [];
+        const recipientPhone = 
+          recipientTargets[0] ||
+          updatedContract.student?.phone ||
+          contract.student?.phone;
+        
+        if (recipientPhone) {
+          const apiBaseUrl = this.configService.get<string>('API_BASE_URL') || '';
+          const contractLink = `${apiBaseUrl}/api/v1/contracts/${id}/view`;
+          const message = `[Passbook] 이용권 계약서가 발행되었습니다.\n확인 링크: ${contractLink}`;
+          
+          const smsResult = await this.smsService.sendSms({
+            to: recipientPhone,
+            message,
+          });
+
+          if (smsResult.success) {
+            this.logger.log(`[Contracts] SMS sent successfully for contract ${id} to ${recipientPhone}`);
+          } else {
+            this.logger.error(`[Contracts] SMS send failed for contract ${id}: ${smsResult.error}`);
+          }
+        } else {
+          this.logger.warn(`[Contracts] No recipient phone found for contract ${id}`);
+        }
+      } catch (error: any) {
+        // SMS 실패해도 계약서 상태 업데이트는 유지
+        this.logger.error(`[Contracts] Failed to send SMS for contract ${id}:`, error?.message || error);
       }
     }
 
@@ -971,14 +877,10 @@ export class ContractsService {
         // (횟수 모두 소진되기 전 연장처리는 attendance.service.ts에서 출결 처리 시점에 처리)
         if (previousContractUsedSessions >= firstContractTotalSessions) {
           try {
-            // 횟수제 선불 계약의 경우 year/month는 unique constraint를 피하기 위해 다음 달로 설정
+            // 실제 연장 시점의 year/month 사용 (다음 달로 미루지 않음)
             const now = new Date();
-            let year = now.getFullYear();
-            let month = now.getMonth() + 2; // 다음 달
-            if (month > 12) {
-              month = month - 12;
-              year += 1;
-            }
+            const year = now.getFullYear();
+            const month = now.getMonth() + 1;
             await this.invoicesService.createInvoiceForSessionBasedContract(userId, updatedContract, year, month);
             console.log(`[Contracts] Prepaid session-based invoice created after extension (all sessions exhausted) for contract ${id}, year=${year}, month=${month}`);
           } catch (error: any) {
@@ -1014,49 +916,10 @@ export class ContractsService {
         // (횟수 모두 소진되기 전 연장처리는 attendance.service.ts에서 출결 처리 시점에 처리)
         if (previousContractUsedSessions >= firstContractTotalSessions) {
           try {
-            // 횟수제 후불 계약의 경우 year/month는 unique constraint를 피하기 위해 다음 달로 설정
-            // (전송 시점에 실제 청구월로 업데이트됨)
-            // 첫 계약의 모든 회차가 소진된 시점의 다음 달을 사용
-            const lastAttendanceLog = await this.prisma.attendanceLog.findFirst({
-              where: {
-                user_id: userId,
-                contract_id: contract.id,
-                voided: false,
-                status: { in: ['present', 'absent', 'substitute', 'vanish'] },
-                occurred_at: {
-                  lt: new Date(extensionRecord.extended_at),
-                },
-              },
-              orderBy: {
-                occurred_at: 'desc',
-              },
-            });
-
-            let year: number;
-            let month: number;
-            
-            if (lastAttendanceLog) {
-              // 마지막 출결 기록의 날짜를 기준으로 다음 달 계산
-              const lastAttendanceDate = new Date(lastAttendanceLog.occurred_at);
-              year = lastAttendanceDate.getFullYear();
-              month = lastAttendanceDate.getMonth() + 1;
-              // 다음 달로 설정 (unique constraint 방지)
-              month += 1;
-              if (month > 12) {
-                month = 1;
-                year += 1;
-              }
-            } else {
-              // 출결 기록이 없으면 연장 처리 시점의 다음 달 사용
-              const now = new Date();
-              year = now.getFullYear();
-              month = now.getMonth() + 2; // 다음 달
-              if (month > 12) {
-                month = month - 12;
-                year += 1;
-              }
-            }
-
+            // 실제 연장 시점의 year/month 사용 (다음 달로 미루지 않음)
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = now.getMonth() + 1;
             await this.invoicesService.createInvoiceForSessionBasedContract(userId, updatedContract, year, month);
             console.log(`[Contracts] Postpaid session-based invoice created after extension (all sessions exhausted) for contract ${id}, year: ${year}, month: ${month}`);
           } catch (error: any) {
@@ -1069,7 +932,89 @@ export class ContractsService {
       return { success: true, message: `${dto.added_sessions}회가 추가되었습니다.` };
     }
 
-    // 월단위 연장
+    // 금액권 연장 (뷰티앱: 선불 횟수 계약 로직 사용)
+    if (dto.added_amount && dto.added_amount > 0) {
+      if (!contract.ended_at) {
+        throw new BadRequestException('금액권 계약이 아닙니다.');
+      }
+
+      const currentAmount = contract.monthly_amount ?? 0;
+      const newTotalAmount = currentAmount + dto.added_amount;
+      const extensionRecord = {
+        type: 'amount',
+        added_amount: dto.added_amount,
+        extension_amount: dto.extension_amount || null, // 연장 정산서 금액 (사용자 입력)
+        previous_total: currentAmount,
+        new_total: newTotalAmount,
+        extended_at: new Date().toISOString(),
+        extended_by: userId,
+      };
+
+      const updatedSnapshot = {
+        ...snapshot,
+        extensions: [...extensions, extensionRecord],
+      };
+
+      const updatedContract = await this.prisma.contract.update({
+        where: { id },
+        data: {
+          monthly_amount: newTotalAmount,
+          policy_snapshot: updatedSnapshot,
+        },
+        include: {
+          student: {
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+            },
+          },
+        },
+      });
+
+      // 선불 횟수 계약 로직: 금액 모두 소진 후 연장처리인 경우에만 정산서 생성
+      // (금액 모두 소진되기 전 연장처리는 attendance.service.ts에서 출결 처리 시점에 처리)
+      if (contract.billing_type === 'prepaid') {
+        // 첫 계약의 사용된 금액 계산 (연장 처리 시점 이전까지)
+        const previousContractUsedAmount = await this.prisma.attendanceLog.aggregate({
+          where: {
+            user_id: userId,
+            contract_id: contract.id,
+            voided: false,
+            status: { in: ['present', 'absent', 'substitute', 'vanish'] },
+            occurred_at: {
+              lt: new Date(extensionRecord.extended_at),
+            },
+            amount: { not: null },
+          },
+          _sum: {
+            amount: true,
+          },
+        });
+
+        const previousAmountUsed = previousContractUsedAmount._sum.amount ?? 0;
+        const firstContractTotalAmount = extensionRecord.previous_total ?? currentAmount;
+
+        // 금액 모두 소진 후 연장처리인 경우에만 정산서 생성
+        if (previousAmountUsed >= firstContractTotalAmount) {
+          try {
+            // 실제 연장 시점의 year/month 사용 (다음 달로 미루지 않음)
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = now.getMonth() + 1;
+            await this.invoicesService.createInvoiceForSessionBasedContract(userId, updatedContract, year, month);
+            console.log(`[Contracts] Prepaid amount-based invoice created after extension (all amount exhausted) for contract ${id}, year=${year}, month=${month}`);
+          } catch (error: any) {
+            console.error(`[Contracts] Failed to create prepaid amount-based invoice after extension for contract ${id}:`, error?.message);
+            // 청구서 생성 실패해도 연장은 유지
+          }
+        }
+      }
+
+      return { success: true, message: `${dto.added_amount.toLocaleString()}원이 추가되었습니다.` };
+    }
+
+    // 레거시: 월단위 연장 (뷰티앱에서는 사용하지 않음)
     if (dto.extended_end_date) {
       if (!contract.ended_at) {
         throw new BadRequestException('기간이 설정되지 않은 계약입니다.');
@@ -1227,13 +1172,15 @@ export class ContractsService {
     const month = now.getMonth() + 1;
 
     // 이미 선불 청구서가 생성되었는지 확인 (중복 방지)
+    // 첫 정산서만 확인 (invoice_number: 1)
     const existingInvoice = await this.prisma.invoice.findUnique({
       where: {
-        student_id_contract_id_year_month: {
+        student_id_contract_id_year_month_invoice_number: {
           student_id: contract.student_id,
           contract_id: contract.id,
           year,
           month,
+          invoice_number: 1,
         },
       },
     });
@@ -1246,27 +1193,27 @@ export class ContractsService {
     // policy_snapshot에서 base_amount 가져오기
     const policySnapshot = (contract.policy_snapshot ?? {}) as Record<string, any>;
     const totalSessions = typeof policySnapshot.total_sessions === 'number' ? policySnapshot.total_sessions : 0;
-    const isSessionBased = totalSessions > 0 && !contract.ended_at; // 횟수계약 (계약기간없음)
+    // 뷰티앱: 금액권과 횟수권 모두 선불 횟수 계약 로직 사용
+    // 횟수권: totalSessions > 0 && !ended_at
+    // 금액권: ended_at이 있고 선불인 경우 (유효기간이 있음)
+    const isSessionBased = totalSessions > 0 && !contract.ended_at; // 횟수권
+    const isAmountBased = contract.ended_at && contract.billing_type === 'prepaid'; // 금액권 (유효기간이 있고 선불)
     
-    // 횟수제 선불 계약: 계약서 전송 시점에 정산서 생성
-    // 확정 개념: 횟수계약 선불 (연장 없음) - 정산서 생성일=마감일=계약서 전송 시점
-    if (isSessionBased) {
-      const baseAmount =
-        typeof policySnapshot.monthly_amount === 'number'
-          ? policySnapshot.monthly_amount
-          : contract.monthly_amount;
-
+    // 뷰티앱: 선불 계약(횟수권 또는 금액권)은 모두 선불 횟수 계약 로직 사용
+    // 확정 개념: 선불 계약 (연장 없음) - 정산서 생성일=마감일=계약서 전송 시점
+    // 중요: 금액권도 횟수권과 동일하게 createInvoiceForSessionBasedContract를 사용하여 period_start/period_end가 null로 생성됨
+    if (isSessionBased || isAmountBased) {
       // student 정보 확인
       if (!contract.student) {
         throw new Error('Student information is required to create prepaid invoice');
       }
 
-      // 횟수제 선불 정산서 생성 (period_start, period_end는 null)
+      // 선불 횟수 계약 정산서 생성 (period_start, period_end는 null)
       const invoice = await this.invoicesService.createInvoiceForSessionBasedContract(userId, contract, year, month);
       return invoice;
     }
 
-    // 기간계약 선불 계약 처리
+    // 기간계약 선불 계약 처리 (레거시, 뷰티앱에서는 사용되지 않음)
     const baseAmount =
       typeof policySnapshot.monthly_amount === 'number'
         ? policySnapshot.monthly_amount
@@ -1385,7 +1332,7 @@ export class ContractsService {
     };
 
     const ABSENCE_POLICY_LABELS: { [key: string]: string } = {
-      carry_over: '회차 이월',
+      carry_over: '대체', // 뷰티 앱: 회차 이월 → 대체
       deduct_next: '차감',
       vanish: '소멸',
     };
@@ -1434,6 +1381,11 @@ export class ContractsService {
     const lessonNotesValue = formattedLessonNotes || '-';
     const extensions = Array.isArray(policySnapshot.extensions) ? policySnapshot.extensions : [];
     const extensionHistory = formatExtensionHistory(extensions);
+    
+    // 이용권 타입 판단: total_sessions가 있으면 횟수권, 없으면 금액권
+    const totalSessions = typeof policySnapshot.total_sessions === 'number' ? policySnapshot.total_sessions : null;
+    const isSessionVoucher = totalSessions !== null && totalSessions > 0;
+    const voucherTypeLabel = isSessionVoucher ? '횟수권' : '금액권';
 
     const html = `
 <!DOCTYPE html>
@@ -1532,10 +1484,10 @@ export class ContractsService {
 <body>
   <div class="container">
     <div class="section">
-      <div class="section-title">계약 내용</div>
+      <div class="section-title">이용권 내용</div>
       
       <div class="info-row">
-        <div class="info-label">수강생</div>
+        <div class="info-label">고객명</div>
         <div class="info-value">${contract.student.name}</div>
       </div>
       
@@ -1546,61 +1498,46 @@ export class ContractsService {
       </div>
       ` : ''}
 
-      ${contract.student.guardian_name ? `
-      <div class="info-row">
-        <div class="info-label">보호자</div>
-        <div class="info-value">${contract.student.guardian_name}${contract.student.guardian_phone ? ` (${contract.student.guardian_phone})` : ''}</div>
-      </div>
-      ` : ''}
-
       <div class="divider"></div>
 
       <div class="info-row">
-        <div class="info-label">과목</div>
+        <div class="info-label">이용권 명</div>
         <div class="info-value">${contract.subject}</div>
       </div>
 
       <div class="info-row">
-        <div class="info-label">수업 내용</div>
+        <div class="info-label">이용권 내용</div>
         <div class="info-value">${lessonNotesValue}</div>
       </div>
 
       <div class="info-row">
-        <div class="info-label">수업 요일</div>
-        <div class="info-value">${formatDays(contract.day_of_week as string[])}</div>
+        <div class="info-label">이용권 타입</div>
+        <div class="info-value">${voucherTypeLabel}</div>
       </div>
 
+      ${isSessionVoucher ? `
       <div class="info-row">
-        <div class="info-label">수업 시간</div>
-        <div class="info-value">${contract.time || '-'}</div>
+        <div class="info-label">횟수</div>
+        <div class="info-value">${totalSessions}회</div>
       </div>
-
-      <div class="divider"></div>
-
-      <div class="info-row">
-        <div class="info-label">계약 시작일</div>
-        <div class="info-value">${formatDate(contract.started_at as string | null)}</div>
-      </div>
+      ` : ''}
 
       <div class="info-row">
-        <div class="info-label">계약 종료일</div>
-        <div class="info-value">${formatDate(contract.ended_at as string | null)}</div>
-      </div>
-
-      <div class="divider"></div>
-
-      <div class="info-row">
-        <div class="info-label">월 금액</div>
+        <div class="info-label">금액</div>
         <div class="info-value">${contract.monthly_amount.toLocaleString()}원</div>
       </div>
 
-      <div class="info-row">
-        <div class="info-label">결제 방식</div>
-        <div class="info-value">${BILLING_TYPE_LABELS[contract.billing_type] || contract.billing_type}</div>
-      </div>
+      <div class="divider"></div>
 
       <div class="info-row">
-        <div class="info-label">결석 처리</div>
+        <div class="info-label">유효기간</div>
+        <div class="info-value">${formatDate(contract.started_at as string | null)} ~ ${formatDate(contract.ended_at as string | null)}</div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="info-row">
+        <div class="info-label">노쇼 처리</div>
         <div class="info-value">${
           contract.absence_policy === 'deduct_next'
             ? '차감'
@@ -1618,8 +1555,8 @@ export class ContractsService {
           ${contract.teacher_signature ? `<img src="${contract.teacher_signature}" class="signature-image" alt="강사 서명" />` : '<div style="padding: 20px; text-align: center; color: #8e8e93;">서명이 없습니다</div>'}
         </div>
         <div class="signature-column">
-          <div class="signature-label">수강생 서명</div>
-          ${contract.student_signature ? `<img src="${contract.student_signature}" class="signature-image" alt="수강생 서명" />` : '<div style="padding: 20px; text-align: center; color: #8e8e93;">서명이 없습니다</div>'}
+          <div class="signature-label">고객 서명</div>
+          ${contract.student_signature ? `<img src="${contract.student_signature}" class="signature-image" alt="고객 서명" />` : '<div style="padding: 20px; text-align: center; color: #8e8e93;">서명이 없습니다</div>'}
         </div>
       </div>
       ${extensionHistory.length > 0 ? `
@@ -1642,7 +1579,7 @@ export class ContractsService {
           <div style="padding: 20px; text-align: center; color: #8e8e93;">서명이 없습니다</div>
         </div>
         <div class="signature-column">
-          <div class="signature-label">수강생 서명</div>
+          <div class="signature-label">고객 서명</div>
           <div style="padding: 20px; text-align: center; color: #8e8e93;">서명이 없습니다</div>
         </div>
       </div>
@@ -1662,5 +1599,329 @@ export class ContractsService {
     `.trim();
 
     return html;
+  }
+
+  /**
+   * 예약 생성
+   */
+  async createReservation(userId: number, contractId: number, dto: { reserved_date: string; reserved_time?: string | null }) {
+    // 계약서 확인
+    const contract = await this.prisma.contract.findFirst({
+      where: {
+        id: contractId,
+        user_id: userId,
+      },
+    });
+
+    if (!contract) {
+      throw new NotFoundException('계약서를 찾을 수 없습니다.');
+    }
+
+    // 예약 날짜 파싱 (YYYY-MM-DD 형식을 UTC 기준으로 파싱)
+    const dateStr = dto.reserved_date;
+    let reservedDate: Date;
+    if (dateStr.includes('T')) {
+      // ISO 문자열인 경우
+      reservedDate = new Date(dateStr);
+      reservedDate.setHours(0, 0, 0, 0);
+    } else {
+      // YYYY-MM-DD 형식인 경우 UTC 기준으로 파싱 (시간대 문제 방지)
+      const [year, month, day] = dateStr.split('-').map(Number);
+      reservedDate = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+    }
+
+    // 계약 기간 확인
+    if (contract.started_at) {
+      const startDate = new Date(contract.started_at);
+      startDate.setHours(0, 0, 0, 0);
+      if (reservedDate < startDate) {
+        throw new BadRequestException('예약 날짜는 계약 시작일 이후여야 합니다.');
+      }
+    }
+
+    if (contract.ended_at) {
+      const endDate = new Date(contract.ended_at);
+      endDate.setHours(23, 59, 59, 999);
+      if (reservedDate > endDate) {
+        throw new BadRequestException('예약 날짜는 계약 종료일 이전이어야 합니다.');
+      }
+    }
+
+    // 중복 예약 확인
+    const existing = await this.prisma.reservation.findFirst({
+      where: {
+        contract_id: contractId,
+        reserved_date: reservedDate,
+      },
+    });
+
+    if (existing) {
+      throw new BadRequestException('이미 예약된 날짜입니다.');
+    }
+
+    // 예약 생성
+    const reservation = await this.prisma.reservation.create({
+      data: {
+        contract_id: contractId,
+        reserved_date: reservedDate,
+        reserved_time: dto.reserved_time || null,
+      },
+    });
+
+    return reservation;
+  }
+
+  /**
+   * 예약 목록 조회
+   */
+  async getReservations(userId: number, contractId: number) {
+    // 계약서 확인
+    const contract = await this.prisma.contract.findFirst({
+      where: {
+        id: contractId,
+        user_id: userId,
+      },
+    });
+
+    if (!contract) {
+      throw new NotFoundException('계약서를 찾을 수 없습니다.');
+    }
+
+    // 예약 목록 조회
+    const reservations = await this.prisma.reservation.findMany({
+      where: {
+        contract_id: contractId,
+      },
+      orderBy: {
+        reserved_date: 'asc',
+      },
+    });
+
+    // 각 예약 날짜에 대한 출결 로그 존재 여부 확인 (한 번에 조회)
+    if (reservations.length === 0) {
+      return reservations;
+    }
+
+    // 예약 날짜 범위 계산 (UTC와 로컬 시간 모두 고려)
+    const reservationDateRanges: Array<{ date: Date; nextDay: Date; dateStr: string }> = [];
+    reservations.forEach((r: any) => {
+      const reservedDate = r.reserved_date instanceof Date ? r.reserved_date : new Date(r.reserved_date);
+      // UTC 기준 날짜
+      const dateUtc = new Date(Date.UTC(
+        reservedDate.getFullYear(),
+        reservedDate.getMonth(),
+        reservedDate.getDate(),
+        0, 0, 0, 0
+      ));
+      const nextDayUtc = new Date(dateUtc);
+      nextDayUtc.setUTCDate(nextDayUtc.getUTCDate() + 1);
+      
+      // 로컬 시간 기준 날짜
+      const dateLocal = new Date(reservedDate.getFullYear(), reservedDate.getMonth(), reservedDate.getDate(), 0, 0, 0, 0);
+      const nextDayLocal = new Date(dateLocal);
+      nextDayLocal.setDate(nextDayLocal.getDate() + 1);
+      
+      const dateStr = reservedDate instanceof Date
+        ? reservedDate.toISOString().split('T')[0]
+        : reservedDate.split('T')[0];
+      
+      reservationDateRanges.push(
+        { date: dateUtc, nextDay: nextDayUtc, dateStr },
+        { date: dateLocal, nextDay: nextDayLocal, dateStr }
+      );
+    });
+
+    // 모든 예약 날짜에 대한 출결 로그를 한 번에 조회
+    // occurred_at만 확인 (substitute_at은 대체일 정보일 뿐, 해당 날짜의 출결 처리 여부와 무관)
+    const allAttendanceLogs = await this.prisma.attendanceLog.findMany({
+      where: {
+        user_id: userId,
+        contract_id: contractId,
+        voided: false,
+        OR: reservationDateRanges.map((range: { date: Date; nextDay: Date }) => ({
+          occurred_at: {
+            gte: range.date,
+            lt: range.nextDay,
+          },
+        })),
+      },
+      select: {
+        id: true,
+        occurred_at: true,
+      },
+    });
+
+    // 출결 로그 존재 여부를 날짜별로 매핑 (로컬 시간 기준으로 날짜 추출)
+    const attendanceLogMap = new Map<string, boolean>();
+    allAttendanceLogs.forEach((log) => {
+      const logDate = new Date(log.occurred_at);
+      // 로컬 시간 기준으로 날짜 문자열 생성 (YYYY-MM-DD)
+      const year = logDate.getFullYear();
+      const month = String(logDate.getMonth() + 1).padStart(2, '0');
+      const day = String(logDate.getDate()).padStart(2, '0');
+      const dateStr = `${year}-${month}-${day}`;
+      attendanceLogMap.set(dateStr, true);
+      this.logger.debug(`[Contracts] Found attendance log for date: ${dateStr}, occurred_at: ${log.occurred_at}`);
+    });
+
+    // 예약에 출결 로그 정보 추가
+    return reservations.map((reservation: any) => {
+      // Date 객체를 로컬 시간 기준으로 YYYY-MM-DD 형식으로 변환
+      let dateStr: string;
+      if (reservation.reserved_date instanceof Date) {
+        const date = reservation.reserved_date;
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        dateStr = `${year}-${month}-${day}`;
+      } else if (typeof reservation.reserved_date === 'string') {
+        dateStr = reservation.reserved_date.includes('T')
+          ? reservation.reserved_date.split('T')[0]
+          : reservation.reserved_date;
+      } else {
+        // fallback
+        dateStr = new Date(reservation.reserved_date).toISOString().split('T')[0];
+      }
+      
+      const hasLog = attendanceLogMap.get(dateStr) || false;
+      
+      this.logger.debug(`[Contracts] Reservation ${reservation.id}: reserved_date=${reservation.reserved_date}, dateStr=${dateStr}, hasLog=${hasLog}`);
+      
+      return {
+        ...reservation,
+        has_attendance_log: hasLog,
+      };
+    });
+  }
+
+  /**
+   * 예약 업데이트
+   */
+  async updateReservation(userId: number, contractId: number, reservationId: number, dto: { reserved_date?: string; reserved_time?: string | null }) {
+    // 계약서 확인
+    const contract = await this.prisma.contract.findFirst({
+      where: {
+        id: contractId,
+        user_id: userId,
+      },
+    });
+
+    if (!contract) {
+      throw new NotFoundException('계약서를 찾을 수 없습니다.');
+    }
+
+    // 예약 확인
+    const reservation = await this.prisma.reservation.findFirst({
+      where: {
+        id: reservationId,
+        contract_id: contractId,
+      },
+    });
+
+    if (!reservation) {
+      throw new NotFoundException('예약을 찾을 수 없습니다.');
+    }
+
+    // 업데이트할 데이터 준비
+    const updateData: any = {};
+    
+    if (dto.reserved_date) {
+      // YYYY-MM-DD 형식의 문자열을 UTC 기준으로 파싱 (시간대 문제 방지)
+      const dateStr = dto.reserved_date;
+      let reservedDate: Date;
+      if (dateStr.includes('T')) {
+        // ISO 문자열인 경우
+        reservedDate = new Date(dateStr);
+        reservedDate.setHours(0, 0, 0, 0);
+      } else {
+        // YYYY-MM-DD 형식인 경우 UTC 기준으로 파싱
+        const [year, month, day] = dateStr.split('-').map(Number);
+        reservedDate = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+      }
+
+      // 계약 기간 확인
+      if (contract.started_at) {
+        const startDate = new Date(contract.started_at);
+        startDate.setHours(0, 0, 0, 0);
+        if (reservedDate < startDate) {
+          throw new BadRequestException('예약 날짜는 계약 시작일 이후여야 합니다.');
+        }
+      }
+
+      if (contract.ended_at) {
+        const endDate = new Date(contract.ended_at);
+        endDate.setHours(23, 59, 59, 999);
+        if (reservedDate > endDate) {
+          throw new BadRequestException('예약 날짜는 계약 종료일 이전이어야 합니다.');
+        }
+      }
+
+      // 중복 예약 확인 (자기 자신 제외)
+      const existing = await this.prisma.reservation.findFirst({
+        where: {
+          contract_id: contractId,
+          reserved_date: reservedDate,
+          id: { not: reservationId },
+        },
+      });
+
+      if (existing) {
+        throw new BadRequestException('이미 예약된 날짜입니다.');
+      }
+
+      updateData.reserved_date = reservedDate;
+    }
+
+    if (dto.reserved_time !== undefined) {
+      updateData.reserved_time = dto.reserved_time;
+    }
+
+    // 예약 업데이트
+    const updated = await this.prisma.reservation.update({
+      where: {
+        id: reservationId,
+      },
+      data: updateData,
+    });
+
+    return updated;
+  }
+
+  /**
+   * 예약 삭제
+   */
+  async deleteReservation(userId: number, contractId: number, reservationId: number) {
+    // 계약서 확인
+    const contract = await this.prisma.contract.findFirst({
+      where: {
+        id: contractId,
+        user_id: userId,
+      },
+    });
+
+    if (!contract) {
+      throw new NotFoundException('계약서를 찾을 수 없습니다.');
+    }
+
+    // 예약 확인
+    const reservation = await this.prisma.reservation.findFirst({
+      where: {
+        id: reservationId,
+        contract_id: contractId,
+      },
+    });
+
+    if (!reservation) {
+      throw new NotFoundException('예약을 찾을 수 없습니다.');
+    }
+
+    // 예약 삭제
+    await this.prisma.reservation.delete({
+      where: {
+        id: reservationId,
+      },
+    });
+
+    return { success: true };
   }
 }

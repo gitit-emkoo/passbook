@@ -15,6 +15,10 @@ export class CreateStudentDto {
   @IsOptional()
   @Matches(/^010-?\d{4}-?\d{4}$/)
   guardian_phone?: string;
+
+  @IsOptional()
+  @IsString()
+  memo?: string;
 }
 
 

@@ -66,7 +66,7 @@ export class PushNotificationService {
 
     // FCM Token인 경우
     if (!this.firebaseApp) {
-      this.logger.warn('Firebase Admin is not initialized. Cannot send push notification.');
+      this.logger.warn('Firebase Admin is not initialized. Cannot send push notification. Check FIREBASE_SERVICE_ACCOUNT_KEY environment variable.');
       return false;
     }
 

@@ -230,7 +230,7 @@ export class NotificationsService {
         pushSentAt = null;
       }
     } else {
-      this.logger.warn(`No FCM token found for user ${userId}`);
+      this.logger.warn(`No FCM token found for user ${userId}. User settings: ${JSON.stringify(user?.settings || {})}`);
     }
 
     // 4. 푸시 전송 결과 업데이트

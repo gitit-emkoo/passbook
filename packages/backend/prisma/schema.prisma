@@ -118,6 +118,7 @@ model Contract {
   attendance_logs    AttendanceLog[]
   invoices           Invoice[]
   scheduleExceptions ScheduleException[]
+  reservations       Reservation[]
 
   @@map("contracts")
 }
@@ -132,6 +133,8 @@ model AttendanceLog {
   substitute_at  DateTime?
   memo_public    String?
   memo_internal  String?
+  amount         Int?     // 차감 금액 (금액권인 경우)
+  sms_sent       Boolean  @default(false) // 사용처리 완료 알림 SMS 전송 여부
   recorded_at    DateTime @default(now())
   recorded_by    Int      // user_id
   modified_at    DateTime?
@@ -172,6 +175,22 @@ model ScheduleException {
   @@map("schedule_exceptions")
 }
 
+model Reservation {
+  id            Int      @id @default(autoincrement())
+  contract_id   Int
+  reserved_date DateTime
+  reserved_time String?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  contract Contract @relation(fields: [contract_id], references: [id], onDelete: Cascade)
+
+  @@index([contract_id])
+  @@index([reserved_date])
+  @@unique([contract_id, reserved_date])
+  @@map("reservations")
+}
+
 model Invoice {
   id                Int      @id @default(autoincrement())
   user_id           Int
@@ -179,6 +198,7 @@ model Invoice {
   contract_id       Int
   year              Int
   month             Int
+  invoice_number    Int      @default(1) // 같은 달에 여러 청구서 구분 (1=첫 계약, 2=연장1, 3=연장2...)
   base_amount       Int
   auto_adjustment   Int      @default(0)
   manual_adjustment Int      @default(0)
@@ -199,7 +219,7 @@ model Invoice {
   student  Student   @relation(fields: [student_id], references: [id], onDelete: Cascade)
   contract Contract  @relation(fields: [contract_id], references: [id], onDelete: Cascade)
 
-  @@unique([student_id, contract_id, year, month])
+  @@unique([student_id, contract_id, year, month, invoice_number])
   @@index([student_id])
   @@index([contract_id])
   @@index([year, month])

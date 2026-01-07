@@ -7,8 +7,6 @@ export const contractsApi = {
   getAll: async (params?: Record<string, unknown>) => {
     // 기본 파라미터 강제 적용
     const finalParams = {
-      page: DEFAULT_PAGE,
-      limit: DEFAULT_LIMIT,
       ...params,
       // page와 limit는 항상 숫자로 변환
       page: Number(params?.page ?? DEFAULT_PAGE),
@@ -75,6 +73,30 @@ export const contractsApi = {
     payload: { original_date: string; new_date: string; student_id?: number; reason?: string },
   ) => {
     const response = await apiClient.post(`/api/v1/contracts/${contractId}/reschedule`, payload);
+    return response.data;
+  },
+  // 예약 관련 API
+  createReservation: async (
+    contractId: number,
+    payload: { reserved_date: string; reserved_time?: string | null },
+  ) => {
+    const response = await apiClient.post(`/api/v1/contracts/${contractId}/reservations`, payload);
+    return response.data;
+  },
+  getReservations: async (contractId: number) => {
+    const response = await apiClient.get(`/api/v1/contracts/${contractId}/reservations`);
+    return response.data;
+  },
+  updateReservation: async (
+    contractId: number,
+    reservationId: number,
+    payload: { reserved_date?: string; reserved_time?: string | null },
+  ) => {
+    const response = await apiClient.patch(`/api/v1/contracts/${contractId}/reservations/${reservationId}`, payload);
+    return response.data;
+  },
+  deleteReservation: async (contractId: number, reservationId: number) => {
+    const response = await apiClient.delete(`/api/v1/contracts/${contractId}/reservations/${reservationId}`);
     return response.data;
   },
 };

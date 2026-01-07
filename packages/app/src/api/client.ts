@@ -40,13 +40,7 @@ apiClient.interceptors.request.use((config) => {
   // accessToken이 있으면 Authorization 헤더 설정
   if (accessToken) {
     config.headers.Authorization = `Bearer ${accessToken}`;
-    if (__DEV__) {
-      console.log('[API Client] Request with accessToken:', {
-        url: config.url,
-        hasToken: !!accessToken,
-        tokenLength: accessToken?.length,
-      });
-    }
+    // 로그 제거: API 요청이 너무 많아 로그가 과도함
   } else {
     if (__DEV__) {
       console.log('[API Client] Request without accessToken:', {

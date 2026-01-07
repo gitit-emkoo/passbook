@@ -11,7 +11,6 @@ import {
   View,
 } from 'react-native';
 import { useFocusEffect, useNavigation, CommonActions } from '@react-navigation/native';
-import { featureFlags } from '../config/features';
 import { useDashboardStore } from '../store/useDashboardStore';
 import { useAuthStore } from '../store/useStore';
 import { useContractsStore } from '../store/useContractsStore';
@@ -20,11 +19,12 @@ import { useStudentsStore } from '../store/useStudentsStore';
 import { HomeStackNavigationProp, MainTabsNavigationProp, MainAppStackNavigationProp } from '../navigation/AppNavigator';
 import { contractsApi } from '../api/contracts';
 import { attendanceApi } from '../api/attendance';
-import ContractSendModal from '../components/modals/ContractSendModal';
+import { usersApi } from '../api/users';
 import AttendanceConfirmModal from '../components/modals/AttendanceConfirmModal';
 import AttendanceSignatureModal from '../components/modals/AttendanceSignatureModal';
 import AttendanceAbsenceModal from '../components/modals/AttendanceAbsenceModal';
 import AttendanceDeleteModal from '../components/modals/AttendanceDeleteModal';
+import ReservationChangeModal from '../components/modals/ReservationChangeModal';
 import styled from 'styled-components/native';
 import { RecentContract } from '../types/dashboard';
 
@@ -34,15 +34,8 @@ const dashboardStudentIcon = require('../../assets/p1.png');
 const dashboardClassesIcon = require('../../assets/p2.png');
 const dashboardUnprocessedIcon = require('../../assets/p3.png');
 const dashboardSettlementIcon = require('../../assets/p4.png');
-const recentContractIcon = require('../../assets/b2.png');
+const recentContractIcon = require('../../assets/bbb2.png');
 const guidanceEmptyIcon = require('../../assets/if1.png');
-
-const HomeStub = () => (
-  <View style={stubStyles.container}>
-    <Text style={stubStyles.text}>홈 화면</Text>
-    <Text style={stubStyles.subtext}>STEP 1: 네비게이션 테스트</Text>
-  </View>
-);
 
 interface TodayClass {
   id: number;
@@ -55,12 +48,23 @@ interface TodayClass {
   student: {
     id: number;
     name: string;
+    phone?: string;
   };
   billing_type: string;
   absence_policy: string;
   monthly_amount: number;
   isSubstitute?: boolean;
   originalOccurredAt?: string | null;
+  policy_snapshot?: {
+    total_sessions?: number;
+    lesson_notes?: string;
+    [key: string]: any;
+  } | null;
+  sessions_used?: number;
+  amount_used?: number;
+  reservation_id?: number | null;
+  started_at?: string | null;
+  ended_at?: string | null;
 }
 
 function HomeContent() {
@@ -74,9 +78,6 @@ function HomeContent() {
   const [todayClassesLoading, setTodayClassesLoading] = useState(false);
   const [showAllGuidanceStudents, setShowAllGuidanceStudents] = useState(false);
   const [showAllRecentContracts, setShowAllRecentContracts] = useState(false);
-  const [sendingContractId, setSendingContractId] = useState<number | null>(null);
-  const [showSendModal, setShowSendModal] = useState(false);
-  const [selectedContract, setSelectedContract] = useState<{ id: number; studentPhone?: string; billingType?: 'prepaid' | 'postpaid' } | null>(null);
   const sendContract = useContractsStore((state) => state.sendContract);
   
   // 출석 모달 상태
@@ -84,6 +85,12 @@ function HomeContent() {
   const [showAttendanceSignatureModal, setShowAttendanceSignatureModal] = useState(false);
   const [showAttendanceAbsenceModal, setShowAttendanceAbsenceModal] = useState(false);
   const [showDeleteAttendanceModal, setShowDeleteAttendanceModal] = useState(false);
+  // 예약 변경 모달 상태
+  const [showReservationChangeModal, setShowReservationChangeModal] = useState(false);
+  const [selectedNewReservationDate, setSelectedNewReservationDate] = useState<Date | null>(null);
+  const [selectedNewReservationHour, setSelectedNewReservationHour] = useState<number | null>(null);
+  const [selectedNewReservationMinute, setSelectedNewReservationMinute] = useState<number | null>(null);
+  const [reservationChangeSubmitting, setReservationChangeSubmitting] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
   const todaySectionYRef = useRef(0);
   const [selectedClassItem, setSelectedClassItem] = useState<TodayClass | null>(null);
@@ -177,6 +184,21 @@ function HomeContent() {
       const { isAuthenticated, accessToken } = useAuthStore.getState();
       if (!isPersistReady || !isAuthenticated || !accessToken) return;
       
+      // 홈 화면이 focus될 때마다 오늘 방문 목록 새로고침
+      const refreshTodayClasses = async () => {
+        try {
+          setTodayClassesLoading(true);
+          const data = await contractsApi.getTodayClasses();
+          setTodayClasses(Array.isArray(data) ? data : []);
+        } catch (error: any) {
+          console.error('[Home] error refreshing today classes on focus', error?.message);
+        } finally {
+          setTodayClassesLoading(false);
+        }
+      };
+      
+      refreshTodayClasses();
+      
       // 대시보드 갱신
       fetchDashboard().catch(() => {});
       // 정산 데이터 갱신
@@ -238,20 +260,37 @@ function HomeContent() {
   }, [fetchInvoicesSections, fetchDashboard]);
 
   // 출석 기록 API 호출
-  const handleAttendancePresentSubmit = useCallback(async (signatureData?: string) => {
+  const handleAttendancePresentSubmit = useCallback(async (signatureData?: string, amount?: number, memo?: string) => {
     if (!selectedClassItem) return;
 
     try {
       const occurredAt = createOccurredAt(selectedClassItem.time);
-      await attendanceApi.create({
+      const result = await attendanceApi.create({
         student_id: selectedClassItem.student.id,
         contract_id: selectedClassItem.id,
         occurred_at: occurredAt,
         status: 'present',
         signature_data: signatureData,
+        amount: amount, // 금액권: 차감 금액, 횟수권: undefined (전달하지 않음)
+        memo_public: memo, // 서비스 내용
       });
       
-      Alert.alert('완료', '출석이 기록되었습니다.');
+      // 사용처리 완료 안내 미리보기 화면으로 이동
+      if (result?.id) {
+        const studentPhone = selectedClassItem.student?.phone;
+        console.log('[Home] Navigating to AttendanceView', { 
+          attendanceLogId: result.id, 
+          studentPhone,
+          student: selectedClassItem.student 
+        });
+        homeNavigation.navigate('AttendanceView', {
+          attendanceLogId: result.id,
+          studentPhone: studentPhone || undefined,
+        });
+      } else {
+        Alert.alert('완료', '이용권 사용처리가 완료되었습니다.');
+      }
+      
       // 목록 새로고침 (출석 로그 상태 업데이트)
       await handleAttendanceRecorded();
       // 해당 수강생의 상세 정보도 강제로 새로고침 (수강생 상세 화면 실시간 반영)
@@ -264,6 +303,57 @@ function HomeContent() {
     }
   }, [selectedClassItem, createOccurredAt, handleAttendanceRecorded, fetchStudentDetail]);
 
+  // 예약 변경 API 호출
+  const handleReservationChangeSubmit = useCallback(async () => {
+    if (!selectedClassItem || !selectedClassItem.reservation_id || !selectedNewReservationDate) {
+      Alert.alert('알림', '날짜를 선택해주세요.');
+      return;
+    }
+
+    try {
+      setReservationChangeSubmitting(true);
+      const toIsoDate = (d: Date) => {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      };
+
+      const reservedTime = selectedNewReservationHour !== null && selectedNewReservationMinute !== null
+        ? `${String(selectedNewReservationHour).padStart(2, '0')}:${String(selectedNewReservationMinute).padStart(2, '0')}`
+        : selectedClassItem.time;
+
+      await contractsApi.updateReservation(selectedClassItem.id, selectedClassItem.reservation_id, {
+        reserved_date: toIsoDate(selectedNewReservationDate),
+        reserved_time: reservedTime,
+      });
+
+      Alert.alert('완료', '예약이 변경되었습니다.');
+      // 목록 새로고침
+      await handleAttendanceRecorded();
+      // 해당 수강생의 상세 정보도 강제로 새로고침
+      if (selectedClassItem.student?.id) {
+        await fetchStudentDetail(selectedClassItem.student.id, { force: true });
+      }
+      // 모달 닫기
+      setShowReservationChangeModal(false);
+      setSelectedClassItem(null);
+      setSelectedNewReservationDate(null);
+      setSelectedNewReservationHour(null);
+      setSelectedNewReservationMinute(null);
+    } catch (error: any) {
+      console.error('[Home] reservation change error', error);
+      const errorMessage = typeof error?.response?.data?.message === 'string' 
+        ? error.response.data.message 
+        : typeof error?.message === 'string'
+        ? error.message
+        : '예약 변경에 실패했습니다.';
+      Alert.alert('오류', errorMessage);
+    } finally {
+      setReservationChangeSubmitting(false);
+    }
+  }, [selectedClassItem, selectedNewReservationDate, selectedNewReservationHour, selectedNewReservationMinute, handleAttendanceRecorded, fetchStudentDetail]);
+
   // 결석/대체 기록 API 호출
   const handleAttendanceAbsenceSubmit = useCallback(async (data: {
     status: 'absent' | 'substitute';
@@ -273,6 +363,35 @@ function HomeContent() {
     if (!selectedClassItem) return;
 
     try {
+      // 대체일 지정이고 reservation_id가 있으면 예약 변경 처리
+      if (data.status === 'substitute' && data.substitute_at && selectedClassItem.reservation_id) {
+        const substituteDate = new Date(data.substitute_at);
+        const toIsoDate = (d: Date) => {
+          const year = d.getFullYear();
+          const month = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          return `${year}-${month}-${day}`;
+        };
+
+        // 시간은 기존 예약 시간 유지
+        const reservedTime = selectedClassItem.time;
+
+        await contractsApi.updateReservation(selectedClassItem.id, selectedClassItem.reservation_id, {
+          reserved_date: toIsoDate(substituteDate),
+          reserved_time: reservedTime,
+        });
+
+        Alert.alert('완료', '예약이 변경되었습니다.');
+        // 목록 새로고침
+        await handleAttendanceRecorded();
+        // 해당 수강생의 상세 정보도 강제로 새로고침 (고객 상세 화면 캘린더 반영)
+        if (selectedClassItem.student?.id) {
+          await fetchStudentDetail(selectedClassItem.student.id, { force: true });
+        }
+        return;
+      }
+
+      // 노쇼 처리 또는 reservation_id가 없는 경우 출결 기록 생성
       const occurredAt = createOccurredAt(selectedClassItem.time);
       await attendanceApi.create({
         student_id: selectedClassItem.student.id,
@@ -284,7 +403,7 @@ function HomeContent() {
         memo_public: data.reason,
       });
       
-      Alert.alert('완료', `${data.status === 'absent' ? '결석' : '대체'}이 기록되었습니다.`);
+      Alert.alert('완료', `${data.status === 'absent' ? '노쇼' : '대체'}이 기록되었습니다.`);
       // 목록/정산 새로고침 (출석 로그 상태 및 정산 반영)
       await handleAttendanceRecorded();
       // 해당 수강생의 상세 정보도 강제로 새로고침 (수강생 상세 화면 실시간 반영)
@@ -293,7 +412,12 @@ function HomeContent() {
       }
     } catch (error: any) {
       console.error('[Home] attendance absence error', error);
-      Alert.alert('오류', error?.message || '기록에 실패했습니다.');
+      const errorMessage = typeof error?.response?.data?.message === 'string' 
+        ? error.response.data.message 
+        : typeof error?.message === 'string'
+        ? error.message
+        : '기록에 실패했습니다.';
+      Alert.alert('오류', errorMessage);
     }
   }, [selectedClassItem, createOccurredAt, handleAttendanceRecorded, fetchStudentDetail]);
 
@@ -308,9 +432,28 @@ function HomeContent() {
     }
   }, []);
 
-  // 결석/대체 처리 (하나의 버튼으로 통합)
-  const handleAttendanceAbsence = useCallback((classItem: TodayClass) => {
+  // 변경 처리 (노쇼/대체일 지정 선택)
+  const handleAttendanceAbsence = useCallback(async (classItem: TodayClass) => {
     setSelectedClassItem(classItem);
+    
+    // 마이페이지 기본값 설정 읽어오기
+    let defaultAbsenceStatus: 'absent' | 'substitute' | undefined;
+    try {
+      const user = await usersApi.getMe();
+      const settings = (user.settings || {}) as Record<string, unknown>;
+      if (settings.default_absence_policy) {
+        // 'carry_over' -> 'substitute', 'vanish' -> 'absent'
+        const policy = settings.default_absence_policy as 'carry_over' | 'vanish';
+        defaultAbsenceStatus = policy === 'carry_over' ? 'substitute' : 'absent';
+      }
+    } catch (error) {
+      console.error('[Home] Failed to load default absence policy', error);
+    }
+    
+    // 기본값을 classItem에 저장하여 모달에 전달
+    (classItem as any).defaultAbsenceStatus = defaultAbsenceStatus;
+    
+    // 항상 노쇼/대체일 지정 선택 모달 먼저 표시
     setShowAttendanceAbsenceModal(true);
   }, []);
 
@@ -326,7 +469,7 @@ function HomeContent() {
 
     try {
       await attendanceApi.void(selectedClassItem.attendanceLogId, '홈 화면에서 삭제');
-      Alert.alert('완료', '출결 기록이 삭제되었습니다.');
+      Alert.alert('완료', '관리 기록이 삭제되었습니다.');
       // 목록 새로고침
       await handleAttendanceRecorded();
       // 해당 수강생의 상세 정보도 강제로 새로고침 (수강생 상세 화면 실시간 반영)
@@ -337,7 +480,7 @@ function HomeContent() {
       setSelectedClassItem(null);
     } catch (error: any) {
       console.error('[Home] delete attendance error', error);
-      Alert.alert('오류', error?.message || '출결 기록 삭제에 실패했습니다.');
+      Alert.alert('오류', error?.message || '관리 기록 삭제에 실패했습니다.');
     }
   }, [selectedClassItem, handleAttendanceRecorded, fetchStudentDetail]);
 
@@ -454,69 +597,29 @@ function HomeContent() {
   }, []);
 
   const getAbsencePolicyLabel = useCallback((policy: string, billingType?: string) => {
-    if (policy === 'carry_over') return '회차이월';
+    if (policy === 'carry_over') return '대체';
     if (policy === 'deduct_next') return '차감';
     if (policy === 'vanish') return '소멸';
     return policy;
   }, []);
 
+  const getContractTypeLabel = useCallback((billingType: string) => {
+    if (billingType === 'sessions') return '횟수권';
+    if (billingType === 'amount') return '선불권';
+    return '알 수 없음';
+  }, []);
+
   const handleSendContractClick = useCallback(
-    async (contractId: number) => {
-      // 계약서 상세 정보 가져오기
-      try {
-        const contract = await contractsApi.getById(contractId);
-        setSelectedContract({
-          id: contractId,
-          studentPhone: contract.student?.phone || contract.student?.guardian_phone,
-          billingType: contract.billing_type as 'prepaid' | 'postpaid',
-        });
-        setShowSendModal(true);
-      } catch (error: any) {
-        console.error('[Home] get contract error', error);
-        Alert.alert('오류', '계약서 정보를 불러오지 못했습니다.');
-      }
+    (contractId: number) => {
+      // 계약서 미리보기 화면으로 이동
+      (navigation as any).navigate('Students', {
+        screen: 'ContractView',
+        params: { contractId },
+      });
     },
-    [],
+    [navigation],
   );
 
-  const handleSend = useCallback(
-    async (channel: 'sms' | 'link') => {
-      if (!selectedContract) {
-        return;
-      }
-
-      if (sendingContractId !== null) {
-        return;
-      }
-
-      setSendingContractId(selectedContract.id);
-      try {
-        if (channel === 'sms') {
-          // 계약서 상태를 'sent'로 업데이트
-          // 선불 계약의 경우 백엔드에서 자동으로 청구서 생성
-          await contractsApi.updateStatus(selectedContract.id, 'sent');
-          
-          // 수강생 목록, 대시보드, 인보이스 새로고침 (즉시 반영)
-          // 선불 계약의 경우 청구서가 지난 정산에 반영되도록
-          await Promise.all([
-            fetchDashboard({ force: true }),
-            fetchInvoicesSections(true),
-          ]);
-        } else if (channel === 'link') {
-          // 링크만 복사하는 경우는 ContractSendModal에서 처리
-          // 모달을 닫고 상태 초기화
-          setShowSendModal(false);
-          setSelectedContract(null);
-        }
-      } catch (error: any) {
-        console.error('[Home] send contract error', error);
-        Alert.alert('오류', error?.message || '계약서 전송에 실패했습니다.');
-      } finally {
-        setSendingContractId(null);
-      }
-    },
-    [selectedContract, fetchDashboard, fetchInvoicesSections, sendingContractId],
-  );
 
   const getContractStatusLabel = useCallback((status: string | null | undefined) => {
     if (!status) return '알 수 없음';
@@ -591,12 +694,12 @@ function HomeContent() {
         {/* 상단 헤더: 로고, 알림 아이콘, 안내 텍스트 */}
         <HeaderSection>
           <HeaderTop>
-              <HeaderTitle>THE LESSON</HeaderTitle>
+            <HeaderTitle>패스북</HeaderTitle>
             <NotificationButton onPress={handleNotificationPress}>
-                <NotificationIcon source={notificationBellIcon} tintColor="#B22222" />
+              <NotificationIcon source={notificationBellIcon} tintColor="#B22222" />
             </NotificationButton>
           </HeaderTop>
-          <HeaderSubtext>계약부터 출결기록 정산서 발송까지 간편한 레슨관리</HeaderSubtext>
+          <HeaderSubtext>이용권 발행부터 사용처리 까지 고객 확인으로 분쟁없이 깔끔하게.</HeaderSubtext>
         </HeaderSection>
 
         {/* 에러 배너 */}
@@ -620,7 +723,7 @@ function HomeContent() {
                   </DashboardIconWrapper>
                 </DashboardIconColumn>
                 <DashboardTextBlock>
-                  <DashboardLabel numberOfLines={1}>총 수강생</DashboardLabel>
+                  <DashboardLabel numberOfLines={1}>이용권 고객</DashboardLabel>
                   <DashboardValue numberOfLines={1}>
                     {(summary?.studentsCount ?? 0).toLocaleString()}명
                   </DashboardValue>
@@ -636,7 +739,7 @@ function HomeContent() {
                   </DashboardIconWrapper>
                 </DashboardIconColumn>
                 <DashboardTextBlock>
-                  <DashboardLabel numberOfLines={1}>Today's class</DashboardLabel>
+                  <DashboardLabel numberOfLines={1}>오늘방문</DashboardLabel>
                   <DashboardValue numberOfLines={1}>{todayClasses.length.toLocaleString()}건</DashboardValue>
                 </DashboardTextBlock>
               </DashboardCardRow>
@@ -650,7 +753,7 @@ function HomeContent() {
                   </DashboardIconWrapper>
                 </DashboardIconColumn>
                 <DashboardTextBlock>
-                  <DashboardLabel numberOfLines={1}>미처리 출결</DashboardLabel>
+                  <DashboardLabel numberOfLines={1}>노쇼처리</DashboardLabel>
                   <DashboardValue numberOfLines={1}>{unprocessedCount.toLocaleString()}건</DashboardValue>
                 </DashboardTextBlock>
               </DashboardCardRow>
@@ -664,7 +767,7 @@ function HomeContent() {
                   </DashboardIconWrapper>
                 </DashboardIconColumn>
                 <DashboardTextBlock>
-                  <DashboardLabel numberOfLines={1}>미청구 정산</DashboardLabel>
+                  <DashboardLabel numberOfLines={1}>청구 미전송</DashboardLabel>
                   <DashboardValue numberOfLines={1}>{unsentInvoicesCount.toLocaleString()}명</DashboardValue>
                 </DashboardTextBlock>
               </DashboardCardRow>
@@ -673,10 +776,10 @@ function HomeContent() {
           </DashboardCardSection>
         </HeaderTopSection>
 
-        {/* 1. Today's class 섹션 */}
-        <Section style={{ borderTopWidth: 0 }} onLayout={handleTodaySectionLayout}>
+        {/* 1. 오늘 방문 예정인 고객 섹션 */}
+        <Section style={{ borderTopWidth: 0, paddingTop: 0 }} onLayout={handleTodaySectionLayout}>
           <SectionHeader>
-            <SectionTitle>Today's class</SectionTitle>
+            <SectionTitle>오늘 방문 예정인 고객</SectionTitle>
           </SectionHeader>
           {todayClassesLoading ? (
             <LoadingContainer>
@@ -685,85 +788,131 @@ function HomeContent() {
           ) : todayClasses.length === 0 ? (
             <EmptyStateContainer>
               <EmptyStateIcon source={dashboardClassesIcon} resizeMode="contain" />
-              <EmptyStateText>오늘 예정된 수업이 없습니다.</EmptyStateText>
+              <EmptyStateText>오늘 방문 예정인 고객이 없습니다.</EmptyStateText>
             </EmptyStateContainer>
           ) : (
             <ListContainer>
               {todayClasses.map((classItem) => {
+                // 계약 타입 판단: policy_snapshot.total_sessions와 ended_at으로 판단
+                // 뷰티앱: 금액권과 횟수권 모두 선불 횟수 계약 로직 사용
+                const snapshot = classItem.policy_snapshot || {};
+                const totalSessions = typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
+                // 횟수권: totalSessions > 0 && !ended_at
+                // 금액권: ended_at이 있음 (유효기간이 있음)
+                const contractType = totalSessions > 0 && !classItem.ended_at ? 'sessions' : 'amount';
+                const contractTypeLabel = getContractTypeLabel(contractType === 'sessions' ? 'sessions' : 'amount');
+                const absencePolicyLabel = getAbsencePolicyLabel(classItem.absence_policy, classItem.billing_type);
                 const amount = classItem.monthly_amount ? `${classItem.monthly_amount.toLocaleString()}원` : '';
-                const billingLabel = getBillingTypeLabel(classItem.billing_type);
-                const policyLabel = getAbsencePolicyLabel(classItem.absence_policy, classItem.billing_type);
-                const conditionText = `${billingLabel}(${policyLabel})`;
-
-                // 대체 수업인 경우 원래 날짜 포맷팅
-                const formatSubstituteDate = (dateString: string | null | undefined) => {
-                  if (!dateString) return null;
-                  const date = new Date(dateString);
-                  const month = date.getMonth() + 1;
-                  const day = date.getDate();
-                  return `${month}/${day}일`;
-                };
-
-                const substituteText = classItem.isSubstitute && classItem.originalOccurredAt
-                  ? `${formatSubstituteDate(classItem.originalOccurredAt)} > 오늘`
+                // 출결 여부: 백엔드 hasAttendanceLog 값이 없거나 잘못된 경우를 대비해 attendanceLogId도 함께 체크
+                const hasLog = !!classItem.hasAttendanceLog || !!classItem.attendanceLogId;
+                
+                // 이용권 내용 (policy_snapshot.lesson_notes)
+                const lessonNotes = snapshot.lesson_notes && typeof snapshot.lesson_notes === 'string' 
+                  ? snapshot.lesson_notes 
                   : null;
-
-                // 요일 변환 함수
-                const formatDayOfWeek = (dayOfWeekArray: string[] | null | undefined): string => {
-                  if (!dayOfWeekArray || !Array.isArray(dayOfWeekArray) || dayOfWeekArray.length === 0) {
-                    return '-';
-                  }
-                  const dayMap: Record<string, string> = {
-                    'SUN': '일',
-                    'MON': '월',
-                    'TUE': '화',
-                    'WED': '수',
-                    'THU': '목',
-                    'FRI': '금',
-                    'SAT': '토',
-                  };
-                  return dayOfWeekArray.map(day => dayMap[day] || day).join(', ');
-                };
-
+                
+                // 잔여 정보 계산
+                const sessionsUsed = classItem.sessions_used ?? 0;
+                const remainingSessions = totalSessions > 0 ? Math.max(totalSessions - sessionsUsed, 0) : null;
+                
+                // 금액권의 총금액/잔여금액 계산
+                const totalAmount = classItem.monthly_amount ?? 0;
+                const amountUsed = classItem.amount_used ?? 0;
+                const remainingAmount = contractType === 'amount' && classItem.ended_at ? Math.max(totalAmount - amountUsed, 0) : null;
+                
                 // 시간 포맷팅
                 const formatTime = (time: string | null | undefined): string => {
                   if (!time) return '-';
                   return time;
                 };
+                
+                // 유효기간 포맷팅
+                const formatDateRange = (startDate: string | null | undefined, endDate: string | null | undefined) => {
+                  if (!startDate || !endDate) return null;
+                  const start = new Date(startDate);
+                  const end = new Date(endDate);
+                  const startYear = String(start.getFullYear()).slice(-2); // 뒤 2자리만
+                  const startMonth = String(start.getMonth() + 1).padStart(2, '0');
+                  const startDay = String(start.getDate()).padStart(2, '0');
+                  const endYear = String(end.getFullYear()).slice(-2); // 뒤 2자리만
+                  const endMonth = String(end.getMonth() + 1).padStart(2, '0');
+                  const endDay = String(end.getDate()).padStart(2, '0');
+                  return `${startYear}.${startMonth}.${startDay} ~ ${endYear}.${endMonth}.${endDay}`;
+                };
 
                 return (
                   <ClassCard key={classItem.id}>
                     <ClassInfo>
-                      <ClassMainInfo>
-                        <ClassMainText>
-                          {classItem.student?.name || '알 수 없음'} ({classItem.subject})
-                        </ClassMainText>
-                        {substituteText && (
-                          <SubstituteInfo>{substituteText}</SubstituteInfo>
-                        )}
-                      </ClassMainInfo>
-                      <ClassMetaRow>
-                        <ClassMetaContainer>
-                          {amount ? <ClassAmount>{amount}</ClassAmount> : null}
-                          <ClassCondition>{conditionText}</ClassCondition>
-                        </ClassMetaContainer>
-                        <ClassTimeDayRow>
-                          <ClassTimeDayItem>
-                            <ClassTimeDayLabel>시간</ClassTimeDayLabel>
-                            <ClassTimeDayValue $variant="time">{formatTime(classItem.time)}</ClassTimeDayValue>
-                          </ClassTimeDayItem>
-                          <ClassTimeDayItem>
-                            <ClassTimeDayLabel>요일</ClassTimeDayLabel>
-                            <ClassTimeDayValue $variant="day">{formatDayOfWeek(classItem.day_of_week)}</ClassTimeDayValue>
-                          </ClassTimeDayItem>
-                        </ClassTimeDayRow>
-                      </ClassMetaRow>
+                      {/* 1줄: 이름 + 계약타입뱃지 + 조건뱃지 + 금액 */}
+                      <ClassCardRow1>
+                        <ClassCardNameContainer>
+                          <ClassCardName>{classItem.student?.name || '알 수 없음'}</ClassCardName>
+                          <ClassBadgeContainer>
+                            <ClassBadge contractType contractTypeValue={contractType}>
+                              <ClassBadgeText contractType contractTypeValue={contractType}>{contractTypeLabel}</ClassBadgeText>
+                            </ClassBadge>
+                            {absencePolicyLabel && absencePolicyLabel !== '차감' && (
+                              <ClassBadge absencePolicy>
+                                <ClassBadgeText absencePolicy>{absencePolicyLabel}</ClassBadgeText>
+                              </ClassBadge>
+                            )}
+                          </ClassBadgeContainer>
+                        </ClassCardNameContainer>
+                        <ClassAmountContainer>
+                          {amount ? <ClassAmountText>{amount}</ClassAmountText> : null}
+                        </ClassAmountContainer>
+                      </ClassCardRow1>
+
+                      {/* 2줄: 이용권명 (이용권 내용) */}
+                      {classItem.subject && (
+                        <ClassCardRow2Container>
+                          <ClassCardRow2Subject>
+                            {classItem.subject}
+                            {lessonNotes ? ` (${lessonNotes})` : ''}
+                          </ClassCardRow2Subject>
+                        </ClassCardRow2Container>
+                      )}
+
+                      {/* 3줄: 잔여정보(좌측) + 시간(우측) */}
+                      <ClassCardRow3Container>
+                        <ClassCardRow3Left>
+                          {contractType === 'sessions' && totalSessions > 0 && typeof remainingSessions === 'number' ? (
+                            <ClassExtendNoteContainer>
+                              <ClassExtendNote>
+                                <ClassExtendNoteTotal>총{totalSessions}회</ClassExtendNoteTotal>
+                                {' / '}
+                                <ClassExtendNoteRemaining>잔여{remainingSessions}회</ClassExtendNoteRemaining>
+                              </ClassExtendNote>
+                            </ClassExtendNoteContainer>
+                          ) : contractType === 'amount' && classItem.ended_at && typeof remainingAmount === 'number' ? (
+                            <ClassExtendNoteContainer>
+                              <ClassExtendNote>
+                                <ClassExtendNoteTotal>총{totalAmount.toLocaleString()}원</ClassExtendNoteTotal>
+                                {' / '}
+                                <ClassExtendNoteRemaining>잔여{remainingAmount.toLocaleString()}원</ClassExtendNoteRemaining>
+                              </ClassExtendNote>
+                            </ClassExtendNoteContainer>
+                          ) : null}
+                        </ClassCardRow3Left>
+                        <ClassCardRow3Right>
+                          <ClassTimeText>{formatTime(classItem.time)}</ClassTimeText>
+                        </ClassCardRow3Right>
+                      </ClassCardRow3Container>
+
+                      {/* 4줄(금액권만): 유효기간 (표시용만) */}
+                      {contractType === 'amount' && classItem.started_at && classItem.ended_at && (
+                        <ClassCardRow4>
+                          <ClassValidPeriod>
+                            유효기간: {formatDateRange(classItem.started_at, classItem.ended_at)}
+                          </ClassValidPeriod>
+                        </ClassCardRow4>
+                      )}
                     </ClassInfo>
                     <EditButton
                       onPress={() => handleDeleteAttendance(classItem)}
-                      disabled={!classItem.hasAttendanceLog}
+                      disabled={!hasLog}
                     >
-                      <EditButtonText disabled={!classItem.hasAttendanceLog}>
+                      <EditButtonText disabled={!hasLog}>
                         수정
                       </EditButtonText>
                     </EditButton>
@@ -771,20 +920,20 @@ function HomeContent() {
                       <AttendanceBottomButton
                             onPress={() => handleAttendancePresent(classItem)}
                             variant="present"
-                            disabled={classItem.hasAttendanceLog}
+                            disabled={hasLog}
                           >
-                        <AttendanceBottomButtonText variant="present" disabled={classItem.hasAttendanceLog}>
-                              출석
+                        <AttendanceBottomButtonText variant="present" disabled={hasLog}>
+                              사용처리
                         </AttendanceBottomButtonText>
                       </AttendanceBottomButton>
                       <AttendanceDivider />
                       <AttendanceBottomButton
                             onPress={() => handleAttendanceAbsence(classItem)}
                             variant="absent"
-                            disabled={classItem.hasAttendanceLog}
+                            disabled={hasLog}
                           >
-                        <AttendanceBottomButtonText variant="absent" disabled={classItem.hasAttendanceLog}>
-                              결석
+                        <AttendanceBottomButtonText variant="absent" disabled={hasLog}>
+                              노쇼처리
                         </AttendanceBottomButtonText>
                       </AttendanceBottomButton>
                     </AttendanceButtonsRow>
@@ -823,14 +972,13 @@ function HomeContent() {
                 const isConfirmed = contract.status === 'confirmed';
                 const isSent = contract.status === 'sent';
                 const showSendButton = isConfirmed && !isSent;
-                const isSending = sendingContractId === contract.id;
 
                 return (
                   <RecentContractItem 
                     key={contract.id}
                     onPress={() => {
                       // Students 탭으로 먼저 이동한 다음 ContractView로 이동
-                      navigation.navigate('Students', {
+                      (navigation as any).navigate('Students', {
                         screen: 'ContractView',
                         params: { contractId: contract.id },
                       });
@@ -838,7 +986,7 @@ function HomeContent() {
                   >
                     <RecentContractContent>
                       <RecentContractTitle>{contract.studentName || '학생 정보 없음'}</RecentContractTitle>
-                      <RecentContractMeta>{contract.title}</RecentContractMeta>
+                      <RecentContractMeta>{contract.subject}</RecentContractMeta>
                     </RecentContractContent>
                     {showSendButton ? (
                       <RecentContractSendButton
@@ -861,11 +1009,11 @@ function HomeContent() {
         )}
         </Section>
 
-        {/* 3. 추가 안내가 필요한 수강생 섹션 */}
+        {/* 3. 연장 안내가 필요한 고객 섹션 */}
         <Section>
           <SectionHeader>
             <SectionHeaderLeft>
-            <SectionTitle>안내가 필요한 수강생</SectionTitle>
+            <SectionTitle>연장 안내가 필요한 고객</SectionTitle>
             {guidanceContracts.length > 0 && (
               <Badge>
                 <BadgeText>{guidanceContracts.length}</BadgeText>
@@ -876,7 +1024,7 @@ function HomeContent() {
           {!summary || guidanceContracts.length === 0 ? (
             <EmptyStateContainer>
               <EmptyStateIcon source={guidanceEmptyIcon} resizeMode="contain" />
-              <EmptyStateText>추가 안내가 필요한 수강생이 없습니다.</EmptyStateText>
+              <EmptyStateText>연장 안내가 필요한 고객이 없습니다.</EmptyStateText>
             </EmptyStateContainer>
           ) : (
             <ListContainer>
@@ -903,20 +1051,6 @@ function HomeContent() {
       </ScrollView>
       </Container>
 
-      {/* 전송 모달 */}
-      {selectedContract && (
-        <ContractSendModal
-          visible={showSendModal}
-          onClose={() => {
-            setShowSendModal(false);
-            setSelectedContract(null);
-          }}
-          onSend={handleSend}
-          contractLink={contractsApi.getViewLink(selectedContract.id)}
-          recipientPhone={selectedContract.studentPhone}
-          billingType={selectedContract.billingType}
-        />
-      )}
 
       {/* 출석 확인 모달 (서명 없음) */}
       {selectedClassItem && (
@@ -935,24 +1069,40 @@ function HomeContent() {
         />
       )}
 
-      {/* 출석 서명 모달 */}
-      {selectedClassItem && (
-        <AttendanceSignatureModal
-          visible={showAttendanceSignatureModal}
-          onClose={() => {
-            setShowAttendanceSignatureModal(false);
-            setSelectedClassItem(null);
-          }}
-          onConfirm={(signature: string) => {
-            handleAttendancePresentSubmit(signature);
-            setShowAttendanceSignatureModal(false);
-            setSelectedClassItem(null);
-          }}
-          studentName={selectedClassItem.student.name}
-        />
-      )}
+      {/* 사용 서명 모달 */}
+      {selectedClassItem && (() => {
+        // 계약 타입 판단
+        // 뷰티앱: 금액권과 횟수권 모두 선불 횟수 계약 로직 사용
+        const snapshot = selectedClassItem.policy_snapshot || {};
+        const totalSessions = typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
+        // 횟수권: totalSessions > 0 && !ended_at
+        // 금액권: ended_at이 있음 (유효기간이 있음)
+        const contractType = totalSessions > 0 && !selectedClassItem.ended_at ? 'sessions' : 'amount';
+        
+        return (
+          <AttendanceSignatureModal
+            visible={showAttendanceSignatureModal}
+            onClose={() => {
+              setShowAttendanceSignatureModal(false);
+              setSelectedClassItem(null);
+            }}
+            onConfirm={(signature: string, amount?: number, memo?: string) => {
+              handleAttendancePresentSubmit(signature, amount, memo);
+              setShowAttendanceSignatureModal(false);
+              setSelectedClassItem(null);
+            }}
+            studentName={selectedClassItem.student.name}
+            contractType={contractType}
+            remainingAmount={contractType === 'amount' && selectedClassItem.ended_at ? (() => {
+              const totalAmount = selectedClassItem.monthly_amount ?? 0;
+              const amountUsed = selectedClassItem.amount_used ?? 0;
+              return Math.max(totalAmount - amountUsed, 0);
+            })() : undefined}
+          />
+        );
+      })()}
 
-      {/* 결석/대체 모달 */}
+      {/* 노쇼/대체일 지정 모달 */}
       {selectedClassItem && (
         <AttendanceAbsenceModal
           visible={showAttendanceAbsenceModal}
@@ -966,6 +1116,7 @@ function HomeContent() {
             setSelectedClassItem(null);
           }}
           studentName={selectedClassItem.student.name}
+          initialStatus={(selectedClassItem as any).defaultAbsenceStatus}
         />
       )}
 
@@ -986,31 +1137,8 @@ function HomeContent() {
 }
 
 export default function HomeScreen() {
-  if (featureFlags.dashboard.useStub) {
-    return <HomeStub />;
-  }
-
   return <HomeContent />;
 }
-
-const stubStyles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-  },
-  text: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#000',
-    marginBottom: 10,
-  },
-  subtext: {
-    fontSize: 16,
-    color: '#d12c2c',
-  },
-});
 
 const styles = StyleSheet.create({
   scrollContent: {
@@ -1069,7 +1197,7 @@ const RetryButtonText = styled.Text`
 `;
 
 const HeaderTopSection = styled.View`
-  background-color: #0f1b4d;
+  background-color: #303643;
   padding: 20px 16px 24px 16px;
   margin: -16px -16px 20px -16px;
 `;
@@ -1139,6 +1267,9 @@ const Section = styled.View`
   border-radius: 12px;
   padding: 0;
   margin-bottom: 16px;
+  padding-top: 16px;
+  border-top-width: 1px;
+  border-top-color: #e0e0e0;
 `;
 
 const SectionHeader = styled.View`
@@ -1221,90 +1352,160 @@ const ClassCard = styled.View`
 
 const ClassInfo = styled.View`
   flex: 1;
-  gap: 4px;
+  gap: 8px;
   padding-right: 60px;
   margin-bottom: 4px;
 `;
 
-const ClassMainInfo = styled.View`
+// 1줄: 이름 + 뱃지 + 금액
+const ClassCardRow1 = styled.View`
   flex-direction: row;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 4px;
 `;
 
-const ClassMainText = styled.Text`
-  font-size: 15px;
-  font-weight: 600;
+const ClassCardNameContainer = styled.View`
+  flex: 1;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+`;
+
+const ClassCardName = styled.Text`
+  font-size: 18px;
+  font-weight: 700;
   color: #111;
 `;
 
-const SubstituteInfo = styled.Text`
-  font-size: 13px;
-  font-weight: 500;
-  color: #007AFF;
+const ClassBadgeContainer = styled.View`
+  flex-direction: row;
+  gap: 6px;
 `;
 
-const ClassMetaRow = styled.View`
+const ClassBadge = styled.View<{ contractType?: boolean; absencePolicy?: boolean; contractTypeValue?: 'sessions' | 'amount' }>`
+  padding: 4px 8px;
+  background-color: ${(props: { contractType?: boolean; absencePolicy?: boolean; contractTypeValue?: 'sessions' | 'amount' }) => {
+    if (props.contractType) {
+      // 선불권: 블루 배경, 횟수권: 빨강 배경
+      return props.contractTypeValue === 'amount' ? '#e8f2ff' : '#ffe5e5';
+    }
+    if (props.absencePolicy) return '#f0f8f0';
+    return '#e8f2ff';
+  }};
+  border-radius: 12px;
+`;
+
+const ClassBadgeText = styled.Text<{ contractType?: boolean; absencePolicy?: boolean; contractTypeValue?: 'sessions' | 'amount' }>`
+  font-size: 11px;
+  color: ${(props: { contractType?: boolean; absencePolicy?: boolean; contractTypeValue?: 'sessions' | 'amount' }) => {
+    if (props.contractType) {
+      // 선불권: 블루 텍스트, 횟수권: 빨강 텍스트
+      return props.contractTypeValue === 'amount' ? '#246bfd' : '#ff3b30';
+    }
+    if (props.absencePolicy) return '#34c759';
+    return '#246bfd';
+  }};
+  font-weight: 600;
+`;
+
+const ClassAmountContainer = styled.View`
+  align-items: flex-end;
+  min-width: 80px;
+`;
+
+const ClassAmountText = styled.Text`
+  font-size: 16px;
+  font-weight: 700;
+  color: #111;
+`;
+
+// 2줄: 이용권명 (이용권 내용)
+const ClassCardRow2Container = styled.View`
   flex-direction: row;
   align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+`;
+
+const ClassCardRow2Subject = styled.Text`
+  font-size: 14px;
+  color: #0f1b4d;
+  font-weight: 500;
+`;
+
+// 3줄: 잔여정보 + 우측 계약금액
+const ClassCardRow3Container = styled.View`
+  flex-direction: row;
   justify-content: space-between;
+  align-items: flex-start;
   gap: 12px;
 `;
 
-const ClassMetaContainer = styled.View`
+const ClassCardRow3Left = styled.View`
   flex: 1;
-  gap: 2px;
+  justify-content: flex-start;
+  flex-shrink: 1;
+  margin-right: 8px;
 `;
 
-const ClassAmount = styled.Text`
-  font-size: 13px;
-  color: #666;
-  font-weight: 500;
+const ClassCardRow3Right = styled.View`
+  align-items: flex-end;
+  min-width: 60px;
+  flex-shrink: 0;
 `;
 
-const ClassCondition = styled.Text`
-  font-size: 13px;
-  color: #666;
-`;
-
-const ClassTimeDayRow = styled.View`
-  flex-direction: row;
-  gap: 16px;
-  align-items: center;
-`;
-
-const ClassTimeDayItem = styled.View`
-  flex-direction: row;
-  align-items: center;
-  gap: 4px;
-`;
-
-const ClassTimeDayLabel = styled.Text`
-  font-size: 13px;
-  color: #666;
-`;
-
-const ClassTimeDayValue = styled.Text<{ $variant: 'time' | 'day' }>`
-  font-size: 13px;
+const ClassTimeText = styled.Text`
+  font-size: 14px;
   font-weight: 600;
-  color: ${({ $variant }: { $variant: string }) => ($variant === 'time' ? '#FFD700' : '#ff3b30')};
+  color: #FFD700;
+`;
+
+const ClassExtendNoteContainer = styled.View`
+  flex-direction: row;
+  flex-shrink: 1;
+  flex-wrap: nowrap;
+`;
+
+const ClassExtendNote = styled.Text`
+  font-size: 13px;
+  color: #4a4a4a;
+`;
+
+const ClassExtendNoteTotal = styled.Text`
+  color: #ff3b30;
+  font-weight: 600;
+`;
+
+const ClassExtendNoteRemaining = styled.Text`
+  color: #ff9500;
+  font-weight: 600;
+`;
+
+// 4줄(금액권만): 유효기간
+const ClassCardRow4 = styled.View`
+  margin-top: 2px;
+`;
+
+const ClassValidPeriod = styled.Text`
+  font-size: 13px;
+  color: #666;
 `;
 
 const EditButton = styled.TouchableOpacity<{ disabled?: boolean }>`
   position: absolute;
   top: 12px;
   right: 12px;
-  padding: 6px 12px;
-  border-radius: 12px;
-  background-color: ${({ disabled }: { disabled?: boolean }) => (disabled ? '#f5f5f5' : '#e8f4f8')};
+  padding: 0;
   opacity: ${({ disabled }: { disabled?: boolean }) => (disabled ? 0.5 : 1)};
 `;
 
 const EditButtonText = styled.Text<{ disabled?: boolean }>`
-  font-size: 12px;
-  font-weight: 600;
-  color: ${({ disabled }: { disabled?: boolean }) => (disabled ? '#999' : '#007AFF')};
+  font-size: 14px;
+  font-weight: 700;
+  color: ${({ disabled }: { disabled?: boolean }) => (disabled ? '#999' : '#ff3b30')};
+  text-decoration-line: underline;
 `;
 
 const AttendanceButtonsRow = styled.View`
@@ -1317,17 +1518,22 @@ const AttendanceButtonsRow = styled.View`
 
 const AttendanceBottomButton = styled.TouchableOpacity<{ variant: 'present' | 'absent'; disabled?: boolean }>`
   flex: 1;
-  padding: 8px;
+  padding: 12px 8px;
   align-items: center;
   justify-content: center;
-  background-color: transparent;
-  opacity: ${({ disabled }: { disabled?: boolean }) => (disabled ? 0.5 : 1)};
+  background-color: ${({ disabled }: { disabled?: boolean }) => (disabled ? '#f5f5f5' : '#f8f9fa')};
+  border-radius: 8px;
+  min-height: 44px;
+  opacity: ${({ disabled }: { disabled?: boolean }) => (disabled ? 0.6 : 1)};
 `;
 
 const AttendanceBottomButtonText = styled.Text<{ variant: 'present' | 'absent'; disabled?: boolean }>`
-  font-size: 13px;
-  font-weight: 600;
-  color: ${({ disabled }: { disabled?: boolean }) => (disabled ? '#999' : '#333')};
+  font-size: 14px;
+  font-weight: 700;
+  color: ${({ disabled, variant }: { disabled?: boolean; variant: 'present' | 'absent' }) => {
+    if (disabled) return '#999';
+    return variant === 'present' ? '#246bfd' : '#ff6b00';
+  }};
 `;
 
 const AttendanceDivider = styled.View`
@@ -1442,8 +1648,8 @@ const ShowMoreButtonInline = styled.TouchableOpacity`
 
 const ShowMoreButtonText = styled.Text`
   color: #1d42d8;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 700;
 `;
 
 const DashboardCardSection = styled.View`

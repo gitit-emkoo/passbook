@@ -15,30 +15,28 @@ import {
   View,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { featureFlags } from '../config/features';
 import { useStudentsStore } from '../store/useStudentsStore';
 import { useAuthStore } from '../store/useStore';
 import { StudentSummary } from '../types/students';
 import { StudentsStackNavigationProp, MainTabsNavigationProp } from '../navigation/AppNavigator';
 import ExtendContractModal from '../components/modals/ExtendContractModal';
 import { studentsApi } from '../api/students';
+import { contractsApi } from '../api/contracts';
 import styled from 'styled-components/native';
+import { Image } from 'react-native';
 
-const StudentsListStub = () => (
-  <View style={stubStyles.container}>
-    <Text style={stubStyles.text}>수강생 목록</Text>
-    <Text style={stubStyles.subtext}>STEP 1: 네비게이션 테스트</Text>
-  </View>
-);
+const nonImage = require('../../assets/non.png');
+const endImage = require('../../assets/end.png');
 
 type ContractMeta = {
-  contractType: 'sessions' | 'monthly' | 'unknown';
+  contractType: 'sessions' | 'amount' | 'unknown';
   isExpired: boolean;
   extendEligible: boolean;
   extendReason: string | null;
   remainingSessions: number | null;
   totalSessions: number | null;
-  daysUntilEnd: number | null;
+  remainingAmount: number | null;
+  totalAmount: number | null;
 };
 
 type StudentCardItem = {
@@ -109,7 +107,6 @@ function StudentsListContent() {
 
   const computeContractMeta = useCallback((student: StudentSummary): ContractMeta => {
     const contract = student.latest_contract;
-    const now = new Date();
 
     if (!contract) {
       return {
@@ -119,7 +116,8 @@ function StudentsListContent() {
         extendReason: null,
         remainingSessions: null,
         totalSessions: null,
-        daysUntilEnd: null,
+        remainingAmount: null,
+        totalAmount: null,
       };
     }
 
@@ -128,7 +126,8 @@ function StudentsListContent() {
       typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
     const sessionsUsed = contract.sessions_used ?? 0;
 
-    if (totalSessions > 0) {
+    // 횟수권: totalSessions > 0 && !ended_at
+    if (totalSessions > 0 && !contract.ended_at) {
       const remaining = Math.max(totalSessions - sessionsUsed, 0);
       const isExpired = remaining <= 0;
       const extendEligible = remaining < 3; // 3회 미만
@@ -140,44 +139,41 @@ function StudentsListContent() {
         extendReason,
         remainingSessions: remaining,
         totalSessions,
-        daysUntilEnd: null,
+        remainingAmount: null,
+        totalAmount: null,
       };
     }
 
-    const endDate = contract.ended_at ? new Date(contract.ended_at) : null;
-    if (endDate) {
-      const diffMs = endDate.getTime() - now.getTime();
-      const daysUntilEnd = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-      const isExpired = diffMs < 0;
-      let extendEligible = false;
-      let extendReason: string | null = null;
-      if (isExpired) {
-        // 종료된 계약은 연장 불가
-        extendEligible = false;
-        extendReason = '기간 만료됨';
-      } else {
-        extendEligible = daysUntilEnd <= 7;
-        extendReason = `${daysUntilEnd}일 남음`;
-      }
+    // 금액권: ended_at이 있음 (유효기간이 있음)
+    // 뷰티앱: 금액권도 선불 횟수 계약 로직 사용, 유효기간은 표시용/종료판단용만
+    if (contract.ended_at) {
+      const totalAmount = contract.monthly_amount ?? 0;
+      const amountUsed = contract.amount_used ?? 0;
+      const remainingAmount = Math.max(totalAmount - amountUsed, 0);
+      const isExpired = remainingAmount <= 0; // 금액 모두 소진 시 종료
+      const extendEligible = remainingAmount <= 20000; // 20,000원 이하
+      const extendReason = remainingAmount > 0 ? `잔여 ${remainingAmount.toLocaleString()}원` : '금액 모두 사용됨';
       return {
-        contractType: 'monthly',
+        contractType: 'amount',
         isExpired,
         extendEligible,
         extendReason,
         remainingSessions: null,
         totalSessions: null,
-        daysUntilEnd,
+        remainingAmount,
+        totalAmount,
       };
     }
 
     return {
-      contractType: 'monthly',
+      contractType: 'unknown',
       isExpired: false,
       extendEligible: false,
       extendReason: null,
       remainingSessions: null,
       totalSessions: null,
-      daysUntilEnd: null,
+      remainingAmount: null,
+      totalAmount: null,
     };
   }, []);
 
@@ -237,11 +233,18 @@ function StudentsListContent() {
     try {
       didRequestRef.current = false;
       await fetchStudents({ refresh: true, search: searchQuery || undefined });
-      Alert.alert('수강생', '목록을 다시 불러왔습니다.');
+      Alert.alert('고객', '목록을 다시 불러왔습니다.');
     } catch (error: any) {
       Alert.alert('오류', error?.message ?? '목록을 불러오지 못했습니다.');
     }
   }, [fetchStudents, searchQuery]);
+
+  const handleSchedulePress = useCallback((card: StudentCardItem) => {
+    // StudentDetail 화면으로 단순 이동
+    navigation.navigate('StudentDetail', {
+      studentId: Number(card.student.id),
+    });
+  }, [navigation]);
 
   const handleExtendPress = useCallback((card: StudentCardItem) => {
     const contract = card.student.latest_contract;
@@ -255,11 +258,12 @@ function StudentsListContent() {
         totalSessions: meta.totalSessions ?? 0,
         remainingSessions: meta.remainingSessions ?? 0,
       });
-    } else if (meta.contractType === 'monthly') {
+    } else if (meta.contractType === 'amount') {
       setSelectedContractForExtend({
         contractId: contract.id,
-        contractType: 'monthly',
-        currentEndDate: contract.ended_at,
+        contractType: 'amount',
+        totalAmount: meta.totalAmount ?? 0,
+        remainingAmount: meta.remainingAmount ?? 0,
       });
     } else {
       return;
@@ -276,8 +280,8 @@ function StudentsListContent() {
   const handleDeletePress = useCallback((card: StudentCardItem) => {
     const { student } = card;
     Alert.alert(
-      '수강생 삭제',
-      `${student.name} 수강생을 삭제하시겠습니까?\n\n삭제된 수강생의 모든 데이터(계약, 출결 기록, 정산 내역 등)가 영구적으로 삭제되며 복구할 수 없습니다.`,
+      '고객 삭제',
+      `${student.name} 고객을 삭제하시겠습니까?\n\n삭제된 고객의 모든 데이터(계약, 출결 기록, 정산 내역 등)가 영구적으로 삭제되며 복구할 수 없습니다.`,
       [
         {
           text: '취소',
@@ -290,9 +294,9 @@ function StudentsListContent() {
             try {
               await studentsApi.delete(Number(student.id));
               await fetchStudents({ refresh: true, search: searchQuery || undefined });
-              Alert.alert('완료', '수강생이 삭제되었습니다.');
+              Alert.alert('완료', '고객이 삭제되었습니다.');
             } catch (error: any) {
-              Alert.alert('오류', error?.response?.data?.message || error?.message || '수강생 삭제에 실패했습니다.');
+              Alert.alert('오류', error?.response?.data?.message || error?.message || '고객 삭제에 실패했습니다.');
             }
           },
         },
@@ -361,18 +365,14 @@ function StudentsListContent() {
   }, [errorMessage]);
 
   // 뱃지 텍스트 변환
-  const getContractTypeLabel = (type: 'sessions' | 'monthly' | 'unknown') => {
-    if (type === 'sessions') return '횟수제';
-    if (type === 'monthly') return '기간제';
+  const getContractTypeLabel = (type: 'sessions' | 'amount' | 'unknown') => {
+    if (type === 'sessions') return '횟수권';
+    if (type === 'amount') return '선불권';
     return '알 수 없음';
   };
 
-  const getBillingTypeLabel = (type: string) => {
-    return type === 'prepaid' ? '선불' : type === 'postpaid' ? '후불' : type;
-  };
-
-  const getAbsencePolicyLabel = (policy: string, billingType?: string) => {
-    if (policy === 'carry_over') return '회차이월';
+  const getAbsencePolicyLabel = (policy: string) => {
+    if (policy === 'carry_over') return '대체';
     if (policy === 'deduct_next') return '차감';
     if (policy === 'vanish') return '소멸';
     return policy;
@@ -416,15 +416,14 @@ function StudentsListContent() {
               <CardName>{student.name}</CardName>
               {contract ? (
                 <BadgeContainer>
-                  <Badge contractType>
-                    <BadgeText contractType>{getContractTypeLabel(meta.contractType)}</BadgeText>
-                  </Badge>
-                  <Badge billingType billingTypeValue={contract.billing_type}>
-                    <BadgeText billingTypeValue={contract.billing_type}>{getBillingTypeLabel(contract.billing_type)}</BadgeText>
+                  <Badge contractType contractTypeValue={meta.contractType}>
+                    <BadgeText contractType contractTypeValue={meta.contractType}>
+                      {getContractTypeLabel(meta.contractType)}
+                    </BadgeText>
                   </Badge>
                   <Badge absencePolicy>
                     <BadgeText absencePolicy>
-                      {getAbsencePolicyLabel(contract.absence_policy, contract.billing_type)}
+                      {getAbsencePolicyLabel(contract.absence_policy)}
                     </BadgeText>
                   </Badge>
                 </BadgeContainer>
@@ -441,15 +440,14 @@ function StudentsListContent() {
 
           {contract ? (
             <CardRow2Container>
-              <CardRow2Subject>{contract.subject}</CardRow2Subject>
-              <CardRow2Separator> • </CardRow2Separator>
-              <CardRow2Day>{formatDayOfWeek(contract.day_of_week)}</CardRow2Day>
-              {contract.time ? (
-                <>
-                  <CardRow2Separator> </CardRow2Separator>
-                  <CardRow2Time>{contract.time}</CardRow2Time>
-                </>
-              ) : null}
+              <CardRow2Subject>
+                {contract.subject}
+                {(() => {
+                  const snapshot = (contract.policy_snapshot ?? {}) as Record<string, any>;
+                  const lessonNotes = typeof snapshot.lesson_notes === 'string' ? snapshot.lesson_notes : '';
+                  return lessonNotes ? ` (${lessonNotes})` : '';
+                })()}
+              </CardRow2Subject>
             </CardRow2Container>
           ) : student.class_info ? (
             <CardRow2>{student.class_info}</CardRow2>
@@ -460,13 +458,33 @@ function StudentsListContent() {
             {student.this_month_status_summary ? (
               <CardRow3>{student.this_month_status_summary}</CardRow3>
               ) : null}
-              {meta.contractType === 'sessions' && typeof meta.remainingSessions === 'number' ? (
-                <ExtendNote style={{ color: '#6b46c1' }}>{`잔여 ${meta.remainingSessions}회`}</ExtendNote>
+              {meta.contractType === 'sessions' && typeof meta.remainingSessions === 'number' && typeof meta.totalSessions === 'number' ? (
+                <ExtendNote>
+                  <ExtendNoteTotal>총{meta.totalSessions}회</ExtendNoteTotal>
+                  {' / '}
+                  <ExtendNoteRemaining>잔여{meta.remainingSessions}회</ExtendNoteRemaining>
+                </ExtendNote>
+              ) : meta.contractType === 'amount' && typeof meta.remainingAmount === 'number' && typeof meta.totalAmount === 'number' ? (
+                <ExtendNote>
+                  <ExtendNoteLabel>총</ExtendNoteLabel>
+                  <ExtendNoteTotal>{meta.totalAmount.toLocaleString()}원</ExtendNoteTotal>
+                  <ExtendNoteLabel> / </ExtendNoteLabel>
+                  <ExtendNoteLabel>잔여</ExtendNoteLabel>
+                  <ExtendNoteRemaining>{meta.remainingAmount.toLocaleString()}원</ExtendNoteRemaining>
+                </ExtendNote>
               ) : meta.extendEligible && meta.extendReason ? (
                 <ExtendNote>{meta.extendReason}</ExtendNote>
               ) : null}
             </FooterLeft>
             <ButtonGroup>
+              {contract && !meta.isExpired ? (
+                <CardScheduleButton onPress={(e) => {
+                  e?.stopPropagation?.();
+                  handleSchedulePress(card);
+                }}>
+                  <CardScheduleButtonText>예약/변경</CardScheduleButtonText>
+                </CardScheduleButton>
+              ) : null}
               {meta.extendEligible ? (
                 <ExtendActionButton onPress={(e) => {
                   e?.stopPropagation?.();
@@ -488,7 +506,7 @@ function StudentsListContent() {
         </Card>
       );
     },
-    [getAbsencePolicyLabel, getBillingTypeLabel, handleExtendPress, handleDeletePress, handleCardPress, navigation],
+    [getAbsencePolicyLabel, handleExtendPress, handleDeletePress, handleCardPress, navigation],
   );
 
   const renderItem = useCallback(
@@ -497,9 +515,8 @@ function StudentsListContent() {
   );
 
   const listEmptyComponent = useMemo(() => {
-    const shouldShowEmptyState = primaryCards.length === 0 && !showExpiredSection;
-
-    if (!shouldShowEmptyState) {
+    // 계약 중 고객 섹션이 비어있을 때만 표시
+    if (primaryCards.length > 0) {
       return null;
     }
 
@@ -520,28 +537,22 @@ function StudentsListContent() {
     if (filteredItems.length === 0 && items.length > 0) {
       return (
         <EmptyContainer>
-          <EmptyTitle>검색 결과가 없습니다.</EmptyTitle>
-          <EmptyDescription>검색어를 변경해 주세요.</EmptyDescription>
+          <EmptyImage source={nonImage} resizeMode="contain" />
         </EmptyContainer>
       );
     }
 
     return (
       <EmptyContainer>
-        <EmptyTitle>표시할 수강생이 없습니다.</EmptyTitle>
-        <EmptyDescription>새로운 데이터를 불러오거나 검색어를 확인해 주세요.</EmptyDescription>
-        <RetryButton onPress={handleRetry}>
-          <RetryButtonText>다시 불러오기</RetryButtonText>
-        </RetryButton>
+        <EmptyImage source={nonImage} resizeMode="contain" />
+        <EmptyTitle>계약 중인 이용권 고객이 없습니다.</EmptyTitle>
       </EmptyContainer>
     );
   }, [
     filteredItems.length,
-    handleRetry,
     isInitialLoading,
     items.length,
     primaryCards.length,
-    showExpiredSection,
   ]);
 
   const renderFooter = useMemo(() => {
@@ -561,13 +572,13 @@ function StudentsListContent() {
       <SectionIntro>
         <SectionHeaderLeft>
         <SectionTitleText>
-          계약 중 수강생 <SectionCount>{activeCardsAll.length}명</SectionCount>
+          계약 중 고객 <SectionCount>{activeCardsAll.length}명</SectionCount>
         </SectionTitleText>
-          <SectionSubtext>카드를 터치하면 수강생 정보로 이동합니다.</SectionSubtext>
+          <SectionSubtext>카드를 터치하면 예약 및 변경 계약 내용등을 상세하게 확인 할 수 있어요.</SectionSubtext>
         </SectionHeaderLeft>
         {showToggle && (
           <ShowMoreButtonInline onPress={() => setShowAllActive((prev) => !prev)}>
-            <ShowMoreButtonText>{showAllActive ? '닫기' : '수강생 전체보기'}</ShowMoreButtonText>
+            <ShowMoreButtonText>{showAllActive ? '닫기' : '고객 전체보기'}</ShowMoreButtonText>
           </ShowMoreButtonInline>
         )}
       </SectionIntro>
@@ -581,13 +592,16 @@ function StudentsListContent() {
       <ExpiredSectionContainer>
         <ExpiredHeader onPress={showToggle ? handleExtendSectionToggle : undefined} activeOpacity={showToggle ? 0.6 : 1}>
           <ExpiredTitle>
-            계약 종료 수강생 <SectionCount>{expiredCardsAll.length}명</SectionCount>
+            이용권 종료 고객 <SectionCount>{expiredCardsAll.length}명</SectionCount>
           </ExpiredTitle>
           {showToggle && <ExpandIcon>{showExpiredExpanded ? '▴' : '▾'}</ExpandIcon>}
         </ExpiredHeader>
         {(!showToggle || showExpiredExpanded) ? (
           expiredCardsAll.length === 0 ? (
-            <EmptyDescription>계약 종료된 수강생이 없습니다.</EmptyDescription>
+            <EmptyContainer>
+              <EmptyImage source={endImage} resizeMode="contain" />
+              <EmptyTitle>이용권 종료된 고객이 없습니다.</EmptyTitle>
+            </EmptyContainer>
           ) : (
             expiredCardsCollapsed.map((card) => (
               <View key={card.student.id}>{renderStudentCard(card)}</View>
@@ -596,7 +610,7 @@ function StudentsListContent() {
         ) : null}
         {showToggle && (
           <ShowMoreButton onPress={() => setShowAllExpired((prev) => !prev)}>
-            <ShowMoreButtonText>{showAllExpired ? '닫기' : '수강생 전체보기'}</ShowMoreButtonText>
+            <ShowMoreButtonText>{showAllExpired ? '닫기' : '고객 전체보기'}</ShowMoreButtonText>
           </ShowMoreButton>
         )}
       </ExpiredSectionContainer>
@@ -640,13 +654,13 @@ function StudentsListContent() {
       {/* 헤더: 서브텍스트 + 수강생 추가 버튼 */}
       <Header>
         <HeaderTexts>
-          <HeaderTitle>수강생</HeaderTitle>
+          <HeaderTitle>이용권 고객</HeaderTitle>
           <HeaderSubtext>
               총 {totalStudentsCount}명 · 계약중 {totalActiveCount}명
           </HeaderSubtext>
         </HeaderTexts>
         <AddButton onPress={handleAddStudent}>
-          <AddButtonText>+ 수강생 추가</AddButtonText>
+          <AddButtonText>+ 이용권</AddButtonText>
         </AddButton>
       </Header>
 
@@ -655,7 +669,7 @@ function StudentsListContent() {
         <SearchInputWrapper>
           <SearchIconImage source={require('../../assets/s1.png')} />
           <SearchInput
-            placeholder="이름 · 보호자 · 과목으로 검색"
+            placeholder="이름 · 관리명으로 검색"
             value={searchInput}
             onChangeText={setSearchInput}
             onSubmitEditing={handleSearch}
@@ -711,7 +725,8 @@ function StudentsListContent() {
           contractType={selectedContractForExtend.contractType}
           totalSessions={selectedContractForExtend.totalSessions}
           remainingSessions={selectedContractForExtend.remainingSessions}
-          currentEndDate={selectedContractForExtend.currentEndDate}
+          totalAmount={selectedContractForExtend.totalAmount}
+          remainingAmount={selectedContractForExtend.remainingAmount}
         />
       )}
     </Container>
@@ -719,10 +734,6 @@ function StudentsListContent() {
 }
 
 export default function StudentsListScreen() {
-  if (featureFlags.students.useStub) {
-    return <StudentsListStub />;
-  }
-
   return <StudentsListContent />;
 }
 
@@ -733,7 +744,7 @@ const Container = styled.SafeAreaView`
 `;
 
 const HeaderTopSection = styled.View`
-  background-color: #0f1b4d;
+  background-color: #303643;
   padding: 20px 16px 16px 16px;
 `;
 
@@ -851,24 +862,32 @@ const BadgeContainer = styled.View`
   gap: 6px;
 `;
 
-const Badge = styled.View<{ contractType?: boolean; billingType?: boolean; absencePolicy?: boolean; billingTypeValue?: string }>`
+const Badge = styled.View<{ contractType?: boolean; billingType?: boolean; absencePolicy?: boolean; billingTypeValue?: string; contractTypeValue?: 'sessions' | 'amount' | 'unknown' }>`
   padding: 4px 8px;
-  background-color: ${(props) => 
-    props.contractType ? '#ffe5e5' : 
-    props.billingType && props.billingTypeValue === 'prepaid' ? '#e8f2ff' : 
-    props.billingType && props.billingTypeValue === 'postpaid' ? '#fff4e6' : 
-    '#f0f8f0'};
+  background-color: ${(props) => {
+    if (props.contractType) {
+      // 금액권: 블루 배경, 횟수권: 빨강 배경
+      return props.contractTypeValue === 'amount' ? '#e8f2ff' : '#ffe5e5';
+    }
+    if (props.billingType && props.billingTypeValue === 'prepaid') return '#e8f2ff';
+    if (props.billingType && props.billingTypeValue === 'postpaid') return '#fff4e6';
+    return '#f0f8f0';
+  }};
   border-radius: 12px;
 `;
 
-const BadgeText = styled.Text<{ contractType?: boolean; absencePolicy?: boolean; billingTypeValue?: string }>`
+const BadgeText = styled.Text<{ contractType?: boolean; absencePolicy?: boolean; billingTypeValue?: string; contractTypeValue?: 'sessions' | 'amount' | 'unknown' }>`
   font-size: 11px;
-  color: ${(props) => 
-    props.contractType ? '#ff3b30' : 
-    props.absencePolicy ? '#34c759' : 
-    props.billingTypeValue === 'prepaid' ? '#246bfd' : 
-    props.billingTypeValue === 'postpaid' ? '#ff9500' : 
-    '#246bfd'};
+  color: ${(props) => {
+    if (props.contractType) {
+      // 금액권: 블루 텍스트, 횟수권: 빨강 텍스트
+      return props.contractTypeValue === 'amount' ? '#246bfd' : '#ff3b30';
+    }
+    if (props.absencePolicy) return '#34c759';
+    if (props.billingTypeValue === 'prepaid') return '#246bfd';
+    if (props.billingTypeValue === 'postpaid') return '#ff9500';
+    return '#246bfd';
+  }};
   font-weight: 600;
 `;
 
@@ -959,6 +978,24 @@ const ExtendNote = styled.Text`
   color: #4a4a4a;
 `;
 
+const ExtendNoteLabel = styled.Text`
+  color: #000000;
+  font-weight: 400;
+  font-size: 13px;
+`;
+
+const ExtendNoteTotal = styled.Text`
+  color: #ff3b30;
+  font-weight: 600;
+  font-size: 13px;
+`;
+
+const ExtendNoteRemaining = styled.Text`
+  color: #ff9500;
+  font-weight: 600;
+  font-size: 13px;
+`;
+
 const ExtendActionButton = styled.TouchableOpacity`
   padding: 8px 14px;
   background-color: #eef2ff;
@@ -1018,7 +1055,7 @@ const ShowMoreButtonText = styled.Text`
 `;
 
 const SectionTitleText = styled.Text`
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 700;
   color: #111111;
 `;
@@ -1044,7 +1081,7 @@ const ExpiredHeader = styled.TouchableOpacity`
 `;
 
 const ExpiredTitle = styled.Text`
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 700;
   color: #333333;
 `;
@@ -1077,6 +1114,19 @@ const DeleteButtonText = styled.Text`
   font-size: 14px;
   font-weight: 600;
 `;
+
+const CardScheduleButton = styled.TouchableOpacity`
+  padding: 8px 14px;
+  border-radius: 8px;
+  background-color: #1d42d8;
+`;
+
+const CardScheduleButtonText = styled.Text`
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+`;
+
 
 const SkeletonContainer = styled.View`
   padding: 16px;
@@ -1111,15 +1161,23 @@ const SkeletonLineShort = styled.View`
 `;
 
 const EmptyContainer = styled.View`
+  min-height: 160px;
+  justify-content: center;
   align-items: center;
-  padding: 80px 24px;
-  gap: 12px;
+  padding: 40px 20px;
+`;
+
+const EmptyImage = styled.Image`
+  width: 64px;
+  height: 64px;
+  opacity: 0.5;
+  margin-bottom: 16px;
 `;
 
 const EmptyTitle = styled.Text`
-  font-size: 18px;
-  font-weight: 700;
-  color: #222;
+  font-size: 14px;
+  color: #8e8e93;
+  text-align: center;
 `;
 
 const EmptyDescription = styled.Text`
@@ -1161,25 +1219,6 @@ const ErrorText = styled.Text`
 const FooterLoader = styled.View`
   padding: 20px;
 `;
-
-const stubStyles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-  },
-  text: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#000',
-    marginBottom: 10,
-  },
-  subtext: {
-    fontSize: 16,
-    color: '#666',
-  },
-});
 
 const styles = StyleSheet.create({
   listContent: {

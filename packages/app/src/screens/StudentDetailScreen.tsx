@@ -1,12 +1,13 @@
-import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert } from 'react-native';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, Linking, Platform, Clipboard } from 'react-native';
 import styled from 'styled-components/native';
 import Modal from 'react-native-modal';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
-import { featureFlags } from '../config/features';
 import { useStudentsStore } from '../store/useStudentsStore';
 import { useContractsStore } from '../store/useContractsStore';
 import { contractsApi } from '../api/contracts';
+import { studentsApi } from '../api/students';
+import { attendanceApi } from '../api/attendance';
 import ContractSendModal from '../components/modals/ContractSendModal';
 import ExtendContractModal from '../components/modals/ExtendContractModal';
 import { StudentsStackNavigationProp, StudentsStackParamList } from '../navigation/AppNavigator';
@@ -15,13 +16,6 @@ import { StudentAttendanceLog, StudentContractDetail } from '../types/students';
 
 const changeIcon = require('../../assets/Change.png');
 const z11Icon = require('../../assets/z11.png');
-
-const StudentDetailStub = () => (
-  <StubContainer>
-    <StubTitle>수강생 상세</StubTitle>
-    <StubSubtitle>STEP 1: 네비게이션 테스트</StubSubtitle>
-  </StubContainer>
-);
 
 function StudentDetailContent() {
   const navigation = useNavigation<StudentsStackNavigationProp>();
@@ -43,19 +37,29 @@ function StudentDetailContent() {
   const [selectedAttendanceMonth, setSelectedAttendanceMonth] = useState<{ year: number; month: number } | null>(null);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
-  const [scheduleStep, setScheduleStep] = useState<'selectOriginal' | 'selectNew'>('selectOriginal');
+  const [scheduleMode, setScheduleMode] = useState<'modeSelection' | 'add' | 'change' | null>(null);
+  const [scheduleStep, setScheduleStep] = useState<'selectDate' | 'selectTime' | 'selectOriginal' | 'selectNew'>('selectDate');
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedOriginalDate, setSelectedOriginalDate] = useState<Date | null>(null);
   const [selectedNewDate, setSelectedNewDate] = useState<Date | null>(null);
+  const [selectedHour, setSelectedHour] = useState<number | null>(null);
+  const [selectedMinute, setSelectedMinute] = useState<number | null>(null);
+  const [selectedReservationId, setSelectedReservationId] = useState<number | null>(null);
+  const [reservations, setReservations] = useState<any[]>([]);
+  const [reservationDates, setReservationDates] = useState<Map<string, { id: number; time?: string | null; hasAttendanceLog?: boolean }>>(new Map());
   const [scheduleSubmitting, setScheduleSubmitting] = useState(false);
   const [scheduleCurrentMonth, setScheduleCurrentMonth] = useState<Date>(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     return today;
   });
+  const [isMemoEditing, setIsMemoEditing] = useState(false);
+  const [memoText, setMemoText] = useState('');
+  const [isMemoSaving, setIsMemoSaving] = useState(false);
 
   useLayoutEffect(() => {
     navigation.setOptions({
-      title: '수강생 상세',
+      title: '고객 상세',
       headerShown: true,
       headerBackTitle: '뒤로',
     });
@@ -77,6 +81,7 @@ function StudentDetailContent() {
       });
     }, [fetchStudentDetail, studentId]),
   );
+
 
   const viewableContractId = primaryContract?.id ?? detail?.contracts?.[0]?.id;
 
@@ -197,10 +202,16 @@ function StudentDetailContent() {
   const formatContractType = useCallback((contract: StudentContractDetail) => {
     const snapshot = (contract.policy_snapshot ?? {}) as Record<string, any>;
     const totalSessions = typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
-    if (totalSessions > 0) {
-      return `횟수제 (${totalSessions}회)`;
+    // 선불권: totalSessions > 0이지만 ended_at이 있음
+    // 횟수권: totalSessions > 0이고 ended_at이 없음
+    if (totalSessions > 0 && !contract.ended_at) {
+      return `횟수권 (${totalSessions}회)`;
+    } else if (totalSessions > 0 && contract.ended_at) {
+      // 선불권
+      return '선불권';
     }
-    return '월단위';
+    // totalSessions가 0이거나 없는 경우 (레거시 데이터)
+    return contract.ended_at ? '선불권' : '횟수권';
   }, []);
 
   const formatBillingType = useCallback((billingType: string | null | undefined) => {
@@ -213,12 +224,48 @@ function StudentDetailContent() {
   const formatAbsencePolicy = useCallback((policy: string | null | undefined) => {
     if (!policy) return '-';
     const map: Record<string, string> = {
-      carry_over: '회차이월',
+      carry_over: '대체', // 뷰티 앱: 회차이월 → 대체
       deduct_next: '차감',
       vanish: '소멸',
     };
     return map[policy] ?? policy;
   }, []);
+
+  // 사용처리 완료 알림 SMS 전송 핸들러
+  const handleSendAttendanceSms = useCallback(
+    async (attendanceLogId: number, studentPhone?: string | null) => {
+      if (!studentPhone) {
+        Alert.alert('오류', '수신자 번호가 없습니다.');
+        return;
+      }
+
+      try {
+        await attendanceApi.markSmsSent(attendanceLogId);
+
+        const attendanceLink = attendanceApi.getViewLink(attendanceLogId);
+        const message = `이용권 사용 처리 완료 안내: ${attendanceLink}`;
+        const smsUrl = Platform.select({
+          ios: `sms:${studentPhone}&body=${encodeURIComponent(message)}`,
+          android: `sms:${studentPhone}?body=${encodeURIComponent(message)}`,
+        });
+
+        if (smsUrl && (await Linking.canOpenURL(smsUrl))) {
+          await Linking.openURL(smsUrl);
+          Alert.alert('완료', '사용처리 완료 안내가 전송되었습니다.');
+        } else {
+          await Clipboard.setString(attendanceLink);
+          Alert.alert('완료', '링크가 클립보드에 복사되었습니다.');
+        }
+
+        // 전송 후 상세 정보 새로고침
+        await fetchStudentDetail(studentId, { force: true });
+      } catch (error: any) {
+        console.error('[StudentDetail] send attendance SMS error', error);
+        Alert.alert('오류', error?.message || '전송에 실패했습니다.');
+      }
+    },
+    [fetchStudentDetail, studentId],
+  );
 
   const primaryContract: StudentContractDetail | undefined = useMemo(() => {
     if (!Array.isArray(detail?.contracts) || detail.contracts.length === 0) return undefined;
@@ -374,27 +421,24 @@ const guardianLine = useMemo(() => {
   }, [filteredAttendanceLogs, isAttendanceExpanded]);
 
   const attendanceEmptyDescription = useMemo(() => {
-    const { month } = currentSelectedMonth;
-    return `${month + 1}월에 기록된 출석/결석 로그가 없습니다.`;
-  }, [currentSelectedMonth]);
+    return '이용권 사용 기록이 없습니다.';
+  }, []);
 
   const attendanceSectionTitle = useMemo(() => {
-    const { year, month } = currentSelectedMonth;
-    return `${year}년 ${month + 1}월 출결 기록`;
-  }, [currentSelectedMonth]);
+    return '관리 기록';
+  }, []);
 
-  // 연장 가능 여부 계산 (수강생 목록 화면과 동일한 로직)
+  // 연장 가능 여부 계산 (뷰티앱: 오직 선불 횟수 계약 로직만 사용)
   const extendMeta = useMemo(() => {
     if (!primaryContract) {
       return { extendEligible: false, extendReason: null };
     }
 
-    const now = new Date();
     const snapshot = (primaryContract.policy_snapshot ?? {}) as Record<string, any>;
     const totalSessions = typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
 
-    // 횟수제: 남은 횟수 3회 미만
-    if (totalSessions > 0) {
+    // 횟수권: totalSessions > 0 && !ended_at
+    if (totalSessions > 0 && !primaryContract.ended_at) {
       const sessionsUsed =
         typeof primaryContract.sessions_used === 'number' ? primaryContract.sessions_used : 0;
       const remaining = Math.max(totalSessions - sessionsUsed, 0);
@@ -403,21 +447,14 @@ const guardianLine = useMemo(() => {
       return { extendEligible, extendReason };
     }
 
-    // 월단위: 종료일 7일 이내
+    // 금액권: ended_at이 있음 (유효기간이 있음)
+    // 뷰티앱: 금액권도 선불 횟수 계약 로직 사용, 유효기간은 표시용/종료판단용만
     if (primaryContract.ended_at) {
-      const endDate = new Date(primaryContract.ended_at);
-      const diffMs = endDate.getTime() - now.getTime();
-      const daysUntilEnd = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-      const isExpired = diffMs < 0;
-      let extendEligible = false;
-      let extendReason: string | null = null;
-      if (isExpired) {
-        extendEligible = true;
-        extendReason = '기간 만료됨';
-      } else {
-        extendEligible = daysUntilEnd <= 7;
-        extendReason = `${daysUntilEnd}일 남음`;
-      }
+      const totalAmount = primaryContract.monthly_amount ?? 0;
+      const amountUsed = primaryContract.amount_used ?? 0;
+      const remainingAmount = Math.max(totalAmount - amountUsed, 0);
+      const extendEligible = remainingAmount <= 20000; // 20,000원 이하
+      const extendReason = remainingAmount > 0 ? `잔여 ${remainingAmount.toLocaleString()}원` : '금액 모두 사용됨';
       return { extendEligible, extendReason };
     }
 
@@ -480,14 +517,57 @@ const guardianLine = useMemo(() => {
     [scheduleDateRange],
   );
 
-  const handleOpenScheduleModal = useCallback(() => {
+  const handleOpenScheduleModal = useCallback(async () => {
     if (!primaryContract) {
-      Alert.alert('안내', '활성화된 계약이 있을 때만 일정 변경을 사용할 수 있습니다.');
+      Alert.alert('안내', '활성화된 계약이 있을 때만 예약/변경을 사용할 수 있습니다.');
       return;
     }
-    setScheduleStep('selectOriginal');
+    
+    // 모달 열 때 예약 목록 다시 불러오기 (최신 상태 반영)
+    try {
+      const reservationsData = await contractsApi.getReservations(primaryContract.id);
+      setReservations(reservationsData || []);
+      
+      // 예약 날짜 맵 업데이트 (날짜 형식 정규화)
+      const datesMap = new Map<string, { id: number; time?: string | null; hasAttendanceLog?: boolean }>();
+      (reservationsData || []).forEach((reservation: any) => {
+        let dateStr = reservation.reserved_date;
+        if (dateStr) {
+          // Date 객체이거나 ISO 문자열인 경우 처리
+          if (dateStr instanceof Date) {
+            const year = dateStr.getFullYear();
+            const month = String(dateStr.getMonth() + 1).padStart(2, '0');
+            const day = String(dateStr.getDate()).padStart(2, '0');
+            dateStr = `${year}-${month}-${day}`;
+          } else if (typeof dateStr === 'string') {
+            // ISO 문자열인 경우: Date 객체로 변환 후 로컬 시간 기준으로 날짜 추출 (시간대 문제 해결)
+            const dateObj = new Date(dateStr);
+            const year = dateObj.getFullYear();
+            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const day = String(dateObj.getDate()).padStart(2, '0');
+            dateStr = `${year}-${month}-${day}`;
+          }
+          datesMap.set(dateStr, {
+            id: reservation.id,
+            time: reservation.reserved_time,
+            hasAttendanceLog: reservation.has_attendance_log || false,
+          });
+        }
+      });
+      setReservationDates(datesMap);
+    } catch (error: any) {
+      console.error('[StudentDetail] fetch reservations error on modal open', error);
+    }
+    
+    // 모달 열 때 초기화
+    setScheduleMode('modeSelection');
+    setScheduleStep('selectDate');
+    setSelectedDate(null);
     setSelectedOriginalDate(null);
     setSelectedNewDate(null);
+    setSelectedHour(null);
+    setSelectedMinute(null);
+    setSelectedReservationId(null);
 
     // 모달을 열 때 항상 현재 달(오늘 날짜 기준)을 표시
     const today = new Date();
@@ -498,8 +578,70 @@ const guardianLine = useMemo(() => {
     setShowScheduleModal(true);
   }, [primaryContract]);
 
-  const handleConfirmReschedule = useCallback(async () => {
-    if (!primaryContract || !selectedOriginalDate || !selectedNewDate) {
+  const handleSelectAddMode = useCallback(() => {
+    setScheduleMode('add');
+    setScheduleStep('selectDate');
+    setSelectedDate(null);
+    setSelectedHour(null);
+    setSelectedMinute(null);
+  }, []);
+
+  const handleSelectChangeMode = useCallback(async () => {
+    if (!primaryContract) return;
+    
+    try {
+      // 예약 목록 가져오기
+      const reservationsData = await contractsApi.getReservations(primaryContract.id);
+      setReservations(reservationsData || []);
+      
+      // 예약 날짜 맵 생성 (날짜 형식 정규화: ISO 문자열에서 YYYY-MM-DD 추출)
+      const datesMap = new Map<string, { id: number; time?: string | null; hasAttendanceLog?: boolean }>();
+      (reservationsData || []).forEach((reservation: any) => {
+        let dateStr = reservation.reserved_date;
+        if (dateStr) {
+          // Date 객체이거나 ISO 문자열인 경우 처리
+          if (dateStr instanceof Date) {
+            const year = dateStr.getFullYear();
+            const month = String(dateStr.getMonth() + 1).padStart(2, '0');
+            const day = String(dateStr.getDate()).padStart(2, '0');
+            dateStr = `${year}-${month}-${day}`;
+          } else if (typeof dateStr === 'string') {
+            // ISO 문자열인 경우: Date 객체로 변환 후 로컬 시간 기준으로 날짜 추출 (시간대 문제 해결)
+            const dateObj = new Date(dateStr);
+            const year = dateObj.getFullYear();
+            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const day = String(dateObj.getDate()).padStart(2, '0');
+            dateStr = `${year}-${month}-${day}`;
+          }
+          datesMap.set(dateStr, {
+            id: reservation.id,
+            time: reservation.reserved_time,
+            hasAttendanceLog: reservation.has_attendance_log || false,
+          });
+        }
+      });
+      setReservationDates(datesMap);
+
+      if (reservationsData && reservationsData.length === 0) {
+        Alert.alert('안내', '변경할 예약이 없습니다.');
+        return;
+      }
+
+      setScheduleMode('change');
+      setScheduleStep('selectOriginal');
+      setSelectedOriginalDate(null);
+      setSelectedNewDate(null);
+      setSelectedHour(null);
+      setSelectedMinute(null);
+      setSelectedReservationId(null);
+    } catch (error: any) {
+      console.error('[StudentDetail] fetch reservations error', error);
+      Alert.alert('오류', '예약 목록을 불러오는데 실패했습니다.');
+    }
+  }, [primaryContract]);
+
+  const handleConfirmAddReservation = useCallback(async () => {
+    if (!primaryContract || !selectedDate) {
       return;
     }
     try {
@@ -511,40 +653,155 @@ const guardianLine = useMemo(() => {
         return `${year}-${month}-${day}`;
       };
 
-      await contractsApi.rescheduleSession(primaryContract.id, {
-        original_date: toIsoDate(selectedOriginalDate),
-        new_date: toIsoDate(selectedNewDate),
-        student_id: detail.id,
+      const reservedTime = selectedHour !== null && selectedMinute !== null
+        ? `${String(selectedHour).padStart(2, '0')}:${String(selectedMinute).padStart(2, '0')}`
+        : null;
+
+      await contractsApi.createReservation(primaryContract.id, {
+        reserved_date: toIsoDate(selectedDate),
+        reserved_time: reservedTime,
       });
 
-      // 일정 변경 후 데이터 새로고침
-      await fetchStudentDetail(studentId, { force: true });
+      // 예약 목록 다시 불러오기
+      const reservationsData = await contractsApi.getReservations(primaryContract.id);
+      setReservations(reservationsData || []);
+      
+      // 예약 날짜 맵 업데이트 (날짜 형식 정규화)
+      const datesMap = new Map<string, { id: number; time?: string | null; hasAttendanceLog?: boolean }>();
+      (reservationsData || []).forEach((reservation: any) => {
+        let dateStr = reservation.reserved_date;
+        if (dateStr) {
+          // Date 객체이거나 ISO 문자열인 경우 처리
+          if (dateStr instanceof Date) {
+            const year = dateStr.getFullYear();
+            const month = String(dateStr.getMonth() + 1).padStart(2, '0');
+            const day = String(dateStr.getDate()).padStart(2, '0');
+            dateStr = `${year}-${month}-${day}`;
+          } else if (typeof dateStr === 'string') {
+            // ISO 문자열인 경우: Date 객체로 변환 후 로컬 시간 기준으로 날짜 추출 (시간대 문제 해결)
+            const dateObj = new Date(dateStr);
+            const year = dateObj.getFullYear();
+            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const day = String(dateObj.getDate()).padStart(2, '0');
+            dateStr = `${year}-${month}-${day}`;
+          }
+          datesMap.set(dateStr, {
+            id: reservation.id,
+            time: reservation.reserved_time,
+            hasAttendanceLog: reservation.has_attendance_log || false,
+          });
+        }
+      });
+      setReservationDates(datesMap);
 
-      // 일정 변경 후 오늘 수업 목록 즉시 갱신을 위해 Home 탭으로 navigation 이벤트 발생
-      // HomeScreen의 useFocusEffect가 자동으로 오늘 수업 목록을 새로고침함
+      await fetchStudentDetail(studentId, { force: true });
+      
       try {
         const parentNavigation = navigation.getParent();
         if (parentNavigation) {
-          // Home 탭으로 이동하여 useFocusEffect 트리거 (이미 Home 탭에 있으면 갱신만)
           parentNavigation.navigate('Home' as never);
         }
       } catch (e) {
-        // navigation 이벤트 실패해도 계속 진행
         console.warn('[StudentDetail] failed to refresh today classes', e);
       }
 
-      Alert.alert('완료', '수업 일정이 변경되었습니다.');
+      Alert.alert('완료', '예약이 추가되었습니다.');
       setShowScheduleModal(false);
-      setScheduleStep('selectOriginal');
-      setSelectedOriginalDate(null);
-      setSelectedNewDate(null);
+      setScheduleMode(null);
+      setScheduleStep('selectDate');
+      setSelectedDate(null);
+      setSelectedHour(null);
+      setSelectedMinute(null);
     } catch (error: any) {
-      console.error('[StudentDetail] reschedule error', error);
-      Alert.alert('오류', error?.response?.data?.message || error?.message || '일정 변경에 실패했습니다.');
+      console.error('[StudentDetail] add reservation error', error);
+      const errorMessage = typeof error?.response?.data?.message === 'string' 
+        ? error.response.data.message 
+        : typeof error?.message === 'string'
+        ? error.message
+        : '예약 추가에 실패했습니다.';
+      Alert.alert('오류', errorMessage);
     } finally {
       setScheduleSubmitting(false);
     }
-  }, [primaryContract, selectedOriginalDate, selectedNewDate, detail?.id, fetchStudentDetail, studentId]);
+  }, [primaryContract, selectedDate, selectedHour, selectedMinute, fetchStudentDetail, studentId, navigation]);
+
+  const handleConfirmReschedule = useCallback(async () => {
+    if (!primaryContract || !selectedOriginalDate || !selectedNewDate || !selectedReservationId) {
+      return;
+    }
+    try {
+      setScheduleSubmitting(true);
+      const toIsoDate = (d: Date) => {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      };
+
+      const reservedTime = selectedHour !== null && selectedMinute !== null
+        ? `${String(selectedHour).padStart(2, '0')}:${String(selectedMinute).padStart(2, '0')}`
+        : null;
+
+      await contractsApi.updateReservation(primaryContract.id, selectedReservationId, {
+        reserved_date: toIsoDate(selectedNewDate),
+        reserved_time: reservedTime,
+      });
+
+      // 예약 목록 다시 불러오기 (캘린더에 반영)
+      const reservationsData = await contractsApi.getReservations(primaryContract.id);
+      setReservations(reservationsData || []);
+      
+      // 예약 날짜 맵 업데이트 (날짜 형식 정규화)
+      const datesMap = new Map<string, { id: number; time?: string | null; hasAttendanceLog?: boolean }>();
+      (reservationsData || []).forEach((reservation: any) => {
+        let dateStr = reservation.reserved_date;
+        if (dateStr) {
+          // Date 객체이거나 ISO 문자열인 경우 처리
+          if (dateStr instanceof Date) {
+            const year = dateStr.getFullYear();
+            const month = String(dateStr.getMonth() + 1).padStart(2, '0');
+            const day = String(dateStr.getDate()).padStart(2, '0');
+            dateStr = `${year}-${month}-${day}`;
+          } else if (typeof dateStr === 'string') {
+            // ISO 문자열인 경우: Date 객체로 변환 후 로컬 시간 기준으로 날짜 추출 (시간대 문제 해결)
+            const dateObj = new Date(dateStr);
+            const year = dateObj.getFullYear();
+            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const day = String(dateObj.getDate()).padStart(2, '0');
+            dateStr = `${year}-${month}-${day}`;
+          }
+          datesMap.set(dateStr, {
+            id: reservation.id,
+            time: reservation.reserved_time,
+            hasAttendanceLog: reservation.has_attendance_log || false,
+          });
+        }
+      });
+      setReservationDates(datesMap);
+
+      await fetchStudentDetail(studentId, { force: true });
+
+      Alert.alert('완료', '예약이 변경되었습니다.');
+      setShowScheduleModal(false);
+      setScheduleMode(null);
+      setScheduleStep('selectDate');
+      setSelectedOriginalDate(null);
+      setSelectedNewDate(null);
+      setSelectedHour(null);
+      setSelectedMinute(null);
+      setSelectedReservationId(null);
+    } catch (error: any) {
+      console.error('[StudentDetail] update reservation error', error);
+      const errorMessage = typeof error?.response?.data?.message === 'string' 
+        ? error.response.data.message 
+        : typeof error?.message === 'string'
+        ? error.message
+        : '예약 변경에 실패했습니다.';
+      Alert.alert('오류', errorMessage);
+    } finally {
+      setScheduleSubmitting(false);
+    }
+  }, [primaryContract, selectedOriginalDate, selectedNewDate, selectedReservationId, selectedHour, selectedMinute, fetchStudentDetail, studentId, navigation]);
 
   const handleExtendPress = useCallback(() => {
     if (!primaryContract) return;
@@ -558,14 +815,45 @@ const guardianLine = useMemo(() => {
     Alert.alert('완료', '연장 처리되었습니다.');
   }, [fetchStudentDetail, studentId]);
 
-  // 연장 모달에 필요한 정보 계산
+  // 메모 편집 시작
+  const handleMemoEditStart = useCallback(() => {
+    setMemoText(detail?.memo || '');
+    setIsMemoEditing(true);
+  }, [detail?.memo]);
+
+  // 메모 편집 취소
+  const handleMemoEditCancel = useCallback(() => {
+    setIsMemoEditing(false);
+    setMemoText('');
+  }, []);
+
+  // 메모 저장
+  const handleMemoSave = useCallback(async () => {
+    if (!detail) return;
+    
+    setIsMemoSaving(true);
+    try {
+      await studentsApi.update(detail.id, { memo: memoText.trim() || null });
+      await fetchStudentDetail(studentId, { force: true });
+      setIsMemoEditing(false);
+      Alert.alert('완료', '메모가 저장되었습니다.');
+    } catch (error: any) {
+      console.error('[StudentDetail] memo save error', error);
+      Alert.alert('오류', error?.message || '메모 저장에 실패했습니다.');
+    } finally {
+      setIsMemoSaving(false);
+    }
+  }, [detail, memoText, fetchStudentDetail, studentId]);
+
+  // 연장 모달에 필요한 정보 계산 (뷰티앱: 오직 선불 횟수 계약 로직만 사용)
   const extendModalProps = useMemo(() => {
     if (!primaryContract) return null;
 
     const snapshot = (primaryContract.policy_snapshot ?? {}) as Record<string, any>;
     const totalSessions = typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
 
-    if (totalSessions > 0) {
+    // 횟수권: totalSessions > 0 && !ended_at
+    if (totalSessions > 0 && !primaryContract.ended_at) {
       const sessionsUsed =
         typeof primaryContract.sessions_used === 'number' ? primaryContract.sessions_used : 0;
       const remaining = Math.max(totalSessions - sessionsUsed, 0);
@@ -574,20 +862,29 @@ const guardianLine = useMemo(() => {
         totalSessions,
         remainingSessions: remaining,
       };
-    } else {
-      // 월단위
+    }
+
+    // 금액권: ended_at이 있음 (유효기간이 있음)
+    // 뷰티앱: 금액권도 선불 횟수 계약 로직 사용, 유효기간은 표시용/종료판단용만
+    if (primaryContract.ended_at) {
+      const totalAmount = primaryContract.monthly_amount ?? 0;
+      const amountUsed = primaryContract.amount_used ?? 0;
+      const remainingAmount = Math.max(totalAmount - amountUsed, 0);
       return {
-        contractType: 'monthly' as const,
-        currentEndDate: primaryContract.ended_at,
+        contractType: 'amount' as const,
+        totalAmount,
+        remainingAmount,
       };
     }
+
+    return null;
   }, [primaryContract]);
 
   if (status === 'loading' && !detail) {
     return (
       <CenteredContainer>
         <ActivityIndicator color="#ff6b00" />
-        <CenteredText>수강생 정보를 불러오는 중이에요...</CenteredText>
+        <CenteredText>고객 정보를 불러오는 중이에요...</CenteredText>
       </CenteredContainer>
     );
   }
@@ -645,19 +942,19 @@ const guardianLine = useMemo(() => {
         {/* 수업 일정 전체 섹션 (기존 정보와 분리된 전용 섹션) */}
         <ScheduleSectionCard>
           <SectionHeader>
-            <SectionTitle>전체일정</SectionTitle>
+            <SectionTitle>관리일정 및 변경</SectionTitle>
           </SectionHeader>
           {primaryContract ? (
             <>
               <ScheduleSectionContent>
                 <ScheduleIcon source={changeIcon} resizeMode="contain" />
                 <ScheduleInfoText>
-                  수강생의 전체 수업 일정을 확인하고 변경할 수 있어요.
+                  고객 관리 일정을 등록하고 변경할 수 있어요.
                 </ScheduleInfoText>
               </ScheduleSectionContent>
               <ScheduleButtonContainer>
                 <ScheduleButton onPress={handleOpenScheduleModal}>
-                  <ScheduleButtonText>일정변경</ScheduleButtonText>
+                  <ScheduleButtonText>예약/변경</ScheduleButtonText>
                 </ScheduleButton>
               </ScheduleButtonContainer>
             </>
@@ -673,14 +970,12 @@ const guardianLine = useMemo(() => {
           </SectionHeader>
           <InfoRow label="이름" value={detail.name} />
           <InfoRow label="연락처" value={detail.phone ?? '-'} />
-          <InfoRow label="과목/레슨" value={primaryContract?.subject ?? '-'} />
-          <InfoRow label="수업 요일/시간" value={formattedSchedule ?? '-'} />
-          <InfoRow label="보호자" value={guardianLine ?? '-'} />
+          <InfoRow label="이용권 명" value={primaryContract?.subject ?? '-'} />
         </SectionCard>
 
         <SectionCard>
           <SectionHeader>
-            <SectionTitle>계약 정보</SectionTitle>
+            <SectionTitle>이용권 정보</SectionTitle>
           </SectionHeader>
           {contractsList.length === 0 ? (
             <EmptyDescription>등록된 계약이 없습니다.</EmptyDescription>
@@ -714,9 +1009,30 @@ const guardianLine = useMemo(() => {
                         <ContractInfoValue>{formatBillingType(contract.billing_type)}</ContractInfoValue>
                       </ContractInfoRow>
                       <ContractInfoRow>
-                        <ContractInfoLabel>결석 처리:</ContractInfoLabel>
+                        <ContractInfoLabel>노쇼 처리:</ContractInfoLabel>
                         <ContractInfoValue>{formatAbsencePolicy(contract.absence_policy)}</ContractInfoValue>
                       </ContractInfoRow>
+                      {(() => {
+                        // 금액권인지 확인 (total_sessions가 없거나 0이면 금액권)
+                        const snapshot = (contract.policy_snapshot ?? {}) as Record<string, any>;
+                        const totalSessions = typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
+                        const isAmountVoucher = totalSessions === 0;
+                        
+                        if (isAmountVoucher && contract.started_at && contract.ended_at) {
+                          const startDate = new Date(contract.started_at);
+                          const endDate = new Date(contract.ended_at);
+                          const formatDate = (date: Date) => {
+                            return `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, '0')}.${String(date.getDate()).padStart(2, '0')}`;
+                          };
+                          return (
+                            <ContractInfoRow>
+                              <ContractInfoLabel>유효기간:</ContractInfoLabel>
+                              <ContractInfoValue>{`${formatDate(startDate)} ~ ${formatDate(endDate)}`}</ContractInfoValue>
+                            </ContractInfoRow>
+                          );
+                        }
+                        return null;
+                      })()}
                     </ContractCardBody>
                     {showSendButton && (
                       <ContractCardFooter>
@@ -732,6 +1048,51 @@ const guardianLine = useMemo(() => {
                 );
               })}
             </ContractsList>
+          )}
+        </SectionCard>
+
+        {/* 고객 메모 섹션 */}
+        <SectionCard>
+          <SectionHeader>
+            <SectionTitle>고객 메모</SectionTitle>
+            {!isMemoEditing && (
+              <MemoEditButton onPress={handleMemoEditStart}>
+                <MemoEditButtonText>편집</MemoEditButtonText>
+              </MemoEditButton>
+            )}
+          </SectionHeader>
+          {isMemoEditing ? (
+            <MemoEditContainer>
+              <MemoTextInput
+                value={memoText}
+                onChangeText={setMemoText}
+                placeholder="고객에 대한 메모를 입력하세요..."
+                multiline
+                numberOfLines={4}
+                maxLength={500}
+                textAlignVertical="top"
+              />
+              <MemoButtonRow>
+                <MemoCancelButton onPress={handleMemoEditCancel} disabled={isMemoSaving}>
+                  <MemoCancelButtonText>취소</MemoCancelButtonText>
+                </MemoCancelButton>
+                <MemoSaveButton onPress={handleMemoSave} disabled={isMemoSaving}>
+                  {isMemoSaving ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <MemoSaveButtonText>저장</MemoSaveButtonText>
+                  )}
+                </MemoSaveButton>
+              </MemoButtonRow>
+            </MemoEditContainer>
+          ) : (
+            <MemoContent>
+              {detail?.memo ? (
+                <MemoText>{detail.memo}</MemoText>
+              ) : (
+                <MemoEmptyText>메모 없음</MemoEmptyText>
+              )}
+            </MemoContent>
           )}
         </SectionCard>
 
@@ -812,16 +1173,81 @@ const guardianLine = useMemo(() => {
                     displayText = `${dateText} ${statusText}${memoPart}${conditionPart}${deductionPart}`;
                   } else {
                     // 출석 등 다른 경우
-                    displayText = memo 
-                      ? `${dateText} ${statusText} (${memo})`
-                      : `${dateText} ${statusText}`;
+                    // 금액권인지 판단
+                    const snapshot = primaryContract?.policy_snapshot ?? {};
+                    const totalSessions = typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
+                    const isAmountBased = totalSessions === 0 && primaryContract?.ended_at; // 금액권
+                    
+                    if (isAmountBased && log.status === 'present' && log.amount) {
+                      // 금액권의 경우: JSX로 분리하여 금액 부분만 빨간색으로 표시
+                      const memoPart = memo ? ` ${memo}` : '';
+                      const needsSms = log.sms_sent === false;
+                      const smsSent = log.sms_sent === true;
+                      return (
+                        <AttendanceItem key={log.id}>
+                          <AttendanceLine>
+                            <AttendanceDate $color={statusColor}>
+                              {dateText} 관리 ({' '}
+                              <AttendanceAmountText>-{log.amount.toLocaleString()}원</AttendanceAmountText>
+                              {memoPart}
+                              {' '})
+                            </AttendanceDate>
+                            {smsSent && <AttendanceCheckIcon>✓</AttendanceCheckIcon>}
+                          </AttendanceLine>
+                          {needsSms && (
+                            <AttendanceActionRow>
+                              <AttendanceSendButton
+                                onPress={() => handleSendAttendanceSms(log.id, detail?.phone)}
+                              >
+                                <AttendanceSendButtonText>전송</AttendanceSendButtonText>
+                              </AttendanceSendButton>
+                            </AttendanceActionRow>
+                          )}
+                          {log.modified_at || log.change_reason ? (
+                            <AttendanceChange>
+                              수정됨 ({log.modified_at ? formatAttendanceDateTime(log.modified_at) : '시간 미상'}) ·{' '}
+                              {log.change_reason ?? '사유 없음'}
+                            </AttendanceChange>
+                          ) : null}
+                        </AttendanceItem>
+                      );
+                    } else if (isAmountBased && log.status === 'present') {
+                      // 금액권이지만 amount가 없는 경우 (레거시 데이터)
+                      displayText = `${dateText} 관리`;
+                    } else {
+                      // 횟수권 또는 다른 상태
+                      // 횟수권이고 present 상태일 때: "사용 (1회)"로 표시
+                      if (log.status === 'present' && !isAmountBased) {
+                        displayText = memo 
+                          ? `${dateText} 사용 (1회) (${memo})`
+                          : `${dateText} 사용 (1회)`;
+                      } else {
+                        displayText = memo 
+                          ? `${dateText} ${statusText} (${memo})`
+                          : `${dateText} ${statusText}`;
+                      }
+                    }
                   }
+                  
+                  // 횟수권 또는 다른 상태: 전송 버튼/체크표시 추가
+                  const needsSms = log.status === 'present' && log.sms_sent === false;
+                  const smsSent = log.status === 'present' && log.sms_sent === true;
                   
                   return (
                     <AttendanceItem key={log.id}>
                       <AttendanceLine>
                         <AttendanceDate $color={statusColor}>{displayText}</AttendanceDate>
+                        {smsSent && <AttendanceCheckIcon>✓</AttendanceCheckIcon>}
                       </AttendanceLine>
+                      {needsSms && (
+                        <AttendanceActionRow>
+                          <AttendanceSendButton
+                            onPress={() => handleSendAttendanceSms(log.id, detail?.phone)}
+                          >
+                            <AttendanceSendButtonText>전송</AttendanceSendButtonText>
+                          </AttendanceSendButton>
+                        </AttendanceActionRow>
+                      )}
                       {log.modified_at || log.change_reason ? (
                         <AttendanceChange>
                           수정됨 ({log.modified_at ? formatAttendanceDateTime(log.modified_at) : '시간 미상'}) ·{' '}
@@ -941,7 +1367,8 @@ const guardianLine = useMemo(() => {
           contractType={extendModalProps.contractType}
           totalSessions={extendModalProps.totalSessions}
           remainingSessions={extendModalProps.remainingSessions}
-          currentEndDate={extendModalProps.currentEndDate}
+          totalAmount={extendModalProps.totalAmount}
+          remainingAmount={extendModalProps.remainingAmount}
         />
       )}
 
@@ -992,18 +1419,72 @@ const guardianLine = useMemo(() => {
       >
         <ScheduleModalContainer>
           <ScheduleModalHeader>
-            <ScheduleModalTitle $isNewStep={scheduleStep === 'selectNew'}>
-              {scheduleStep === 'selectOriginal'
-                ? '변경을 원하는 수업 일을 선택하세요.'
-                : '대체할 수업 일을 선택하세요'}
-            </ScheduleModalTitle>
-            <ScheduleModalSubtitle>
-              {scheduleStep === 'selectOriginal'
-                ? '변경 가능한 수업 일이 파란색으로 표시됩니다.'
-                : '새로운 수업 일을 선택할 수 있습니다.'}
-            </ScheduleModalSubtitle>
+            {scheduleMode === 'modeSelection' ? (
+              <>
+                <ScheduleModalTitle>예약 또는 변경을 선택하세요</ScheduleModalTitle>
+                <ScheduleModalSubtitle>예약 추가 또는 기존 예약 변경 중 선택해주세요</ScheduleModalSubtitle>
+              </>
+            ) : scheduleMode === 'add' ? (
+              <>
+                <ScheduleModalTitle $isNewStep={scheduleStep === 'selectTime'}>
+                  {scheduleStep === 'selectDate'
+                    ? '예약할 날짜를 선택하세요'
+                    : '예약 시간을 선택하세요'}
+                </ScheduleModalTitle>
+                <ScheduleModalSubtitle>
+                  {scheduleStep === 'selectDate'
+                    ? '예약할 날짜를 선택해주세요'
+                    : '예약 시간을 선택해주세요 (선택사항)'}
+                </ScheduleModalSubtitle>
+              </>
+            ) : scheduleMode === 'change' ? (
+              <>
+                <ScheduleModalTitle $isNewStep={scheduleStep === 'selectNew' || scheduleStep === 'selectTime'}>
+                  {scheduleStep === 'selectOriginal'
+                    ? '변경할 예약을 선택하세요'
+                    : scheduleStep === 'selectNew'
+                    ? '변경할 날짜를 선택하세요'
+                    : '변경할 시간을 선택하세요'}
+                </ScheduleModalTitle>
+                <ScheduleModalSubtitle>
+                  {scheduleStep === 'selectOriginal'
+                    ? '파란 점이 표시된 날짜가 예약된 날짜입니다'
+                    : scheduleStep === 'selectNew'
+                    ? '새로운 예약 날짜를 선택해주세요'
+                    : '새로운 예약 시간을 선택해주세요 (필수)'}
+                </ScheduleModalSubtitle>
+              </>
+            ) : (
+              <>
+                <ScheduleModalTitle $isNewStep={scheduleStep === 'selectNew'}>
+                  {scheduleStep === 'selectOriginal'
+                    ? '변경을 원하는 수업 일을 선택하세요.'
+                    : '대체할 수업 일을 선택하세요'}
+                </ScheduleModalTitle>
+                <ScheduleModalSubtitle>
+                  {scheduleStep === 'selectOriginal'
+                    ? '변경 가능한 수업 일이 파란색으로 표시됩니다.'
+                    : '새로운 수업 일을 선택할 수 있습니다.'}
+                </ScheduleModalSubtitle>
+              </>
+            )}
           </ScheduleModalHeader>
 
+          {/* 모드 선택 단계 */}
+          {scheduleMode === 'modeSelection' && (
+            <ScheduleModeSelectionContainer>
+              <ScheduleModeButton onPress={handleSelectAddMode}>
+                <ScheduleModeButtonText>예약</ScheduleModeButtonText>
+              </ScheduleModeButton>
+              <ScheduleModeButton $isChange onPress={handleSelectChangeMode}>
+                <ScheduleModeButtonText $isChange>변경</ScheduleModeButtonText>
+              </ScheduleModeButton>
+            </ScheduleModeSelectionContainer>
+          )}
+
+          {/* 달력 (날짜 선택 단계일 때만 표시, 시간 선택 단계에서는 숨김) */}
+          {scheduleMode !== 'modeSelection' && scheduleMode !== null && scheduleStep !== 'selectTime' && (
+            <>
           {/* 달력 헤더 (월 이동) */}
           <ScheduleCalendarHeader>
             <ScheduleMonthButton onPress={() => handleChangeScheduleMonth('prev')}>
@@ -1173,33 +1654,90 @@ const guardianLine = useMemo(() => {
                   }
                 }
 
-                const selectableOriginal =
-                  scheduleStep === 'selectOriginal' &&
-                  !isBeforeToday &&
-                  !outOfRange &&
-                  hasPlannedClass &&
-                  !hasAttendance; // 출결기록이 있는 날짜는 선택 불가
+                // 예약된 날짜 확인
+                const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+                const hasReservation = reservationDates.has(dateStr);
 
-                const selectableNew =
-                  scheduleStep === 'selectNew' && !isBeforeToday && !outOfRange;
+                // 예약 모드에 따른 선택 가능 여부
+                let selectableOriginal = false;
+                let selectableNew = false;
+                let selectableDate = false;
+
+                if (scheduleMode === 'add' && scheduleStep === 'selectDate') {
+                  // 예약 추가: 미래 날짜 중 예약이 없는 날짜만 선택 가능
+                  selectableDate = !isBeforeToday && !outOfRange && !hasReservation;
+                } else if (scheduleMode === 'change' && scheduleStep === 'selectOriginal') {
+                  // 예약 변경: 예약된 날짜 중 출결 로그가 없는 날짜만 선택 가능
+                  const reservationInfo = hasReservation ? reservationDates.get(dateStr) : null;
+                  const hasAttendanceLog = reservationInfo?.hasAttendanceLog || false;
+                  selectableOriginal = !isBeforeToday && !outOfRange && hasReservation && !hasAttendanceLog;
+                } else if (scheduleMode === 'change' && scheduleStep === 'selectNew') {
+                  // 예약 변경: 새 날짜 선택 (미래 날짜)
+                  selectableNew = !isBeforeToday && !outOfRange;
+                } else {
+                  // 기존 로직 (레거시)
+                  selectableOriginal =
+                    scheduleStep === 'selectOriginal' &&
+                    !isBeforeToday &&
+                    !outOfRange &&
+                    hasPlannedClass &&
+                    !hasAttendance;
+                  selectableNew =
+                    scheduleStep === 'selectNew' && !isBeforeToday && !outOfRange;
+                }
 
                 const disabled =
-                  scheduleStep === 'selectOriginal'
+                  scheduleMode === 'add' && scheduleStep === 'selectDate'
+                    ? !selectableDate
+                    : scheduleMode === 'change' && scheduleStep === 'selectOriginal'
+                    ? !selectableOriginal
+                    : scheduleMode === 'change' && scheduleStep === 'selectNew'
+                    ? !selectableNew
+                    : scheduleStep === 'selectOriginal'
                     ? !selectableOriginal
                     : !selectableNew;
 
                 const isSelectedOriginal = isSameDate(date, selectedOriginalDate);
                 const isSelectedNew = isSameDate(date, selectedNewDate);
+                const isSelectedDate = scheduleMode === 'add' && isSameDate(date, selectedDate);
 
-                const isSelected = isSelectedOriginal || isSelectedNew;
+                const isSelected = isSelectedOriginal || isSelectedNew || isSelectedDate;
 
+                // 예약 모드에 따른 날짜 선택 로직
                 const onPress = () => {
                   if (disabled) return;
-                  if (scheduleStep === 'selectOriginal') {
+                  
+                  if (scheduleMode === 'add' && scheduleStep === 'selectDate') {
+                    // 예약 추가: 날짜 선택 후 시간 선택 단계로 이동
+                    setSelectedDate(date);
+                    setScheduleStep('selectTime');
+                  } else if (scheduleMode === 'change' && scheduleStep === 'selectOriginal') {
+                    // 예약 변경: 원래 예약 날짜 선택 후 바로 다음 단계로 이동
+                    const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+                    const reservation = reservationDates.get(dateStr);
+                    if (reservation) {
+                      setSelectedOriginalDate(date);
+                      setSelectedReservationId(reservation.id);
+                      // 시간이 있으면 미리 채우기
+                      if (reservation.time) {
+                        const [h, m] = reservation.time.split(':').map(Number);
+                        setSelectedHour(h);
+                        setSelectedMinute(m);
+                      }
+                      // 바로 다음 단계(변경할 날짜 선택)로 이동
+                      setScheduleStep('selectNew');
+                      setSelectedNewDate(null);
+                    }
+                  } else if (scheduleMode === 'change' && scheduleStep === 'selectNew') {
+                    // 예약 변경: 새 날짜 선택
+                    setSelectedNewDate(date);
+                  } else if (scheduleStep === 'selectOriginal') {
+                    // 기존 로직 (레거시)
                     setSelectedOriginalDate(date);
                     setScheduleStep('selectNew');
                     setSelectedNewDate(null);
                   } else {
+                    // 기존 로직 (레거시)
                     setSelectedNewDate(date);
                   }
                 };
@@ -1222,13 +1760,20 @@ const guardianLine = useMemo(() => {
                       >
                           {day}
                         </ScheduleDayText>
-                        {hasPlannedClass && (
-                          <ScheduleDot
-                            $selected={isSelected}
-                            $isNewSelection={isSelectedNew}
-                            $disabled={disabled}
-                          />
-                        )}
+                        {/* 예약된 날짜 또는 예정 수업일 표시 */}
+                        {(hasReservation || hasPlannedClass) && (() => {
+                          const reservationInfo = hasReservation ? reservationDates.get(dateStr) : null;
+                          const hasAttendanceLog = reservationInfo?.hasAttendanceLog || false;
+                          return (
+                            <ScheduleDot
+                              $selected={isSelected}
+                              $isNewSelection={isSelectedNew || isSelectedDate}
+                              $disabled={disabled}
+                              $isReservation={hasReservation}
+                              $hasAttendanceLog={hasAttendanceLog}
+                            />
+                          );
+                        })()}
                       </ScheduleDayInner>
                     </ScheduleDayButton>
                   </ScheduleDayCell>,
@@ -1239,15 +1784,105 @@ const guardianLine = useMemo(() => {
             })()}
           </ScheduleCalendarGrid>
 
-          <ScheduleLegend>
-            <ScheduleLegendText>● 표시된 날짜가 원래 수업 예정일입니다.</ScheduleLegendText>
-          </ScheduleLegend>
+          {scheduleMode === 'change' && scheduleStep === 'selectOriginal' && (
+            <ScheduleLegend>
+              <ScheduleLegendText>● 표시된 날짜가 예약된 날짜입니다.</ScheduleLegendText>
+            </ScheduleLegend>
+          )}
+          {!scheduleMode && (
+            <ScheduleLegend>
+              <ScheduleLegendText>● 표시된 날짜가 원래 수업 예정일입니다.</ScheduleLegendText>
+            </ScheduleLegend>
+          )}
+            </>
+          )}
+
+          {/* 시간 선택 UI (시간 선택 단계일 때만 표시) */}
+          {scheduleStep === 'selectTime' && (
+            <ScheduleTimeSelectionContainer>
+              <ScheduleTimeLabel>시간 선택 (선택사항)</ScheduleTimeLabel>
+              <ScheduleTimeRow>
+                <ScheduleTimeColumn>
+                  <ScheduleTimeLabel>시</ScheduleTimeLabel>
+                  <ScheduleTimeScrollView>
+                    {Array.from({ length: 24 }, (_, i) => i).map((hour) => (
+                      <ScheduleTimeButton
+                        key={hour}
+                        $selected={selectedHour === hour}
+                        onPress={() => setSelectedHour(hour)}
+                      >
+                        <ScheduleTimeButtonText $selected={selectedHour === hour}>
+                          {String(hour).padStart(2, '0')}
+                        </ScheduleTimeButtonText>
+                      </ScheduleTimeButton>
+                    ))}
+                  </ScheduleTimeScrollView>
+                </ScheduleTimeColumn>
+                <ScheduleTimeColumn>
+                  <ScheduleTimeLabel>분</ScheduleTimeLabel>
+                  <ScheduleTimeScrollView>
+                    {[0, 15, 30, 45].map((minute) => (
+                      <ScheduleTimeButton
+                        key={minute}
+                        $selected={selectedMinute === minute}
+                        onPress={() => setSelectedMinute(minute)}
+                      >
+                        <ScheduleTimeButtonText $selected={selectedMinute === minute}>
+                          {String(minute).padStart(2, '0')}
+                        </ScheduleTimeButtonText>
+                      </ScheduleTimeButton>
+                    ))}
+                  </ScheduleTimeScrollView>
+                </ScheduleTimeColumn>
+              </ScheduleTimeRow>
+            </ScheduleTimeSelectionContainer>
+          )}
 
           <ScheduleModalFooter>
             <ScheduleCloseButton onPress={() => setShowScheduleModal(false)}>
               <ScheduleCloseButtonText>닫기</ScheduleCloseButtonText>
             </ScheduleCloseButton>
-            {scheduleStep === 'selectNew' && (
+            {/* 예약 추가 확인 버튼 */}
+            {scheduleMode === 'add' && scheduleStep === 'selectDate' && selectedDate && (
+              <ScheduleConfirmButton
+                disabled={scheduleSubmitting}
+                onPress={() => setScheduleStep('selectTime')}
+              >
+                <ScheduleConfirmButtonText>다음</ScheduleConfirmButtonText>
+              </ScheduleConfirmButton>
+            )}
+            {scheduleMode === 'add' && scheduleStep === 'selectTime' && (
+              <ScheduleConfirmButton
+                disabled={scheduleSubmitting}
+                onPress={handleConfirmAddReservation}
+              >
+                <ScheduleConfirmButtonText>
+                  {scheduleSubmitting ? '예약 중...' : '예약 확정'}
+                </ScheduleConfirmButtonText>
+              </ScheduleConfirmButton>
+            )}
+            {/* 예약 변경 확인 버튼 */}
+            {/* selectOriginal 단계에서는 날짜 선택 시 자동으로 다음 단계로 이동하므로 버튼 제거 */}
+            {scheduleMode === 'change' && scheduleStep === 'selectNew' && selectedNewDate && (
+              <ScheduleConfirmButton
+                disabled={scheduleSubmitting}
+                onPress={() => setScheduleStep('selectTime')}
+              >
+                <ScheduleConfirmButtonText>다음</ScheduleConfirmButtonText>
+              </ScheduleConfirmButton>
+            )}
+            {scheduleMode === 'change' && scheduleStep === 'selectTime' && (
+              <ScheduleConfirmButton
+                disabled={!selectedHour || !selectedMinute || scheduleSubmitting}
+                onPress={handleConfirmReschedule}
+              >
+                <ScheduleConfirmButtonText>
+                  {scheduleSubmitting ? '변경 중...' : '변경 확정'}
+                </ScheduleConfirmButtonText>
+              </ScheduleConfirmButton>
+            )}
+            {/* 기존 일정 변경 확인 버튼 (레거시) */}
+            {!scheduleMode && scheduleStep === 'selectNew' && (
               <ScheduleConfirmButton
                 disabled={!selectedOriginalDate || !selectedNewDate || scheduleSubmitting}
                 onPress={handleConfirmReschedule}
@@ -1265,10 +1900,6 @@ const guardianLine = useMemo(() => {
 }
 
 export default function StudentDetailScreen() {
-  if (featureFlags.students.useStub) {
-    return <StudentDetailStub />;
-  }
-
   return <StudentDetailContent />;
 }
 
@@ -1560,8 +2191,14 @@ const AttendanceLine = styled.View`
 `;
 
 const AttendanceDate = styled.Text<{ $color?: string }>`
+  flex: 1;
   font-size: 15px;
   color: ${({ $color }: { $color?: string }) => $color || '#333'};
+  font-weight: 600;
+`;
+
+const AttendanceAmountText = styled.Text`
+  color: #ff3b30;
   font-weight: 600;
 `;
 
@@ -1602,6 +2239,32 @@ const AttendanceToggleText = styled.Text`
   font-size: 14px;
   font-weight: 600;
   color: #007AFF;
+`;
+
+const AttendanceActionRow = styled.View`
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+`;
+
+const AttendanceSendButton = styled.TouchableOpacity`
+  padding: 4px 12px;
+  background-color: #1d42d8;
+  border-radius: 4px;
+`;
+
+const AttendanceSendButtonText = styled.Text`
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+`;
+
+const AttendanceCheckIcon = styled.Text`
+  font-size: 16px;
+  color: #ff3b30;
+  font-weight: bold;
+  margin-left: auto;
 `;
 
 const EmptyDescription = styled.Text`
@@ -1686,25 +2349,6 @@ const RetryButtonText = styled.Text`
   font-size: 14px;
   font-weight: 600;
   color: #fff;
-`;
-
-const StubContainer = styled.View`
-  flex: 1;
-  justify-content: center;
-  align-items: center;
-  background-color: #f5f5f5;
-`;
-
-const StubTitle = styled.Text`
-  font-size: 24px;
-  font-weight: 700;
-  color: #000;
-  margin-bottom: 10px;
-`;
-
-const StubSubtitle = styled.Text`
-  font-size: 16px;
-  color: #666;
 `;
 
 const ContractsList = styled.View`
@@ -2044,13 +2688,19 @@ const ScheduleDot = styled.View<{
   $selected?: boolean;
   $isNewSelection?: boolean;
   $disabled?: boolean;
+  $isReservation?: boolean;
+  $hasAttendanceLog?: boolean;
 }>`
   width: 4px;
   height: 4px;
   border-radius: 2px;
   margin-top: 3px;
-  background-color: ${({ $selected, $isNewSelection, $disabled }) => {
+  background-color: ${({ $selected, $isNewSelection, $disabled, $isReservation, $hasAttendanceLog }) => {
     if ($selected) return '#ffffff';
+    // 출결 로그가 있는 예약 날짜는 회색 (비활성)
+    if ($isReservation && $hasAttendanceLog) return '#c0c0c0';
+    // 출결 로그가 없는 예약 날짜는 파란색 (활성)
+    if ($isReservation) return '#1d42d8';
     if ($disabled) return '#c0c0c0';
     if ($isNewSelection) return '#ff6b00';
     return '#1d42d8';
@@ -2064,4 +2714,157 @@ const ScheduleLegend = styled.View`
 const ScheduleLegendText = styled.Text`
   font-size: 12px;
   color: #8e8e93;
+`;
+
+const ScheduleModeSelectionContainer = styled.View`
+  padding: 20px;
+  gap: 12px;
+`;
+
+const ScheduleModeButton = styled.TouchableOpacity<{ $isChange?: boolean }>`
+  background-color: ${(props: { $isChange?: boolean }) => (props.$isChange ? '#e8f2ff' : '#1d42d8')};
+  border-radius: 12px;
+  padding: 16px;
+  align-items: center;
+`;
+
+const ScheduleModeButtonText = styled.Text<{ $isChange?: boolean }>`
+  font-size: 16px;
+  font-weight: 600;
+  color: ${(props: { $isChange?: boolean }) => (props.$isChange ? '#246bfd' : '#ffffff')};
+`;
+
+const ScheduleTimeSelectionContainer = styled.View`
+  padding: 20px;
+  border-top-width: 1px;
+  border-top-color: #e0e0e0;
+`;
+
+const ScheduleTimeLabel = styled.Text`
+  font-size: 14px;
+  font-weight: 600;
+  color: #111111;
+  margin-bottom: 12px;
+`;
+
+const ScheduleTimeRow = styled.View`
+  flex-direction: row;
+  gap: 12px;
+  align-items: flex-start;
+`;
+
+const ScheduleTimeColumn = styled.View`
+  flex: 1;
+`;
+
+const ScheduleTimeScrollView = styled.ScrollView`
+  max-height: 200px;
+`;
+
+const ScheduleTimeSelectionTitle = styled.Text`
+  font-size: 16px;
+  font-weight: 600;
+  color: #111111;
+  margin-bottom: 16px;
+`;
+
+const ScheduleTimeButton = styled.TouchableOpacity<{ $selected?: boolean }>`
+  background-color: ${({ $selected }) => ($selected ? '#1d42d8' : '#f5f5f5')};
+  border-radius: 8px;
+  padding: 12px;
+  align-items: center;
+  margin-bottom: 8px;
+`;
+
+const ScheduleTimeButtonText = styled.Text<{ $selected?: boolean }>`
+  font-size: 14px;
+  font-weight: 500;
+  color: ${({ $selected }) => ($selected ? '#ffffff' : '#111111')};
+`;
+
+const ScheduleTimeSkipButton = styled.TouchableOpacity`
+  padding: 12px 16px;
+  align-items: center;
+`;
+
+const ScheduleTimeSkipText = styled.Text`
+  font-size: 14px;
+  font-weight: 500;
+  color: #1d42d8;
+  text-decoration-line: underline;
+`;
+
+// 고객 메모 섹션 스타일
+const MemoEditButton = styled.TouchableOpacity`
+  padding: 0;
+`;
+
+const MemoEditButtonText = styled.Text`
+  font-size: 14px;
+  font-weight: 600;
+  color: #1d42d8;
+  text-decoration-line: underline;
+`;
+
+const MemoEditContainer = styled.View`
+  gap: 12px;
+`;
+
+const MemoTextInput = styled.TextInput`
+  min-height: 100px;
+  padding: 12px;
+  background-color: #f9f9f9;
+  border-radius: 8px;
+  border-width: 1px;
+  border-color: #e0e0e0;
+  font-size: 14px;
+  color: #111;
+`;
+
+const MemoButtonRow = styled.View`
+  flex-direction: row;
+  justify-content: flex-end;
+  gap: 8px;
+`;
+
+const MemoCancelButton = styled.TouchableOpacity<{ disabled?: boolean }>`
+  padding: 10px 20px;
+  background-color: #f5f5f5;
+  border-radius: 8px;
+  opacity: ${({ disabled }) => (disabled ? 0.5 : 1)};
+`;
+
+const MemoCancelButtonText = styled.Text`
+  font-size: 14px;
+  font-weight: 600;
+  color: #666;
+`;
+
+const MemoSaveButton = styled.TouchableOpacity<{ disabled?: boolean }>`
+  padding: 10px 20px;
+  background-color: #1d42d8;
+  border-radius: 8px;
+  opacity: ${({ disabled }) => (disabled ? 0.5 : 1)};
+`;
+
+const MemoSaveButtonText = styled.Text`
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+`;
+
+const MemoContent = styled.View`
+  padding: 12px 0;
+`;
+
+const MemoText = styled.Text`
+  font-size: 14px;
+  line-height: 20px;
+  color: #111;
+`;
+
+const MemoEmptyText = styled.Text`
+  font-size: 14px;
+  color: #999;
+  font-style: italic;
 `;

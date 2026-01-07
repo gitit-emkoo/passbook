@@ -48,6 +48,7 @@ export const studentsApi = {
     phone?: string;
     guardian_name?: string;
     guardian_phone?: string;
+    memo?: string;
   }) => {
     const response = await apiClient.patch(`/api/v1/students/${id}`, data);
     return response.data;

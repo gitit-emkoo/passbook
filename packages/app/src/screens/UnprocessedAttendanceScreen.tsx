@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState, useMemo } from 'react';
-import { ActivityIndicator, Alert, ScrollView } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, Image } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import styled from 'styled-components/native';
 import { attendanceApi } from '../api/attendance';
@@ -7,6 +7,8 @@ import AttendanceAbsenceModal from '../components/modals/AttendanceAbsenceModal'
 import AttendanceSignatureModal from '../components/modals/AttendanceSignatureModal';
 import AttendanceConfirmModal from '../components/modals/AttendanceConfirmModal';
 import { useStudentsStore } from '../store/useStudentsStore';
+
+const emptyStateIcon = require('../../assets/p3.png');
 
 interface UnprocessedItem {
   contract_id: number;
@@ -96,7 +98,7 @@ function UnprocessedAttendanceContent() {
           signature_data: signatureData,
         });
 
-        Alert.alert('완료', '출석이 기록되었습니다.');
+        Alert.alert('완료', '이용권 사용처리가 완료되었습니다.');
         await loadUnprocessed();
         // 해당 수강생의 상세 정보도 새로고침 (출결 기록 반영)
         if (selectedItem?.student_id) {
@@ -176,11 +178,9 @@ function UnprocessedAttendanceContent() {
   if (items.length === 0) {
     return (
       <Container>
-        <Header>
-          <Subtitle>미처리 출결이 없습니다.</Subtitle>
-        </Header>
         <CenteredContainer>
-          <CenteredText>미처리 출결이 없습니다.</CenteredText>
+          <EmptyStateImage source={emptyStateIcon} resizeMode="contain" />
+          <CenteredText>노쇼 처리할 내역이 없습니다.</CenteredText>
         </CenteredContainer>
       </Container>
     );
@@ -310,6 +310,12 @@ const CenteredText = styled.Text`
   font-size: 16px;
   color: #8e8e93;
   margin-top: 12px;
+`;
+
+const EmptyStateImage = styled.Image`
+  width: 120px;
+  height: 120px;
+  margin-bottom: 16px;
 `;
 
 const DateGroup = styled.View`

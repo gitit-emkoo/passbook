@@ -1,19 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Alert, ActivityIndicator, Platform } from 'react-native';
+import { Alert, ActivityIndicator } from 'react-native';
 import Modal from 'react-native-modal';
 import styled from 'styled-components/native';
 import { contractsApi } from '../../api/contracts';
-import DateTimePicker from '@react-native-community/datetimepicker';
 
 interface ExtendContractModalProps {
   visible: boolean;
   onClose: () => void;
   onSuccess: () => void;
   contractId: number;
-  contractType: 'sessions' | 'monthly';
+  contractType: 'sessions' | 'amount';
   totalSessions?: number;
   remainingSessions?: number;
-  currentEndDate?: string | null;
+  totalAmount?: number;
+  remainingAmount?: number;
 }
 
 export default function ExtendContractModal({
@@ -24,25 +24,21 @@ export default function ExtendContractModal({
   contractType,
   totalSessions = 0,
   remainingSessions = 0,
-  currentEndDate,
+  totalAmount = 0,
+  remainingAmount = 0,
 }: ExtendContractModalProps) {
   const [loading, setLoading] = useState(false);
   const [addedSessions, setAddedSessions] = useState('');
-  const [extensionAmount, setExtensionAmount] = useState(''); // 연장 정산서 금액
-  const [extendedEndDate, setExtendedEndDate] = useState<Date | null>(null);
-  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [extensionAmount, setExtensionAmount] = useState(''); // 연장 정산서 금액 (횟수권용)
+  const [addedAmount, setAddedAmount] = useState(''); // 금액권: 추가할 금액 (연장 정산서 금액과 동일)
 
   useEffect(() => {
     if (visible) {
       setAddedSessions('');
       setExtensionAmount('');
-      if (currentEndDate) {
-        setExtendedEndDate(new Date(currentEndDate));
-      } else {
-        setExtendedEndDate(new Date());
-      }
+      setAddedAmount('');
     }
-  }, [visible, currentEndDate]);
+  }, [visible]);
 
   const handleConfirm = async () => {
     if (contractType === 'sessions') {
@@ -56,50 +52,37 @@ export default function ExtendContractModal({
         Alert.alert('오류', '연장 정산서 금액을 입력해주세요.');
         return;
       }
-    } else {
-      if (!extendedEndDate) {
-        Alert.alert('오류', '연장 종료일을 선택해주세요.');
+    } else if (contractType === 'amount') {
+      // 금액권: 추가할 금액 (연장 정산서 금액과 동일)
+      const amount = addedAmount ? parseInt(addedAmount.replace(/,/g, ''), 10) : null;
+      if (!amount || amount <= 0) {
+        Alert.alert('오류', '추가할 금액을 입력해주세요.');
         return;
-      }
-      if (currentEndDate) {
-        const currentEnd = new Date(currentEndDate);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        currentEnd.setHours(0, 0, 0, 0);
-        
-        // 계약이 이미 종료되었는지 확인
-        if (currentEnd < today) {
-          Alert.alert('오류', '이미 종료된 계약은 연장할 수 없습니다.');
-          return;
-        }
-        
-        // 연장 종료일이 현재 종료일보다 이후여야 함
-        if (extendedEndDate <= currentEnd) {
-          Alert.alert('오류', '연장 종료일은 현재 종료일보다 이후여야 합니다.');
-          return;
-        }
       }
     }
 
     try {
       setLoading(true);
 
-      const data: { added_sessions?: number; extension_amount?: number; extended_end_date?: string } = {};
+      const data: { added_sessions?: number; extension_amount?: number; added_amount?: number } = {};
       if (contractType === 'sessions') {
         data.added_sessions = parseInt(addedSessions, 10);
         const amount = extensionAmount ? parseInt(extensionAmount.replace(/,/g, ''), 10) : null;
         if (amount) {
           data.extension_amount = amount;
         }
-      } else {
-        data.extended_end_date = extendedEndDate!.toISOString();
+      } else if (contractType === 'amount') {
+        // 금액권: 추가할 금액 = 연장 정산서 금액
+        const amount = parseInt(addedAmount.replace(/,/g, ''), 10);
+        data.added_amount = amount;
+        data.extension_amount = amount; // 추가하는 금액이 곧 연장 정산서 금액
       }
 
       await contractsApi.extend(contractId, data);
       
       Alert.alert('완료', contractType === 'sessions' 
         ? `${data.added_sessions}회가 추가되었습니다.`
-        : '계약 기간이 연장되었습니다.');
+        : `${data.added_amount?.toLocaleString()}원이 추가되었습니다.`);
       
       onSuccess();
       onClose();
@@ -142,14 +125,16 @@ export default function ExtendContractModal({
                 </InfoRow>
               </>
             ) : (
-              <InfoRow>
-                <InfoLabel>현재 종료일</InfoLabel>
-                <InfoValue>
-                  {currentEndDate
-                    ? new Date(currentEndDate).toLocaleDateString('ko-KR')
-                    : '미설정'}
-                </InfoValue>
-              </InfoRow>
+              <>
+                <InfoRow>
+                  <InfoLabel>총 금액</InfoLabel>
+                  <InfoValue>{totalAmount.toLocaleString()}원</InfoValue>
+                </InfoRow>
+                <InfoRow>
+                  <InfoLabel>남은 금액</InfoLabel>
+                  <InfoValue>{remainingAmount.toLocaleString()}원</InfoValue>
+                </InfoRow>
+              </>
             )}
           </Section>
 
@@ -189,40 +174,26 @@ export default function ExtendContractModal({
               </>
             ) : (
               <>
-                <InputLabel>연장 종료일 *</InputLabel>
-                <DateButton onPress={() => setShowDatePicker(true)}>
-                  <DateButtonText>
-                    {extendedEndDate
-                      ? extendedEndDate.toLocaleDateString('ko-KR')
-                      : '날짜 선택'}
-                  </DateButtonText>
-                </DateButton>
-                {Platform.OS === 'android' && showDatePicker && (
-                  <DateTimePicker
-                    value={extendedEndDate || new Date()}
-                    mode="date"
-                    display="default"
-                    onChange={(event, date) => {
-                      setShowDatePicker(false);
-                      if (date) {
-                        setExtendedEndDate(date);
-                      }
-                    }}
-                    minimumDate={currentEndDate ? new Date(currentEndDate) : new Date()}
-                  />
-                )}
-                {Platform.OS === 'ios' && (
-                  <DateTimePicker
-                    value={extendedEndDate || new Date()}
-                    mode="date"
-                    display="spinner"
-                    onChange={(event, date) => {
-                      if (date) {
-                        setExtendedEndDate(date);
-                      }
-                    }}
-                    minimumDate={currentEndDate ? new Date(currentEndDate) : new Date()}
-                  />
+                <InputLabel>추가할 금액 (원) *</InputLabel>
+                <StyledTextInput
+                  value={addedAmount}
+                  onChangeText={(text) => {
+                    // 숫자와 쉼표만 허용
+                    const numericValue = text.replace(/[^0-9,]/g, '');
+                    setAddedAmount(numericValue);
+                  }}
+                  placeholder="예: 200000"
+                  keyboardType="number-pad"
+                />
+                {addedAmount && !isNaN(parseInt(addedAmount.replace(/,/g, ''), 10)) && (
+                  <>
+                    <PreviewText>
+                      연장 후: {(remainingAmount + parseInt(addedAmount.replace(/,/g, ''), 10)).toLocaleString()}원
+                    </PreviewText>
+                    <PreviewText style={{ marginTop: 4 }}>
+                      연장 정산서 금액: {parseInt(addedAmount.replace(/,/g, ''), 10).toLocaleString()}원
+                    </PreviewText>
+                  </>
                 )}
               </>
             )}
@@ -335,19 +306,6 @@ const PreviewText = styled.Text`
   font-size: 13px;
   color: #666666;
   margin-top: 8px;
-`;
-
-const DateButton = styled.TouchableOpacity`
-  border-width: 1px;
-  border-color: #e0e0e0;
-  border-radius: 8px;
-  padding: 12px;
-  background-color: #ffffff;
-`;
-
-const DateButtonText = styled.Text`
-  font-size: 16px;
-  color: #111111;
 `;
 
 const ButtonContainer = styled.View`

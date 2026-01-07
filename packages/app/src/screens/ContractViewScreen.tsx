@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useRoute, RouteProp } from '@react-navigation/native';
-import { ActivityIndicator, Alert } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Platform, Clipboard } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { StudentsStackParamList } from '../navigation/AppNavigator';
 import { contractsApi } from '../api/contracts';
+import { useDashboardStore } from '../store/useDashboardStore';
+import { useInvoicesStore } from '../store/useInvoicesStore';
 import styled from 'styled-components/native';
 
 const Container = styled.View`
@@ -18,15 +20,16 @@ const Footer = styled.View`
   background-color: #ffffff;
 `;
 
-const ModifyButton = styled.TouchableOpacity`
+const SendButton = styled.TouchableOpacity<{ disabled?: boolean }>`
   padding: 14px 16px;
   border-radius: 10px;
-  background-color: #0a84ff;
+  background-color: #1d42d8;
   align-items: center;
   justify-content: center;
+  opacity: ${(props) => (props.disabled ? 0.5 : 1)};
 `;
 
-const ModifyButtonText = styled.Text`
+const SendButtonText = styled.Text`
   color: #ffffff;
   font-size: 16px;
   font-weight: 600;
@@ -45,12 +48,21 @@ function ContractViewContent() {
   const [html, setHtml] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [contractMeta, setContractMeta] = useState<any | null>(null);
+  const [sending, setSending] = useState(false);
+  const fetchDashboard = useDashboardStore((s) => s.fetchDashboard);
+  const fetchInvoicesCurrent = useInvoicesStore((s) => s.fetchCurrentMonth);
+  const fetchInvoicesSections = useInvoicesStore((s) => s.fetchSections);
 
   useEffect(() => {
     const loadContract = async () => {
       try {
         setLoading(true);
         setError(null);
+        
+        // 계약서 메타 정보 가져오기 (전화번호 확인용)
+        const contract = await contractsApi.getById(contractId);
+        setContractMeta(contract);
         
         // 백엔드에서 HTML 가져오기 (연장 기록 포함)
         const viewLink = contractsApi.getViewLink(contractId);
@@ -73,6 +85,63 @@ function ContractViewContent() {
 
     loadContract();
   }, [contractId]);
+
+  const handleSend = async () => {
+    if (!contractMeta) {
+      Alert.alert('오류', '계약서 정보를 불러오는 중입니다.');
+      return;
+    }
+
+    const recipientPhone =
+      contractMeta.recipient_targets?.[0] ??
+      contractMeta.student?.phone ??
+      contractMeta.student?.guardian_phone;
+
+    if (!recipientPhone) {
+      Alert.alert('오류', '수신자 번호가 없습니다.');
+      return;
+    }
+
+    try {
+      setSending(true);
+      const contractLink = contractsApi.getViewLink(contractId);
+      const message = `계약서 확인 링크: ${contractLink}`;
+      const smsUrl = Platform.select({
+        ios: `sms:${recipientPhone}&body=${encodeURIComponent(message)}`,
+        android: `sms:${recipientPhone}?body=${encodeURIComponent(message)}`,
+      });
+
+      if (smsUrl && (await Linking.canOpenURL(smsUrl))) {
+        await Linking.openURL(smsUrl);
+        // 계약서 상태를 'sent'로 업데이트
+        await contractsApi.updateStatus(contractId, 'sent');
+        // 계약서 메타 정보 업데이트
+        setContractMeta((prev: any) =>
+          prev
+            ? {
+                ...prev,
+                status: 'sent',
+              }
+            : prev,
+        );
+        // 대시보드 및 청구서 섹션 새로고침
+        await Promise.all([
+          fetchDashboard({ force: true }),
+          fetchInvoicesCurrent({ historyMonths: 3, force: true }),
+          fetchInvoicesSections(true),
+        ]);
+        Alert.alert('완료', '계약서가 전송되었습니다.');
+      } else {
+        await Clipboard.setString(contractLink);
+        Alert.alert('완료', '계약서 링크가 클립보드에 복사되었습니다.');
+      }
+    } catch (err: any) {
+      console.error('[ContractView] send error', err);
+      Alert.alert('오류', err?.message || '계약서 전송에 실패했습니다.');
+    } finally {
+      setSending(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -100,9 +169,15 @@ function ContractViewContent() {
         showsHorizontalScrollIndicator={false}
       />
       <Footer>
-        <ModifyButton onPress={() => Alert.alert('준비 중', '계약 수정 기능은 준비 중입니다.')}>
-          <ModifyButtonText>수정하기</ModifyButtonText>
-        </ModifyButton>
+        <SendButton onPress={handleSend} disabled={sending || contractMeta?.status === 'sent'}>
+          {sending ? (
+            <ActivityIndicator size="small" color="#ffffff" />
+          ) : (
+            <SendButtonText>
+              {contractMeta?.status === 'sent' ? '전송 완료' : '전송'}
+            </SendButtonText>
+          )}
+        </SendButton>
       </Footer>
     </Container>
   );

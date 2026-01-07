@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useRoute, RouteProp } from '@react-navigation/native';
+import { useRoute, RouteProp, useNavigation } from '@react-navigation/native';
 import { ActivityIndicator, Alert } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { HomeStackParamList } from '../navigation/AppNavigator';
+import { HomeStackParamList, StudentsStackNavigationProp } from '../navigation/AppNavigator';
 import { contractsApi } from '../api/contracts';
 import styled from 'styled-components/native';
 import ContractSignatureModal from '../components/modals/ContractSignatureModal';
-import ContractSendModal from '../components/modals/ContractSendModal';
 import { useDashboardStore } from '../store/useDashboardStore';
 import { useInvoicesStore } from '../store/useInvoicesStore';
 
@@ -86,6 +85,7 @@ const SignatureButtonText = styled.Text<{ $filled?: boolean }>`
 
 function ContractPreviewContent() {
   const route = useRoute<RouteProp<HomeStackParamList, 'ContractPreview'>>();
+  const navigation = useNavigation<StudentsStackNavigationProp>();
   const { contractId } = route.params;
   const [html, setHtml] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -97,8 +97,6 @@ function ContractPreviewContent() {
   const [tempTeacherSignature, setTempTeacherSignature] = useState<string | null>(null);
   const [tempStudentSignature, setTempStudentSignature] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
-  const [showSendModal, setShowSendModal] = useState(false);
-  const [sending, setSending] = useState(false);
   const fetchDashboard = useDashboardStore((s) => s.fetchDashboard);
   const fetchInvoicesCurrent = useInvoicesStore((s) => s.fetchCurrentMonth);
   const fetchInvoicesSections = useInvoicesStore((s) => s.fetchSections);
@@ -184,7 +182,7 @@ function ContractPreviewContent() {
       return;
     }
     if (!canConfirm) {
-      Alert.alert('계약', '선생님과 수강생 모두 서명한 후 확정할 수 있습니다.');
+      Alert.alert('계약', '선생님과 고객 모두 서명한 후 확정할 수 있습니다.');
       return;
     }
     try {
@@ -207,10 +205,13 @@ function ContractPreviewContent() {
         fetchDashboard({ force: true }),
         fetchInvoicesCurrent({ historyMonths: 3, force: true }),
       ]);
-      Alert.alert('완료', '계약이 확정되었습니다.');
-      setShowSendModal(true);
       setTempTeacherSignature(null);
       setTempStudentSignature(null);
+      // 계약서 미리보기 화면으로 이동
+      navigation.navigate('Students', {
+        screen: 'ContractView',
+        params: { contractId },
+      });
     } catch (err: any) {
       console.error('[ContractPreview] confirm error', err);
       Alert.alert('오류', err?.message || '계약 확정에 실패했습니다.');
@@ -313,7 +314,7 @@ function ContractPreviewContent() {
             $filled={hasStudentSignature}
           >
             <SignatureButtonText $filled={hasStudentSignature}>
-              {hasStudentSignature ? '수강생 서명 완료' : '수강생 서명'}
+              {hasStudentSignature ? '고객 서명 완료' : '고객 서명'}
             </SignatureButtonText>
           </SignatureButton>
         </SignatureButtonsRow>
@@ -324,40 +325,36 @@ function ContractPreviewContent() {
             disabled={!canConfirm || confirming}
           >
             <ActionButtonText $primary>
-              {confirming ? '확정 중...' : '확정 후 전송'}
+              {confirming ? '확정 중...' : '확정 및 미리보기'}
             </ActionButtonText>
           </ActionButton>
         ) : (
           <ActionButton
             $primary
-            onPress={() => setShowSendModal(true)}
-            disabled={isSent || sending}
+            onPress={() => {
+              // 이미 확정된 경우에도 미리보기 화면으로 이동
+              navigation.navigate('Students', {
+                screen: 'ContractView',
+                params: { contractId },
+              });
+            }}
+            disabled={isSent}
           >
             <ActionButtonText $primary>
-              {isSent ? '계약서 전송 완료' : '계약서 전송'}
+              {isSent ? '계약서 전송 완료' : '계약서 보기'}
             </ActionButtonText>
           </ActionButton>
         )}
       </Footer>
       <ContractSignatureModal
         visible={signatureModalVisible}
-        signerLabel={signerType === 'student' ? '수강생' : '선생님'}
+        signerLabel={signerType === 'student' ? '고객' : '선생님'}
         onClose={() => {
           setSignatureModalVisible(false);
           setSignerType(null);
         }}
         onConfirm={handleSignatureComplete}
       />
-      {contractMeta && (
-        <ContractSendModal
-          visible={showSendModal}
-          onClose={() => setShowSendModal(false)}
-          onSend={handleSend}
-          contractLink={contractsApi.getViewLink(contractId)}
-          recipientPhone={recipientPhone}
-          billingType={contractMeta.billing_type}
-        />
-      )}
     </Container>
   );
 }

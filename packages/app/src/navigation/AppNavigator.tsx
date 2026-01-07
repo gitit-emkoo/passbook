@@ -16,7 +16,6 @@ import ContractViewScreen from '../screens/ContractViewScreen';
 import ContractNewScreen from '../screens/ContractNewScreen';
 import ContractPreviewScreen from '../screens/ContractPreviewScreen';
 import SettlementScreen from '../screens/SettlementScreen';
-import SettlementSendScreen from '../screens/SettlementSendScreen';
 import InvoicePreviewScreen from '../screens/InvoicePreviewScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
@@ -24,6 +23,12 @@ import NoticesListScreen from '../screens/NoticesListScreen';
 import NoticeDetailScreen from '../screens/NoticeDetailScreen';
 import TermsScreen from '../screens/TermsScreen';
 import UnprocessedAttendanceScreen from '../screens/UnprocessedAttendanceScreen';
+import AttendanceViewScreen from '../screens/AttendanceViewScreen';
+import StatisticsScreen from '../screens/StatisticsScreen';
+import RevenueStatisticsScreen from '../screens/RevenueStatisticsScreen';
+import ContractStatisticsScreen from '../screens/ContractStatisticsScreen';
+import UsageAmountStatisticsScreen from '../screens/UsageAmountStatisticsScreen';
+import UsageCountStatisticsScreen from '../screens/UsageCountStatisticsScreen';
 import styled from 'styled-components/native';
 
 export type AuthStackParamList = {
@@ -95,6 +100,19 @@ const FABButton = styled.TouchableOpacity<FABButtonProps>`
 const FABIcon = styled.Image`
   width: 28px;
   height: 28px;
+  margin-top: -6px;
+`;
+
+const FABContainer = styled.View`
+  align-items: center;
+  justify-content: center;
+`;
+
+const FABLabel = styled.Text`
+  font-size: 11px;
+  color: #999;
+  margin-top: 8px;
+  font-weight: 500;
 `;
 
 /**
@@ -129,7 +147,7 @@ function StudentsStack() {
         name="ContractView"
         component={ContractViewScreen}
         options={{
-          title: '계약서 보기',
+          title: '이용권 계약 보기',
           headerShown: true,
           headerBackTitle: '뒤로',
           headerBackVisible: true,
@@ -144,6 +162,10 @@ export type HomeStackParamList = {
   ContractNew: undefined;
   ContractPreview: {
     contractId: number;
+  };
+  AttendanceView: {
+    attendanceLogId: number;
+    studentPhone?: string;
   };
 };
 
@@ -164,7 +186,7 @@ function HomeStack() {
         name="ContractNew"
         component={ContractNewScreen}
         options={{
-          title: '계약생성',
+          title: '이용권 (계약) 발행',
           headerShown: true,
           headerBackTitle: '뒤로',
           headerBackVisible: true,
@@ -174,7 +196,17 @@ function HomeStack() {
         name="ContractPreview"
         component={ContractPreviewScreen}
         options={{
-          title: '계약서 확인',
+          title: '이용권 확인',
+          headerShown: true,
+          headerBackTitle: '뒤로',
+          headerBackVisible: true,
+        }}
+      />
+      <Stack.Screen
+        name="AttendanceView"
+        component={AttendanceViewScreen}
+        options={{
+          title: '사용처리 완료 안내',
           headerShown: true,
           headerBackTitle: '뒤로',
           headerBackVisible: true,
@@ -186,13 +218,9 @@ function HomeStack() {
 
 export type SettlementStackParamList = {
   SettlementMain: undefined;
-  SettlementSend: {
-    invoiceIds: number[];
-    year: number;
-    month: number;
-  };
   InvoicePreview: {
-    invoiceId: number;
+    invoiceIds: number[];
+    initialIndex?: number;
   };
 };
 
@@ -210,11 +238,6 @@ function SettlementStack() {
         options={{ headerShown: false }}
       />
       <Stack.Screen
-        name="SettlementSend"
-        component={SettlementSendScreen}
-        options={{ title: '청구서 전송' }}
-      />
-      <Stack.Screen
         name="InvoicePreview"
         component={InvoicePreviewScreen}
         options={{ title: '청구서 미리보기' }}
@@ -230,6 +253,11 @@ export type MainAppStackParamList = {
   NoticeDetail: { noticeId: number };
   Terms: { type: 'terms' | 'privacy' };
   UnprocessedAttendance: undefined;
+  Statistics: undefined;
+  RevenueStatistics: undefined;
+  ContractStatistics: undefined;
+  UsageAmountStatistics: undefined;
+  UsageCountStatistics: undefined;
 };
 
 export type MainAppStackNavigationProp = NativeStackNavigationProp<MainAppStackParamList>;
@@ -270,7 +298,32 @@ function MainAppStack() {
       <Stack.Screen
         name="UnprocessedAttendance"
         component={UnprocessedAttendanceScreen}
-        options={{ title: '출결 미처리 관리' }}
+        options={{ title: '노쇼 처리' }}
+      />
+      <Stack.Screen
+        name="Statistics"
+        component={StatisticsScreen}
+        options={{ title: '통계' }}
+      />
+      <Stack.Screen
+        name="RevenueStatistics"
+        component={RevenueStatisticsScreen}
+        options={{ title: '매출' }}
+      />
+      <Stack.Screen
+        name="ContractStatistics"
+        component={ContractStatisticsScreen}
+        options={{ title: '월별 이용권 발행' }}
+      />
+      <Stack.Screen
+        name="UsageAmountStatistics"
+        component={UsageAmountStatisticsScreen}
+        options={{ title: '처리 금액' }}
+      />
+      <Stack.Screen
+        name="UsageCountStatistics"
+        component={UsageCountStatisticsScreen}
+        options={{ title: '처리 횟수' }}
       />
     </Stack.Navigator>
   );
@@ -349,7 +402,7 @@ function MainTabs() {
         name="Students"
         component={StudentsStack}
         options={{
-          title: '수강생',
+          title: '이용권 고객',
           tabBarIcon: ({ focused }) => (
             <TabIconImage source={studentIcon} focused={focused} />
           ),
@@ -378,13 +431,16 @@ function MainTabs() {
             // 항상 플로팅 버튼 표시
             return (
               <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                <FABButton
-                  size={FAB_SIZE}
-                  onPress={() => handleFABPress(navigation)}
-                  activeOpacity={0.8}
-                >
-                  <FABIcon source={noteIcon} />
-                </FABButton>
+                <FABContainer>
+                  <FABButton
+                    size={FAB_SIZE}
+                    onPress={() => handleFABPress(navigation)}
+                    activeOpacity={0.8}
+                  >
+                    <FABIcon source={noteIcon} />
+                  </FABButton>
+                  <FABLabel>이용권</FABLabel>
+                </FABContainer>
               </View>
             );
           },
@@ -394,7 +450,7 @@ function MainTabs() {
         name="Settlement"
         component={SettlementStack}
         options={{
-          title: '정산',
+          title: '청구',
           tabBarIcon: ({ focused }) => (
             <TabIconImage source={invoiceIcon} focused={focused} />
           ),

@@ -27,9 +27,9 @@ export class CreateContractDto {
   subject!: string;
 
   @IsArray()
-  @ArrayMinSize(1)
+  @IsOptional()
   @IsString({ each: true })
-  day_of_week!: string[];
+  day_of_week?: string[];
 
   @IsOptional()
   @IsString()

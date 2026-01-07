@@ -74,7 +74,10 @@ export default function AccountInfoModal({
     >
       <ModalContainer>
         <ModalHeader>
-          <ModalTitle>계좌 정보</ModalTitle>
+          <HeaderLeft>
+            <ModalTitle>계좌 정보</ModalTitle>
+            <ModalSubtitle>청구서에 안내할 계좌를 등록해 주세요.</ModalSubtitle>
+          </HeaderLeft>
           <CloseButton onPress={onClose}>
             <CloseButtonText>닫기</CloseButtonText>
           </CloseButton>
@@ -140,16 +143,28 @@ const ModalContainer = styled.View`
 const ModalHeader = styled.View`
   flex-direction: row;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   padding: 20px;
   border-bottom-width: 1px;
   border-bottom-color: #e0e0e0;
+`;
+
+const HeaderLeft = styled.View`
+  flex: 1;
+  margin-right: 12px;
 `;
 
 const ModalTitle = styled.Text`
   font-size: 18px;
   font-weight: 700;
   color: #111111;
+  margin-bottom: 4px;
+`;
+
+const ModalSubtitle = styled.Text`
+  font-size: 13px;
+  color: #666666;
+  margin-top: 4px;
 `;
 
 const CloseButton = styled.TouchableOpacity`
