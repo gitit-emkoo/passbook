@@ -66,7 +66,6 @@ function StatisticsContent() {
       >
         {/* 이번 달 통계 섹션 */}
         <Section>
-          <SectionTitle>이번달 이용권 통계</SectionTitle>
           <StatisticsGrid>
             <StatisticsCardTouchable onPress={() => navigation.navigate('RevenueStatistics')}>
               <StatisticsLabel>이번 달 매출</StatisticsLabel>

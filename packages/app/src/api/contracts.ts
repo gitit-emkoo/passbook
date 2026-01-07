@@ -87,6 +87,10 @@ export const contractsApi = {
     const response = await apiClient.get(`/api/v1/contracts/${contractId}/reservations`);
     return response.data;
   },
+  getAllReservations: async () => {
+    const response = await apiClient.get('/api/v1/contracts/reservations/all');
+    return response.data;
+  },
   updateReservation: async (
     contractId: number,
     reservationId: number,

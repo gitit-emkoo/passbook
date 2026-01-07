@@ -421,8 +421,8 @@ function StudentsListContent() {
                       {getContractTypeLabel(meta.contractType)}
                     </BadgeText>
                   </Badge>
-                  <Badge absencePolicy>
-                    <BadgeText absencePolicy>
+                  <Badge absencePolicy absencePolicyValue={contract.absence_policy}>
+                    <BadgeText absencePolicy absencePolicyValue={contract.absence_policy}>
                       {getAbsencePolicyLabel(contract.absence_policy)}
                     </BadgeText>
                   </Badge>
@@ -478,11 +478,15 @@ function StudentsListContent() {
             </FooterLeft>
             <ButtonGroup>
               {contract && !meta.isExpired ? (
-                <CardScheduleButton onPress={(e) => {
-                  e?.stopPropagation?.();
-                  handleSchedulePress(card);
-                }}>
-                  <CardScheduleButtonText>예약/변경</CardScheduleButtonText>
+                <CardScheduleButton
+                  onPress={(e) => {
+                    e?.stopPropagation?.();
+                    handleSchedulePress(card);
+                  }}
+                >
+                  <CardScheduleButtonText>
+                    일정 관리 <CardScheduleButtonArrow>{'>'}</CardScheduleButtonArrow>
+                  </CardScheduleButtonText>
                 </CardScheduleButton>
               ) : null}
               {meta.extendEligible ? (
@@ -571,14 +575,14 @@ function StudentsListContent() {
     return (
       <SectionIntro>
         <SectionHeaderLeft>
-        <SectionTitleText>
-          계약 중 고객 <SectionCount>{activeCardsAll.length}명</SectionCount>
-        </SectionTitleText>
-          <SectionSubtext>카드를 터치하면 예약 및 변경 계약 내용등을 상세하게 확인 할 수 있어요.</SectionSubtext>
+          <SectionTitleText>
+            계약 중 고객 <SectionCount>{activeCardsAll.length}명</SectionCount>
+          </SectionTitleText>
+          <SectionSubtext>일정 등록 변경 및 관리기록을 확인 할 수 있어요.</SectionSubtext>
         </SectionHeaderLeft>
         {showToggle && (
           <ShowMoreButtonInline onPress={() => setShowAllActive((prev) => !prev)}>
-            <ShowMoreButtonText>{showAllActive ? '닫기' : '고객 전체보기'}</ShowMoreButtonText>
+            <ShowMoreButtonText>{showAllActive ? '닫기' : '전체보기'}</ShowMoreButtonText>
           </ShowMoreButtonInline>
         )}
       </SectionIntro>
@@ -862,7 +866,7 @@ const BadgeContainer = styled.View`
   gap: 6px;
 `;
 
-const Badge = styled.View<{ contractType?: boolean; billingType?: boolean; absencePolicy?: boolean; billingTypeValue?: string; contractTypeValue?: 'sessions' | 'amount' | 'unknown' }>`
+const Badge = styled.View<{ contractType?: boolean; billingType?: boolean; absencePolicy?: boolean; billingTypeValue?: string; contractTypeValue?: 'sessions' | 'amount' | 'unknown'; absencePolicyValue?: string }>`
   padding: 4px 8px;
   background-color: ${(props) => {
     if (props.contractType) {
@@ -871,19 +875,26 @@ const Badge = styled.View<{ contractType?: boolean; billingType?: boolean; absen
     }
     if (props.billingType && props.billingTypeValue === 'prepaid') return '#e8f2ff';
     if (props.billingType && props.billingTypeValue === 'postpaid') return '#fff4e6';
+    if (props.absencePolicy) {
+      // 대체: 퍼플 배경, 소멸: 초록 배경
+      return props.absencePolicyValue === 'carry_over' ? '#f3e8ff' : '#f0f8f0';
+    }
     return '#f0f8f0';
   }};
   border-radius: 12px;
 `;
 
-const BadgeText = styled.Text<{ contractType?: boolean; absencePolicy?: boolean; billingTypeValue?: string; contractTypeValue?: 'sessions' | 'amount' | 'unknown' }>`
+const BadgeText = styled.Text<{ contractType?: boolean; absencePolicy?: boolean; billingTypeValue?: string; contractTypeValue?: 'sessions' | 'amount' | 'unknown'; absencePolicyValue?: string }>`
   font-size: 11px;
   color: ${(props) => {
     if (props.contractType) {
       // 금액권: 블루 텍스트, 횟수권: 빨강 텍스트
       return props.contractTypeValue === 'amount' ? '#246bfd' : '#ff3b30';
     }
-    if (props.absencePolicy) return '#34c759';
+    if (props.absencePolicy) {
+      // 대체: 퍼플 텍스트, 소멸: 초록 텍스트
+      return props.absencePolicyValue === 'carry_over' ? '#8b5cf6' : '#34c759';
+    }
     if (props.billingTypeValue === 'prepaid') return '#246bfd';
     if (props.billingTypeValue === 'postpaid') return '#ff9500';
     return '#246bfd';
@@ -1116,15 +1127,21 @@ const DeleteButtonText = styled.Text`
 `;
 
 const CardScheduleButton = styled.TouchableOpacity`
-  padding: 8px 14px;
-  border-radius: 8px;
-  background-color: #1d42d8;
+  padding: 4px 0;
 `;
 
 const CardScheduleButtonText = styled.Text`
-  font-size: 14px;
-  font-weight: 600;
-  color: #ffffff;
+  font-size: 12px;
+  font-weight: 500;
+  color: #6b7280; /* 회색 텍스트 */
+  flex-direction: row;
+`;
+
+const CardScheduleButtonArrow = styled.Text`
+  font-size: 12px;
+  font-weight: 500;
+  color: #6b7280;
+  margin-left: 2px;
 `;
 
 

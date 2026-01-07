@@ -56,6 +56,7 @@ function StudentDetailContent() {
   const [isMemoEditing, setIsMemoEditing] = useState(false);
   const [memoText, setMemoText] = useState('');
   const [isMemoSaving, setIsMemoSaving] = useState(false);
+  const [todayReservations, setTodayReservations] = useState<Array<{ time: string; student_name: string }>>([]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -584,7 +585,47 @@ const guardianLine = useMemo(() => {
     setSelectedDate(null);
     setSelectedHour(null);
     setSelectedMinute(null);
+    setTodayReservations([]);
   }, []);
+
+  // 선택한 날짜의 예약 조회 (시간 선택 단계에서)
+  useEffect(() => {
+    const loadSelectedDateReservations = async () => {
+      if (scheduleStep !== 'selectTime' || !selectedDate) {
+        setTodayReservations([]);
+        return;
+      }
+
+      try {
+        const data = await contractsApi.getAllReservations();
+        const reservations = Array.isArray(data) ? data : [];
+
+        // 선택한 날짜 기준으로 날짜 정규화
+        const selected = new Date(selectedDate);
+        selected.setHours(0, 0, 0, 0);
+
+        // 선택한 날짜의 예약만 필터링
+        const selectedDateReservations = reservations
+          .filter((reservation) => {
+            const reservationDate = new Date(reservation.reserved_date);
+            reservationDate.setHours(0, 0, 0, 0);
+            return reservationDate.getTime() === selected.getTime() && reservation.reserved_time;
+          })
+          .map((reservation) => ({
+            time: reservation.reserved_time || '',
+            student_name: reservation.student_name || '',
+          }))
+          .sort((a, b) => a.time.localeCompare(b.time));
+
+        setTodayReservations(selectedDateReservations);
+      } catch (error) {
+        console.error('[StudentDetail] Failed to load selected date reservations:', error);
+        setTodayReservations([]);
+      }
+    };
+
+    loadSelectedDateReservations();
+  }, [scheduleStep, selectedDate]);
 
   const handleSelectChangeMode = useCallback(async () => {
     if (!primaryContract) return;
@@ -624,6 +665,7 @@ const guardianLine = useMemo(() => {
 
       if (reservationsData && reservationsData.length === 0) {
         Alert.alert('안내', '변경할 예약이 없습니다.');
+        setShowScheduleModal(false);
         return;
       }
 
@@ -1664,8 +1706,8 @@ const guardianLine = useMemo(() => {
                 let selectableDate = false;
 
                 if (scheduleMode === 'add' && scheduleStep === 'selectDate') {
-                  // 예약 추가: 미래 날짜 중 예약이 없는 날짜만 선택 가능
-                  selectableDate = !isBeforeToday && !outOfRange && !hasReservation;
+                  // 예약 추가: 미래 날짜만 선택 가능 (예약이 있어도 선택 가능)
+                  selectableDate = !isBeforeToday && !outOfRange;
                 } else if (scheduleMode === 'change' && scheduleStep === 'selectOriginal') {
                   // 예약 변경: 예약된 날짜 중 출결 로그가 없는 날짜만 선택 가능
                   const reservationInfo = hasReservation ? reservationDates.get(dateStr) : null;
@@ -1800,6 +1842,25 @@ const guardianLine = useMemo(() => {
           {/* 시간 선택 UI (시간 선택 단계일 때만 표시) */}
           {scheduleStep === 'selectTime' && (
             <ScheduleTimeSelectionContainer>
+              {/* 선택한 날짜의 예약 타임라인 */}
+              <TodayReservationsContainer>
+                <TodayReservationsLabel>
+                  {selectedDate ? `${selectedDate.getMonth() + 1}월 ${selectedDate.getDate()}일 예약 시간` : '예약 시간'}
+                </TodayReservationsLabel>
+                {todayReservations.length > 0 ? (
+                  <TodayReservationsTimeline>
+                    {todayReservations.map((reservation, index) => (
+                      <TodayReservationItem key={index}>
+                        <TodayReservationTime>{reservation.time}</TodayReservationTime>
+                        <TodayReservationBar />
+                        <TodayReservationName>{reservation.student_name}</TodayReservationName>
+                      </TodayReservationItem>
+                    ))}
+                  </TodayReservationsTimeline>
+                ) : (
+                  <TodayReservationsEmptyText>이 날짜에는 예약이 없습니다</TodayReservationsEmptyText>
+                )}
+              </TodayReservationsContainer>
               <ScheduleTimeLabel>시간 선택 (선택사항)</ScheduleTimeLabel>
               <ScheduleTimeRow>
                 <ScheduleTimeColumn>
@@ -2732,6 +2793,58 @@ const ScheduleModeButtonText = styled.Text<{ $isChange?: boolean }>`
   font-size: 16px;
   font-weight: 600;
   color: ${(props: { $isChange?: boolean }) => (props.$isChange ? '#246bfd' : '#ffffff')};
+`;
+
+const TodayReservationsContainer = styled.View`
+  margin-bottom: 20px;
+  padding: 16px;
+  background-color: #f8f9fa;
+  border-radius: 12px;
+`;
+
+const TodayReservationsLabel = styled.Text`
+  font-size: 14px;
+  font-weight: 600;
+  color: #111111;
+  margin-bottom: 12px;
+`;
+
+const TodayReservationsTimeline = styled.View`
+  gap: 8px;
+`;
+
+const TodayReservationItem = styled.View`
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+`;
+
+const TodayReservationTime = styled.Text`
+  font-size: 13px;
+  font-weight: 600;
+  color: #666666;
+  width: 50px;
+`;
+
+const TodayReservationBar = styled.View`
+  flex: 1;
+  height: 24px;
+  background-color: #e8f2ff;
+  border-radius: 4px;
+`;
+
+const TodayReservationName = styled.Text`
+  font-size: 13px;
+  font-weight: 500;
+  color: #111111;
+  width: 60px;
+`;
+
+const TodayReservationsEmptyText = styled.Text`
+  font-size: 13px;
+  color: #999999;
+  text-align: center;
+  padding: 8px 0;
 `;
 
 const ScheduleTimeSelectionContainer = styled.View`

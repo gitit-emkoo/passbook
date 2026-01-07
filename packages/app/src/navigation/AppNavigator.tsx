@@ -29,6 +29,7 @@ import RevenueStatisticsScreen from '../screens/RevenueStatisticsScreen';
 import ContractStatisticsScreen from '../screens/ContractStatisticsScreen';
 import UsageAmountStatisticsScreen from '../screens/UsageAmountStatisticsScreen';
 import UsageCountStatisticsScreen from '../screens/UsageCountStatisticsScreen';
+import AllSchedulesScreen from '../screens/AllSchedulesScreen';
 import styled from 'styled-components/native';
 
 export type AuthStackParamList = {
@@ -167,6 +168,7 @@ export type HomeStackParamList = {
     attendanceLogId: number;
     studentPhone?: string;
   };
+  AllSchedules: undefined;
 };
 
 export type HomeStackNavigationProp = NativeStackNavigationProp<HomeStackParamList>;
@@ -207,6 +209,16 @@ function HomeStack() {
         component={AttendanceViewScreen}
         options={{
           title: '사용처리 완료 안내',
+          headerShown: true,
+          headerBackTitle: '뒤로',
+          headerBackVisible: true,
+        }}
+      />
+      <Stack.Screen
+        name="AllSchedules"
+        component={AllSchedulesScreen}
+        options={{
+          title: '일정 노트',
           headerShown: true,
           headerBackTitle: '뒤로',
           headerBackVisible: true,
@@ -298,12 +310,12 @@ function MainAppStack() {
       <Stack.Screen
         name="UnprocessedAttendance"
         component={UnprocessedAttendanceScreen}
-        options={{ title: '노쇼 처리' }}
+        options={{ title: '미처리 내역' }}
       />
       <Stack.Screen
         name="Statistics"
         component={StatisticsScreen}
-        options={{ title: '통계' }}
+        options={{ title: '이번 달 이용권 통계' }}
       />
       <Stack.Screen
         name="RevenueStatistics"
@@ -313,7 +325,7 @@ function MainAppStack() {
       <Stack.Screen
         name="ContractStatistics"
         component={ContractStatisticsScreen}
-        options={{ title: '월별 이용권 발행' }}
+        options={{ title: '이용권 발행' }}
       />
       <Stack.Screen
         name="UsageAmountStatistics"

@@ -1795,6 +1795,113 @@ export class ContractsService {
   }
 
   /**
+   * 전체 예약 조회 (모든 계약의 예약을 날짜별로 그룹핑)
+   */
+  async getAllReservations(userId: number) {
+    // 사용자의 모든 활성 계약 조회 (confirmed 또는 sent 상태)
+    const contracts = await this.prisma.contract.findMany({
+      where: {
+        user_id: userId,
+        status: { in: ['confirmed', 'sent'] },
+      },
+      include: {
+        student: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (contracts.length === 0) {
+      return [];
+    }
+
+    const contractIds = contracts.map((c) => c.id);
+
+    // 모든 예약 조회
+    const reservations = await (this.prisma as any).reservation.findMany({
+      where: {
+        contract_id: {
+          in: contractIds,
+        },
+      },
+      orderBy: {
+        reserved_date: 'asc',
+      },
+    });
+
+    if (reservations.length === 0) {
+      return [];
+    }
+
+    // 출결 로그 조회 (모든 계약의 출결 로그)
+    const attendanceLogs = await this.prisma.attendanceLog.findMany({
+      where: {
+        user_id: userId,
+        contract_id: {
+          in: contractIds,
+        },
+        voided: false,
+        status: 'present',
+      },
+      select: {
+        contract_id: true,
+        occurred_at: true,
+      },
+    });
+
+    // 출결 로그를 날짜별로 매핑 (계약별로 구분)
+    const attendanceLogMap = new Map<string, boolean>();
+    attendanceLogs.forEach((log) => {
+      const logDate = new Date(log.occurred_at);
+      const year = logDate.getFullYear();
+      const month = String(logDate.getMonth() + 1).padStart(2, '0');
+      const day = String(logDate.getDate()).padStart(2, '0');
+      const dateStr = `${year}-${month}-${day}`;
+      const key = `${log.contract_id}_${dateStr}`;
+      attendanceLogMap.set(key, true);
+    });
+
+    // 예약에 계약 정보와 출결 로그 정보 추가
+    const reservationsWithDetails = reservations.map((reservation: any) => {
+      const contract = contracts.find((c) => c.id === reservation.contract_id);
+      
+      // 날짜 문자열 생성
+      let dateStr: string;
+      if (reservation.reserved_date instanceof Date) {
+        const date = reservation.reserved_date;
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        dateStr = `${year}-${month}-${day}`;
+      } else if (typeof reservation.reserved_date === 'string') {
+        dateStr = reservation.reserved_date.includes('T')
+          ? reservation.reserved_date.split('T')[0]
+          : reservation.reserved_date;
+      } else {
+        dateStr = new Date(reservation.reserved_date).toISOString().split('T')[0];
+      }
+
+      const key = `${reservation.contract_id}_${dateStr}`;
+      const hasAttendance = attendanceLogMap.get(key) || false;
+
+      return {
+        id: reservation.id,
+        contract_id: reservation.contract_id,
+        reserved_date: reservation.reserved_date,
+        reserved_time: reservation.reserved_time,
+        student_name: (contract as any)?.student?.name || '',
+        student_id: (contract as any)?.student?.id || null,
+        has_attendance: hasAttendance,
+      };
+    });
+
+    return reservationsWithDetails;
+  }
+
+  /**
    * 예약 업데이트
    */
   async updateReservation(userId: number, contractId: number, reservationId: number, dto: { reserved_date?: string; reserved_time?: string | null }) {

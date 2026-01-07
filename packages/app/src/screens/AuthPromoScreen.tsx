@@ -89,4 +89,3 @@ const SkipText = styled.Text`
 `;
 
 
-

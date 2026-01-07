@@ -114,6 +114,13 @@ export class ContractsController {
     return this.contractsService.getReservations(user.id ?? user.sub, contractId);
   }
 
+  @Get('reservations/all')
+  @UseGuards(JwtAuthGuard)
+  async getAllReservations(@Req() req: Request) {
+    const user = req.user as any;
+    return this.contractsService.getAllReservations(user.id ?? user.sub);
+  }
+
   @Patch(':id/reservations/:reservationId')
   @UseGuards(JwtAuthGuard)
   async updateReservation(

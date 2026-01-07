@@ -36,6 +36,7 @@ const dashboardUnprocessedIcon = require('../../assets/p3.png');
 const dashboardSettlementIcon = require('../../assets/p4.png');
 const recentContractIcon = require('../../assets/bbb2.png');
 const guidanceEmptyIcon = require('../../assets/if1.png');
+const calendarIcon = require('../../assets/cal.png');
 
 interface TodayClass {
   id: number;
@@ -715,7 +716,7 @@ function HomeContent() {
           {/* 대시보드 요약 카드 */}
           <DashboardCardSection>
           <DashboardCardGrid>
-            <DashboardCard onPress={handleStudentsShortcut}>
+            <DashboardCard onPress={handleStudentsShortcut} activeOpacity={0.9}>
               <DashboardCardRow>
                 <DashboardIconColumn>
                   <DashboardIconWrapper>
@@ -731,7 +732,7 @@ function HomeContent() {
               </DashboardCardRow>
             </DashboardCard>
 
-            <DashboardCard onPress={handleScrollToToday}>
+            <DashboardCard onPress={handleScrollToToday} activeOpacity={0.9}>
               <DashboardCardRow>
                 <DashboardIconColumn>
                   <DashboardIconWrapper>
@@ -745,7 +746,7 @@ function HomeContent() {
               </DashboardCardRow>
             </DashboardCard>
 
-            <DashboardCard onPress={handleUnprocessedShortcut}>
+            <DashboardCard onPress={handleUnprocessedShortcut} activeOpacity={0.9}>
               <DashboardCardRow>
                 <DashboardIconColumn>
                   <DashboardIconWrapper>
@@ -753,13 +754,13 @@ function HomeContent() {
                   </DashboardIconWrapper>
                 </DashboardIconColumn>
                 <DashboardTextBlock>
-                  <DashboardLabel numberOfLines={1}>노쇼처리</DashboardLabel>
+                  <DashboardLabel numberOfLines={1}>미처리 내역</DashboardLabel>
                   <DashboardValue numberOfLines={1}>{unprocessedCount.toLocaleString()}건</DashboardValue>
                 </DashboardTextBlock>
               </DashboardCardRow>
             </DashboardCard>
 
-            <DashboardCard onPress={handleSettlementPress}>
+            <DashboardCard onPress={handleSettlementPress} activeOpacity={0.9}>
               <DashboardCardRow>
                 <DashboardIconColumn>
                   <DashboardIconWrapper>
@@ -852,8 +853,8 @@ function HomeContent() {
                               <ClassBadgeText contractType contractTypeValue={contractType}>{contractTypeLabel}</ClassBadgeText>
                             </ClassBadge>
                             {absencePolicyLabel && absencePolicyLabel !== '차감' && (
-                              <ClassBadge absencePolicy>
-                                <ClassBadgeText absencePolicy>{absencePolicyLabel}</ClassBadgeText>
+                              <ClassBadge absencePolicy absencePolicyValue={classItem.absence_policy}>
+                                <ClassBadgeText absencePolicy absencePolicyValue={classItem.absence_policy}>{absencePolicyLabel}</ClassBadgeText>
                               </ClassBadge>
                             )}
                           </ClassBadgeContainer>
@@ -942,6 +943,18 @@ function HomeContent() {
               })}
             </ListContainer>
           )}
+        </Section>
+
+        {/* 전체 일정 카드 섹션 */}
+        <Section>
+          <AllSchedulesCard onPress={() => homeNavigation.navigate('AllSchedules')}>
+            <AllSchedulesCardIcon source={calendarIcon} resizeMode="contain" />
+            <AllSchedulesCardContent>
+              <AllSchedulesCardTitle>&gt; Schedule Note</AllSchedulesCardTitle>
+              <AllSchedulesCardSubtitle>전체 예약 일정과 처리 내역을 확인하세요.</AllSchedulesCardSubtitle>
+            </AllSchedulesCardContent>
+            <AllSchedulesCardArrow>›</AllSchedulesCardArrow>
+          </AllSchedulesCard>
         </Section>
 
         {/* 2. 이번 달 신규 계약 섹션 */}
@@ -1384,27 +1397,33 @@ const ClassBadgeContainer = styled.View`
   gap: 6px;
 `;
 
-const ClassBadge = styled.View<{ contractType?: boolean; absencePolicy?: boolean; contractTypeValue?: 'sessions' | 'amount' }>`
+const ClassBadge = styled.View<{ contractType?: boolean; absencePolicy?: boolean; contractTypeValue?: 'sessions' | 'amount'; absencePolicyValue?: string }>`
   padding: 4px 8px;
-  background-color: ${(props: { contractType?: boolean; absencePolicy?: boolean; contractTypeValue?: 'sessions' | 'amount' }) => {
+  background-color: ${(props: { contractType?: boolean; absencePolicy?: boolean; contractTypeValue?: 'sessions' | 'amount'; absencePolicyValue?: string }) => {
     if (props.contractType) {
       // 선불권: 블루 배경, 횟수권: 빨강 배경
       return props.contractTypeValue === 'amount' ? '#e8f2ff' : '#ffe5e5';
     }
-    if (props.absencePolicy) return '#f0f8f0';
+    if (props.absencePolicy) {
+      // 대체: 퍼플 배경, 소멸: 초록 배경
+      return props.absencePolicyValue === 'carry_over' ? '#f3e8ff' : '#f0f8f0';
+    }
     return '#e8f2ff';
   }};
   border-radius: 12px;
 `;
 
-const ClassBadgeText = styled.Text<{ contractType?: boolean; absencePolicy?: boolean; contractTypeValue?: 'sessions' | 'amount' }>`
+const ClassBadgeText = styled.Text<{ contractType?: boolean; absencePolicy?: boolean; contractTypeValue?: 'sessions' | 'amount'; absencePolicyValue?: string }>`
   font-size: 11px;
-  color: ${(props: { contractType?: boolean; absencePolicy?: boolean; contractTypeValue?: 'sessions' | 'amount' }) => {
+  color: ${(props: { contractType?: boolean; absencePolicy?: boolean; contractTypeValue?: 'sessions' | 'amount'; absencePolicyValue?: string }) => {
     if (props.contractType) {
       // 선불권: 블루 텍스트, 횟수권: 빨강 텍스트
       return props.contractTypeValue === 'amount' ? '#246bfd' : '#ff3b30';
     }
-    if (props.absencePolicy) return '#34c759';
+    if (props.absencePolicy) {
+      // 대체: 퍼플 텍스트, 소멸: 초록 텍스트
+      return props.absencePolicyValue === 'carry_over' ? '#8b5cf6' : '#34c759';
+    }
     return '#246bfd';
   }};
   font-weight: 600;
@@ -1716,8 +1735,44 @@ const DashboardLabel = styled.Text`
 
 const DashboardValue = styled.Text`
   font-size: 18px;
+`;
+
+const AllSchedulesCard = styled.TouchableOpacity`
+  background-color: #ffffff;
+  border-radius: 12px;
+  padding: 20px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  border-width: 1px;
+  border-color: #e5e5e5;
+`;
+
+const AllSchedulesCardIcon = styled.Image`
+  width: 40px;
+  height: 40px;
+  margin-right: 16px;
+`;
+
+const AllSchedulesCardContent = styled.View`
+  flex: 1;
+`;
+
+const AllSchedulesCardTitle = styled.Text`
+  font-size: 18px;
   font-weight: 700;
+  color: #111111;
+  margin-bottom: 4px;
+`;
+
+const AllSchedulesCardSubtitle = styled.Text`
+  font-size: 14px;
+  color: #666666;
+`;
+
+const AllSchedulesCardArrow = styled.Text`
+  font-size: 24px;
   color: #1d42d8;
-  margin-top: 4px;
-  text-align: right;
+  margin-left: 16px;
+  font-weight: 700;
 `;

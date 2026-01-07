@@ -180,7 +180,10 @@ function UnprocessedAttendanceContent() {
       <Container>
         <CenteredContainer>
           <EmptyStateImage source={emptyStateIcon} resizeMode="contain" />
-          <CenteredText>노쇼 처리할 내역이 없습니다.</CenteredText>
+          <CenteredText>미처리 내역이 없습니다.</CenteredText>
+          <CenteredSubText>
+            관리 일정(오늘 방문 고객)에 등록되었으나 처리되지 않은 내역을 여기에서 처리할 수 있어요.
+          </CenteredSubText>
         </CenteredContainer>
       </Container>
     );
@@ -310,6 +313,14 @@ const CenteredText = styled.Text`
   font-size: 16px;
   color: #8e8e93;
   margin-top: 12px;
+`;
+
+const CenteredSubText = styled.Text`
+  margin-top: 8px;
+  font-size: 13px;
+  color: #9ca3af;
+  text-align: center;
+  line-height: 20px;
 `;
 
 const EmptyStateImage = styled.Image`
