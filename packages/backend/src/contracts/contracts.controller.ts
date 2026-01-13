@@ -1,5 +1,5 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Req, UseGuards } from '@nestjs/common';
-import { Request } from 'express';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Req, UseGuards, Header, Res } from '@nestjs/common';
+import { Request, Response } from 'express';
 import { ContractsService } from './contracts.service';
 import { CreateContractDto } from './dto/create-contract.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth/jwt-auth.guard';
@@ -17,7 +17,9 @@ export class ContractsController {
   @UseGuards(JwtAuthGuard)
   async create(@Req() req: Request, @Body() dto: CreateContractDto) {
     const user = req.user as any;
-    console.log(`[Contracts] POST /api/v1/contracts body=${JSON.stringify(dto)}`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[Contracts] POST /api/v1/contracts body=${JSON.stringify(dto)}`);
+    }
     return this.contractsService.create(user.id ?? user.sub, dto);
   }
 
@@ -27,7 +29,9 @@ export class ContractsController {
     const user = req.user as any;
     const userId = user.id ?? user.sub;
     const query = req.query;
-    console.log(`[Contracts] GET /api/v1/contracts userId=${userId} q=${JSON.stringify(query)}`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[Contracts] GET /api/v1/contracts userId=${userId} q=${JSON.stringify(query)}`);
+    }
     return this.contractsService.findAll(userId);
   }
 
@@ -66,9 +70,11 @@ export class ContractsController {
   ) {
     const user = req.user as any;
     const userId = user.id ?? user.sub;
-    console.log(
-      `[Contracts] PATCH /api/v1/contracts/${id}/status userId=${userId} body=${JSON.stringify(body)}`,
-    );
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(
+        `[Contracts] PATCH /api/v1/contracts/${id}/status userId=${userId} body=${JSON.stringify(body)}`,
+      );
+    }
     return this.contractsService.updateStatus(userId, id, body);
   }
 
@@ -81,15 +87,18 @@ export class ContractsController {
   ) {
     const user = req.user as any;
     const userId = user.id ?? user.sub;
-    console.log(`[Contracts] PATCH /api/v1/contracts/${id}/extend userId=${userId} body=${JSON.stringify(dto)}`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[Contracts] PATCH /api/v1/contracts/${id}/extend userId=${userId} body=${JSON.stringify(dto)}`);
+    }
     return this.contractsService.extend(userId, id, dto);
   }
 
   @Get(':id/view')
-  async getContractView(@Param('id', ParseIntPipe) id: number) {
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  async getContractView(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
     // 공개 엔드포인트: 인증 없이 계약서 조회 가능
     const html = await this.contractsService.generateContractHtml(id);
-    return { html };
+    return res.send(html);
   }
 
   // 예약 관련 API

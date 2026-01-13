@@ -12,7 +12,7 @@ import ContractSendModal from '../components/modals/ContractSendModal';
 import ExtendContractModal from '../components/modals/ExtendContractModal';
 import { StudentsStackNavigationProp, StudentsStackParamList } from '../navigation/AppNavigator';
 import type { RouteProp } from '@react-navigation/native';
-import { StudentAttendanceLog, StudentContractDetail } from '../types/students';
+import { StudentAttendanceLog, StudentContractDetail, ScheduleException } from '../types/students';
 
 const changeIcon = require('../../assets/Change.png');
 const z11Icon = require('../../assets/z11.png');
@@ -83,6 +83,13 @@ function StudentDetailContent() {
     }, [fetchStudentDetail, studentId]),
   );
 
+  const primaryContract: StudentContractDetail | undefined = useMemo(() => {
+    if (!Array.isArray(detail?.contracts) || detail.contracts.length === 0) return undefined;
+    const active = detail.contracts.find(
+      (c) => c.status === 'confirmed' || c.status === 'sent',
+    );
+    return active ?? detail.contracts[0];
+  }, [detail?.contracts]);
 
   const viewableContractId = primaryContract?.id ?? detail?.contracts?.[0]?.id;
 
@@ -152,11 +159,8 @@ function StudentDetailContent() {
         // 수강생 상세 정보 다시 불러오기
         await fetchStudentDetail(studentId, { force: true });
         
-        // 링크 복사인 경우 모달을 닫고, SMS 전송인 경우 모달에서 Alert를 표시하므로 여기서는 모달만 닫지 않음
-        if (channel === 'link') {
-          setShowSendModal(false);
-          setSelectedContract(null);
-        }
+        // 링크 복사인 경우는 이미 위에서 return 했으므로 여기 도달하지 않음
+        // SMS 전송인 경우 모달에서 Alert를 표시하므로 여기서는 모달만 닫지 않음
       } catch (error: any) {
         console.error('[StudentDetail] send contract error', error);
         Alert.alert('오류', error?.message || '계약서 전송에 실패했습니다.');
@@ -203,16 +207,12 @@ function StudentDetailContent() {
   const formatContractType = useCallback((contract: StudentContractDetail) => {
     const snapshot = (contract.policy_snapshot ?? {}) as Record<string, any>;
     const totalSessions = typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
-    // 선불권: totalSessions > 0이지만 ended_at이 있음
-    // 횟수권: totalSessions > 0이고 ended_at이 없음
-    if (totalSessions > 0 && !contract.ended_at) {
+    // 횟수권: totalSessions > 0 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
+    // 금액권: totalSessions === 0 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
+    if (totalSessions > 0) {
       return `횟수권 (${totalSessions}회)`;
-    } else if (totalSessions > 0 && contract.ended_at) {
-      // 선불권
-      return '선불권';
     }
-    // totalSessions가 0이거나 없는 경우 (레거시 데이터)
-    return contract.ended_at ? '선불권' : '횟수권';
+    return '금액권';
   }, []);
 
   const formatBillingType = useCallback((billingType: string | null | undefined) => {
@@ -268,14 +268,6 @@ function StudentDetailContent() {
     [fetchStudentDetail, studentId],
   );
 
-  const primaryContract: StudentContractDetail | undefined = useMemo(() => {
-    if (!Array.isArray(detail?.contracts) || detail.contracts.length === 0) return undefined;
-    const active = detail.contracts.find(
-      (c) => c.status === 'confirmed' || c.status === 'sent',
-    );
-    return active ?? detail.contracts[0];
-  }, [detail?.contracts]);
-
   const formattedSchedule = useMemo(() => {
     if (primaryContract && primaryContract.day_of_week && primaryContract.day_of_week.length > 0) {
       const days = formatDayOfWeek(primaryContract.day_of_week);
@@ -284,8 +276,8 @@ function StudentDetailContent() {
       }
       return days;
     }
-    return detail?.class_info ?? undefined;
-  }, [detail?.class_info, primaryContract]);
+    return undefined;
+  }, [primaryContract]);
 
 const guardianLine = useMemo(() => {
   const guardianName = detail?.guardian_name?.trim();
@@ -438,8 +430,8 @@ const guardianLine = useMemo(() => {
     const snapshot = (primaryContract.policy_snapshot ?? {}) as Record<string, any>;
     const totalSessions = typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
 
-    // 횟수권: totalSessions > 0 && !ended_at
-    if (totalSessions > 0 && !primaryContract.ended_at) {
+    // 횟수권: totalSessions > 0 (ended_at은 표시용/예약 범위 체크용일 뿐, 판별에 사용하지 않음)
+    if (totalSessions > 0) {
       const sessionsUsed =
         typeof primaryContract.sessions_used === 'number' ? primaryContract.sessions_used : 0;
       const remaining = Math.max(totalSessions - sessionsUsed, 0);
@@ -448,16 +440,13 @@ const guardianLine = useMemo(() => {
       return { extendEligible, extendReason };
     }
 
-    // 금액권: ended_at이 있음 (유효기간이 있음)
-    // 뷰티앱: 금액권도 선불 횟수 계약 로직 사용, 유효기간은 표시용/종료판단용만
-    if (primaryContract.ended_at) {
-      const totalAmount = primaryContract.monthly_amount ?? 0;
-      const amountUsed = primaryContract.amount_used ?? 0;
-      const remainingAmount = Math.max(totalAmount - amountUsed, 0);
-      const extendEligible = remainingAmount <= 20000; // 20,000원 이하
-      const extendReason = remainingAmount > 0 ? `잔여 ${remainingAmount.toLocaleString()}원` : '금액 모두 사용됨';
-      return { extendEligible, extendReason };
-    }
+    // 금액권: totalSessions === 0 (ended_at은 표시용/예약 범위 체크용일 뿐, 판별에 사용하지 않음)
+    const totalAmount = primaryContract.monthly_amount ?? 0;
+    const amountUsed = (primaryContract as any).amount_used ?? 0;
+    const remainingAmount = Math.max(totalAmount - amountUsed, 0);
+    const extendEligible = remainingAmount <= 20000; // 20,000원 이하
+    const extendReason = remainingAmount > 0 ? `잔여 ${remainingAmount.toLocaleString()}원` : '금액 모두 사용됨';
+    return { extendEligible, extendReason };
 
     return { extendEligible: false, extendReason: null };
   }, [primaryContract]);
@@ -755,13 +744,36 @@ const guardianLine = useMemo(() => {
       setSelectedHour(null);
       setSelectedMinute(null);
     } catch (error: any) {
-      console.error('[StudentDetail] add reservation error', error);
-      const errorMessage = typeof error?.response?.data?.message === 'string' 
-        ? error.response.data.message 
-        : typeof error?.message === 'string'
-        ? error.message
-        : '예약 추가에 실패했습니다.';
-      Alert.alert('오류', errorMessage);
+      // 개발 모드에서만 콘솔 에러 출력 (에러 오버레이 방지)
+      if (__DEV__) {
+        console.error('[StudentDetail] add reservation error', error);
+      }
+      
+      // 에러 메시지 추출 및 사용자 친화적 메시지로 변환
+      let errorMessage = '예약 추가에 실패했습니다.';
+      
+      // 백엔드에서 직접 오는 메시지 우선 확인
+      const backendMessage = error?.response?.data?.message;
+      if (typeof backendMessage === 'string') {
+        errorMessage = backendMessage;
+      } else if (backendMessage?.message && typeof backendMessage.message === 'string') {
+        // 중첩된 메시지 구조 처리 (예: { message: { message: "이미 예약된 날짜입니다." } })
+        errorMessage = backendMessage.message;
+      } else if (typeof error?.message === 'string') {
+        errorMessage = error.message;
+      }
+      
+      // "잘못된 요청입니다:" 접두사 제거 및 메시지 정리
+      if (errorMessage.includes('잘못된 요청입니다:')) {
+        errorMessage = errorMessage.replace('잘못된 요청입니다:', '').trim();
+      }
+      
+      // 중복 예약 관련 메시지인 경우 더 명확하게 표시
+      if (errorMessage.includes('이미 예약된 날짜') || errorMessage.includes('중복')) {
+        errorMessage = '이미 예약이 등록된 날짜입니다. 다른 날짜를 선택해주세요.';
+      }
+      
+      Alert.alert('알림', errorMessage);
     } finally {
       setScheduleSubmitting(false);
     }
@@ -875,7 +887,7 @@ const guardianLine = useMemo(() => {
     
     setIsMemoSaving(true);
     try {
-      await studentsApi.update(detail.id, { memo: memoText.trim() || null });
+      await studentsApi.update(detail.id, { memo: memoText.trim() || undefined });
       await fetchStudentDetail(studentId, { force: true });
       setIsMemoEditing(false);
       Alert.alert('완료', '메모가 저장되었습니다.');
@@ -894,8 +906,8 @@ const guardianLine = useMemo(() => {
     const snapshot = (primaryContract.policy_snapshot ?? {}) as Record<string, any>;
     const totalSessions = typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
 
-    // 횟수권: totalSessions > 0 && !ended_at
-    if (totalSessions > 0 && !primaryContract.ended_at) {
+    // 횟수권: totalSessions > 0 (ended_at은 표시용/예약 범위 체크용일 뿐, 판별에 사용하지 않음)
+    if (totalSessions > 0) {
       const sessionsUsed =
         typeof primaryContract.sessions_used === 'number' ? primaryContract.sessions_used : 0;
       const remaining = Math.max(totalSessions - sessionsUsed, 0);
@@ -906,20 +918,15 @@ const guardianLine = useMemo(() => {
       };
     }
 
-    // 금액권: ended_at이 있음 (유효기간이 있음)
-    // 뷰티앱: 금액권도 선불 횟수 계약 로직 사용, 유효기간은 표시용/종료판단용만
-    if (primaryContract.ended_at) {
-      const totalAmount = primaryContract.monthly_amount ?? 0;
-      const amountUsed = primaryContract.amount_used ?? 0;
-      const remainingAmount = Math.max(totalAmount - amountUsed, 0);
-      return {
-        contractType: 'amount' as const,
-        totalAmount,
-        remainingAmount,
-      };
-    }
-
-    return null;
+    // 금액권: totalSessions === 0 (ended_at은 표시용/예약 범위 체크용일 뿐, 판별에 사용하지 않음)
+    const totalAmount = primaryContract.monthly_amount ?? 0;
+    const amountUsed = (primaryContract as any).amount_used ?? 0;
+    const remainingAmount = Math.max(totalAmount - amountUsed, 0);
+    return {
+      contractType: 'amount' as const,
+      totalAmount,
+      remainingAmount,
+    };
   }, [primaryContract]);
 
   if (status === 'loading' && !detail) {
@@ -1033,7 +1040,7 @@ const guardianLine = useMemo(() => {
                   <ContractCard key={contract.id}>
                     <ContractCardHeader>
                       <ContractCardTitle>
-                        {contract.subject || contract.title || `계약 #${contract.id}`}
+                        {contract.subject || `계약 #${contract.id}`}
                       </ContractCardTitle>
                       <StatusBadge $color={getStatusColor(contract.status)}>
                         <StatusBadgeText $color={getStatusColor(contract.status)}>
@@ -1055,12 +1062,8 @@ const guardianLine = useMemo(() => {
                         <ContractInfoValue>{formatAbsencePolicy(contract.absence_policy)}</ContractInfoValue>
                       </ContractInfoRow>
                       {(() => {
-                        // 금액권인지 확인 (total_sessions가 없거나 0이면 금액권)
-                        const snapshot = (contract.policy_snapshot ?? {}) as Record<string, any>;
-                        const totalSessions = typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
-                        const isAmountVoucher = totalSessions === 0;
-                        
-                        if (isAmountVoucher && contract.started_at && contract.ended_at) {
+                        // 유효기간 표시 (금액권/횟수권 모두)
+                        if (contract.started_at && contract.ended_at) {
                           const startDate = new Date(contract.started_at);
                           const endDate = new Date(contract.ended_at);
                           const formatDate = (date: Date) => {
@@ -1218,19 +1221,22 @@ const guardianLine = useMemo(() => {
                     // 금액권인지 판단
                     const snapshot = primaryContract?.policy_snapshot ?? {};
                     const totalSessions = typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
-                    const isAmountBased = totalSessions === 0 && primaryContract?.ended_at; // 금액권
+                    const isAmountBased = totalSessions === 0; // 금액권 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
                     
-                    if (isAmountBased && log.status === 'present' && log.amount) {
+                    // 금액권이고 present 또는 vanish 상태일 때 amount 표시
+                    if (isAmountBased && (log.status === 'present' || log.status === 'vanish') && log.amount !== null && log.amount !== undefined) {
                       // 금액권의 경우: JSX로 분리하여 금액 부분만 빨간색으로 표시
                       const memoPart = memo ? ` ${memo}` : '';
-                      const needsSms = log.sms_sent === false;
-                      const smsSent = log.sms_sent === true;
+                      const needsSms = log.status === 'present' && log.sms_sent === false;
+                      const smsSent = log.status === 'present' && log.sms_sent === true;
+                      const amountText = log.amount === 0 ? '0원' : `-${log.amount.toLocaleString()}원`;
+                      
                       return (
                         <AttendanceItem key={log.id}>
                           <AttendanceLine>
                             <AttendanceDate $color={statusColor}>
-                              {dateText} 관리 ({' '}
-                              <AttendanceAmountText>-{log.amount.toLocaleString()}원</AttendanceAmountText>
+                              {dateText} {statusText} ({' '}
+                              <AttendanceAmountText>{amountText}</AttendanceAmountText>
                               {memoPart}
                               {' '})
                             </AttendanceDate>
@@ -1362,19 +1368,19 @@ const guardianLine = useMemo(() => {
                     <InvoicePeriod>{periodText}</InvoicePeriod>
                     <InvoiceAmount>{(invoice.final_amount ?? 0).toLocaleString()}원</InvoiceAmount>
                   </InvoiceInfo>
-                  {invoice.auto_adjustment !== undefined && invoice.auto_adjustment !== 0 && (
+                  {(invoice as any).auto_adjustment !== undefined && (invoice as any).auto_adjustment !== 0 && (
                     <InvoiceAdjustment>
-                      자동 조정: {invoice.auto_adjustment > 0 ? '+' : ''}{invoice.auto_adjustment.toLocaleString()}원
+                      자동 조정: {(invoice as any).auto_adjustment > 0 ? '+' : ''}{(invoice as any).auto_adjustment.toLocaleString()}원
                     </InvoiceAdjustment>
                   )}
-                  {invoice.manual_adjustment !== undefined && invoice.manual_adjustment !== 0 && (
+                  {(invoice as any).manual_adjustment !== undefined && (invoice as any).manual_adjustment !== 0 && (
                     <InvoiceAdjustment>
-                      수동 조정: {invoice.manual_adjustment > 0 ? '+' : ''}{invoice.manual_adjustment.toLocaleString()}원
-                      {invoice.manual_reason && ` (${invoice.manual_reason})`}
+                      수동 조정: {(invoice as any).manual_adjustment > 0 ? '+' : ''}{(invoice as any).manual_adjustment.toLocaleString()}원
+                      {(invoice as any).manual_reason && ` (${(invoice as any).manual_reason})`}
                     </InvoiceAdjustment>
                   )}
-                  {invoice.created_at && (
-                    <InvoiceDate>전송일: {new Date(invoice.created_at).toLocaleDateString('ko-KR')}</InvoiceDate>
+                  {(invoice as any).created_at && (
+                    <InvoiceDate>전송일: {new Date((invoice as any).created_at).toLocaleDateString('ko-KR')}</InvoiceDate>
                   )}
                 </InvoiceItem>
               );
@@ -1610,7 +1616,7 @@ const guardianLine = useMemo(() => {
               const scheduleExceptions = primaryContract?.schedule_exceptions ?? [];
               const originalDates = new Set<string>();
               const newDates = new Set<string>();
-              scheduleExceptions.forEach((ex) => {
+              scheduleExceptions.forEach((ex: ScheduleException) => {
                 const originalDate = new Date(ex.original_date);
                 originalDate.setHours(0, 0, 0, 0);
                 const newDate = new Date(ex.new_date);
@@ -2537,8 +2543,8 @@ const MonthPickerItem = styled.TouchableOpacity`
 
 const MonthPickerItemText = styled.Text<{ $selected?: boolean }>`
   font-size: 16px;
-  color: ${(props) => (props.$selected ? '#1d42d8' : '#111111')};
-  font-weight: ${(props) => (props.$selected ? '600' : '400')};
+  color: ${(props: { $selected?: boolean }) => (props.$selected ? '#1d42d8' : '#111111')};
+  font-weight: ${(props: { $selected?: boolean }) => (props.$selected ? '600' : '400')};
 `;
 
 const MonthPickerCheckmark = styled.Text`
@@ -2601,7 +2607,7 @@ const ScheduleModalHeader = styled.View`
 const ScheduleModalTitle = styled.Text<{ $isNewStep?: boolean }>`
   font-size: 18px;
   font-weight: 700;
-  color: ${({ $isNewStep }) => ($isNewStep ? '#ff6b00' : '#1d42d8')};
+  color: ${({ $isNewStep }: { $isNewStep?: boolean }) => ($isNewStep ? '#ff6b00' : '#1d42d8')};
   margin-bottom: 4px;
   text-align: center;
 `;
@@ -2723,7 +2729,7 @@ const ScheduleDayInner = styled.View<{
   border-radius: 17px;
   align-items: center;
   justify-content: center;
-  background-color: ${({ $isOriginalSelection, $isNewSelection }) => {
+  background-color: ${({ $isOriginalSelection, $isNewSelection }: { $isOriginalSelection?: boolean; $isNewSelection?: boolean }) => {
     if ($isOriginalSelection) return '#1d42d8'; // 원본 선택: 진한 파랑
     if ($isNewSelection) return '#ff6b00'; // 변경될 날짜 선택: 주황
     return 'transparent';
@@ -2737,8 +2743,8 @@ const ScheduleDayText = styled.Text<{
   $disabled?: boolean;
 }>`
   font-size: 13px;
-  font-weight: ${({ $selected }) => ($selected ? 700 : 500)};
-  color: ${({ $isOriginalSelection, $isNewSelection, $disabled }) => {
+  font-weight: ${({ $selected }: { $selected?: boolean }) => ($selected ? 700 : 500)};
+  color: ${({ $isOriginalSelection, $isNewSelection, $disabled }: { $isOriginalSelection?: boolean; $isNewSelection?: boolean; $disabled?: boolean }) => {
     if ($isOriginalSelection || $isNewSelection) return '#ffffff';
     if ($disabled) return '#c0c0c0';
     return '#111111';
@@ -2756,7 +2762,7 @@ const ScheduleDot = styled.View<{
   height: 4px;
   border-radius: 2px;
   margin-top: 3px;
-  background-color: ${({ $selected, $isNewSelection, $disabled, $isReservation, $hasAttendanceLog }) => {
+  background-color: ${({ $selected, $isNewSelection, $disabled, $isReservation, $hasAttendanceLog }: { $selected?: boolean; $isNewSelection?: boolean; $disabled?: boolean; $isReservation?: boolean; $hasAttendanceLog?: boolean }) => {
     if ($selected) return '#ffffff';
     // 출결 로그가 있는 예약 날짜는 회색 (비활성)
     if ($isReservation && $hasAttendanceLog) return '#c0c0c0';
@@ -2882,7 +2888,7 @@ const ScheduleTimeSelectionTitle = styled.Text`
 `;
 
 const ScheduleTimeButton = styled.TouchableOpacity<{ $selected?: boolean }>`
-  background-color: ${({ $selected }) => ($selected ? '#1d42d8' : '#f5f5f5')};
+  background-color: ${({ $selected }: { $selected?: boolean }) => ($selected ? '#1d42d8' : '#f5f5f5')};
   border-radius: 8px;
   padding: 12px;
   align-items: center;
@@ -2892,7 +2898,7 @@ const ScheduleTimeButton = styled.TouchableOpacity<{ $selected?: boolean }>`
 const ScheduleTimeButtonText = styled.Text<{ $selected?: boolean }>`
   font-size: 14px;
   font-weight: 500;
-  color: ${({ $selected }) => ($selected ? '#ffffff' : '#111111')};
+  color: ${({ $selected }: { $selected?: boolean }) => ($selected ? '#ffffff' : '#111111')};
 `;
 
 const ScheduleTimeSkipButton = styled.TouchableOpacity`
@@ -2944,7 +2950,7 @@ const MemoCancelButton = styled.TouchableOpacity<{ disabled?: boolean }>`
   padding: 10px 20px;
   background-color: #f5f5f5;
   border-radius: 8px;
-  opacity: ${({ disabled }) => (disabled ? 0.5 : 1)};
+  opacity: ${({ disabled }: { disabled?: boolean }) => (disabled ? 0.5 : 1)};
 `;
 
 const MemoCancelButtonText = styled.Text`
@@ -2957,7 +2963,7 @@ const MemoSaveButton = styled.TouchableOpacity<{ disabled?: boolean }>`
   padding: 10px 20px;
   background-color: #1d42d8;
   border-radius: 8px;
-  opacity: ${({ disabled }) => (disabled ? 0.5 : 1)};
+  opacity: ${({ disabled }: { disabled?: boolean }) => (disabled ? 0.5 : 1)};
 `;
 
 const MemoSaveButtonText = styled.Text`

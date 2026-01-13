@@ -6,9 +6,14 @@ import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // CORS 설정
+  // CORS 설정: 환경변수로 제어
+  const corsOrigin = process.env.CORS_ORIGIN;
+  const allowedOrigins = corsOrigin
+    ? corsOrigin.split(',').map((origin) => origin.trim())
+    : true; // 환경변수가 없으면 모든 origin 허용 (개발 환경)
+  
   app.enableCors({
-    origin: true,
+    origin: allowedOrigins,
     credentials: true,
   });
 
@@ -30,6 +35,8 @@ async function bootstrap() {
   const port = process.env.PORT || 3000;
   const host = process.env.HOST || '0.0.0.0';
   await app.listen(port, host);
-  console.log(`Application is running on: http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`Application is running on: http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
+  }
 }
 bootstrap();

@@ -22,6 +22,7 @@ import { StudentsStackNavigationProp, MainTabsNavigationProp } from '../navigati
 import ExtendContractModal from '../components/modals/ExtendContractModal';
 import { studentsApi } from '../api/students';
 import { contractsApi } from '../api/contracts';
+import { canAddContract, getSubscriptionInfo } from '../utils/subscription';
 import styled from 'styled-components/native';
 import { Image } from 'react-native';
 
@@ -126,8 +127,8 @@ function StudentsListContent() {
       typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
     const sessionsUsed = contract.sessions_used ?? 0;
 
-    // 횟수권: totalSessions > 0 && !ended_at
-    if (totalSessions > 0 && !contract.ended_at) {
+    // 횟수권: totalSessions > 0 (ended_at은 표시용/예약 범위 체크용일 뿐, 판별에 사용하지 않음)
+    if (totalSessions > 0) {
       const remaining = Math.max(totalSessions - sessionsUsed, 0);
       const isExpired = remaining <= 0;
       const extendEligible = remaining < 3; // 3회 미만
@@ -144,26 +145,23 @@ function StudentsListContent() {
       };
     }
 
-    // 금액권: ended_at이 있음 (유효기간이 있음)
-    // 뷰티앱: 금액권도 선불 횟수 계약 로직 사용, 유효기간은 표시용/종료판단용만
-    if (contract.ended_at) {
-      const totalAmount = contract.monthly_amount ?? 0;
-      const amountUsed = contract.amount_used ?? 0;
-      const remainingAmount = Math.max(totalAmount - amountUsed, 0);
-      const isExpired = remainingAmount <= 0; // 금액 모두 소진 시 종료
-      const extendEligible = remainingAmount <= 20000; // 20,000원 이하
-      const extendReason = remainingAmount > 0 ? `잔여 ${remainingAmount.toLocaleString()}원` : '금액 모두 사용됨';
-      return {
-        contractType: 'amount',
-        isExpired,
-        extendEligible,
-        extendReason,
-        remainingSessions: null,
-        totalSessions: null,
-        remainingAmount,
-        totalAmount,
-      };
-    }
+    // 금액권: totalSessions === 0 (ended_at은 표시용/예약 범위 체크용일 뿐, 판별에 사용하지 않음)
+    const totalAmount = contract.monthly_amount ?? 0;
+    const amountUsed = contract.amount_used ?? 0;
+    const remainingAmount = Math.max(totalAmount - amountUsed, 0);
+    const isExpired = remainingAmount <= 0; // 금액 모두 소진 시 종료
+    const extendEligible = remainingAmount <= 20000; // 20,000원 이하
+    const extendReason = remainingAmount > 0 ? `잔여 ${remainingAmount.toLocaleString()}원` : '금액 모두 사용됨';
+    return {
+      contractType: 'amount',
+      isExpired,
+      extendEligible,
+      extendReason,
+      remainingSessions: null,
+      totalSessions: null,
+      remainingAmount,
+      totalAmount,
+    };
 
     return {
       contractType: 'unknown',
@@ -635,12 +633,31 @@ function StudentsListContent() {
     return <View>{renderFooter}</View>;
   }, [renderFooter]);
 
-  const handleAddStudent = useCallback(() => {
+  const handleAddStudent = useCallback(async () => {
+    // 구독 체크
+    // 현재 이용권 개수 확인 (계약이 있는 학생 수)
+    const contractCount = filteredItems.filter((item) => item.latest_contract && item.latest_contract.status !== 'draft').length;
+    
+    const info = await getSubscriptionInfo(contractCount);
+    
+    // 구독이 없으면 안내 모달 표시
+    if (info.status === 'none') {
+      (mainTabsNavigation as any).navigate('Settings', { showSubscriptionIntro: true });
+      return;
+    }
+    
+    const canAdd = await canAddContract(contractCount);
+    if (!canAdd) {
+      // 구독 필요 안내
+      (mainTabsNavigation as any).navigate('Settings');
+      return;
+    }
+    
     // 홈 스택의 ContractNew로 이동
     (mainTabsNavigation as any).navigate('Home', {
       screen: 'ContractNew',
     });
-  }, [mainTabsNavigation]);
+  }, [mainTabsNavigation, filteredItems]);
 
   return (
     <Container>

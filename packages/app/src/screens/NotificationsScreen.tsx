@@ -262,7 +262,7 @@ export default function NotificationsScreen() {
 
       {loading ? (
         <Loader>
-          <ActivityIndicator color="#ff6b00" />
+          <ActivityIndicator color="#B22222" />
           <LoaderText>알림을 불러오는 중...</LoaderText>
         </Loader>
       ) : filteredItems.length === 0 ? (
@@ -279,7 +279,7 @@ export default function NotificationsScreen() {
           keyExtractor={(item) => String(item.id)}
           renderItem={renderItem}
           contentContainerStyle={{ paddingBottom: 40 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#ff6b00" />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#B22222" />}
         />
       )}
     </Container>
@@ -298,7 +298,7 @@ function formatKoreanDateTime(isoString: string) {
 
 const Container = styled.SafeAreaView`
   flex: 1;
-  background-color: #f4f0ff;
+  background-color: #f5f5f5;
   padding: 20px 20px 0;
 `;
 
@@ -336,9 +336,9 @@ const FilterChip = styled.TouchableOpacity<{ active: boolean }>`
   padding: 10px 18px;
   border-radius: 20px;
   border-width: 1px;
-  border-color: ${(props) => (props.active ? '#ff924a' : '#e1e1e1')};
-  background-color: ${(props) => (props.active ? '#ff6b00' : '#ffffff')};
-  shadow-color: #ffdcc2;
+  border-color: ${(props) => (props.active ? '#B22222' : '#e1e1e1')};
+  background-color: ${(props) => (props.active ? '#B22222' : '#ffffff')};
+  shadow-color: #B22222;
   shadow-opacity: ${(props) => (props.active ? 0.3 : 0)};
   shadow-offset: 0px 5px;
   shadow-radius: 12px;
@@ -432,7 +432,7 @@ const UnreadDot = styled.View`
   width: 8px;
   height: 8px;
   border-radius: 4px;
-  background-color: #ff6b00;
+  background-color: #B22222;
 `;
 
 const CardMessage = styled.Text`

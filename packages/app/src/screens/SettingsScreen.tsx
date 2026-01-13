@@ -1,6 +1,6 @@
 import React, { useCallback, useState, useEffect, useMemo } from 'react';
 import { ActivityIndicator, Alert, ScrollView, Switch, TextInput } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import styled from 'styled-components/native';
 import { usersApi } from '../api/users';
 import { useAuthStore } from '../store/useStore';
@@ -11,25 +11,13 @@ import AccountInfoModal from '../components/modals/AccountInfoModal';
 import ProfileEditModal from '../components/modals/ProfileEditModal';
 import LogoutModal from '../components/modals/LogoutModal';
 import WithdrawModal from '../components/modals/WithdrawModal';
-import BusinessIconModal from '../components/modals/BusinessIconModal';
-
-// 업종 아이콘 이모지 매핑 (나중에 실제 이미지로 교체 가능)
-const getBusinessIconEmoji = (iconId: string): string => {
-  const iconMap: Record<string, string> = {
-    health: '💪',
-    tutoring: '📚',
-    yoga: '🧘',
-    dance: '💃',
-    music: '🎵',
-    art: '🎨',
-    sports: '⚽',
-    language: '🌐',
-  };
-  return iconMap[iconId] || '?';
-};
+import SubscriptionIntroModal from '../components/modals/SubscriptionIntroModal';
+import { getSubscriptionInfo, activateFreeSubscription, SubscriptionStatus } from '../utils/subscription';
+import { useStudentsStore } from '../store/useStudentsStore';
 
 function SettingsContent() {
   const navigation = useNavigation();
+  const route = useRoute();
   const [loading, setLoading] = useState(false);
 
   // 기본 정보
@@ -51,13 +39,17 @@ function SettingsContent() {
 
   // 모달
   const [profileEditModalVisible, setProfileEditModalVisible] = useState(false);
-  const [businessIconModalVisible, setBusinessIconModalVisible] = useState(false);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
   const [withdrawModalVisible, setWithdrawModalVisible] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
+  const [subscriptionIntroModalVisible, setSubscriptionIntroModalVisible] = useState(false);
   
-  // 업종 아이콘
-  const [businessIcon, setBusinessIcon] = useState<string | null>(null);
+  // 구독 상태
+  const [subscriptionInfo, setSubscriptionInfo] = useState<{
+    status: SubscriptionStatus;
+    remainingDays: number | null;
+    contractCount: number;
+  } | null>(null);
 
   // 개발자 옵션
   const apiBaseUrl = useAuthStore((state) => state.apiBaseUrl);
@@ -135,13 +127,28 @@ function SettingsContent() {
         setAccountHolder('');
       }
       
-      // 업종 아이콘
-      setBusinessIcon(settings.business_icon || null);
+      // 구독 상태는 별도로 로드
     } catch (error: any) {
       console.error('[Settings] load error', error);
       Alert.alert('오류', '설정을 불러오지 못했습니다.');
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  // 구독 상태 로드
+  const loadSubscriptionInfo = useCallback(async () => {
+    try {
+      const students = useStudentsStore.getState().list.items;
+      const contractCount = students.filter((s) => s.latest_contract && s.latest_contract.status !== 'draft').length;
+      const info = await getSubscriptionInfo(contractCount);
+      setSubscriptionInfo({
+        status: info.status,
+        remainingDays: info.remainingDays,
+        contractCount: info.contractCount,
+      });
+    } catch (error) {
+      console.error('[Settings] Failed to load subscription info', error);
     }
   }, []);
 
@@ -153,7 +160,16 @@ function SettingsContent() {
         return;
       }
       loadSettings();
-    }, [loadSettings]),
+      loadSubscriptionInfo();
+      
+      // 네비게이션 파라미터 확인 (구독 안내 모달 표시)
+      const params = (route.params as any) || {};
+      if (params.showSubscriptionIntro) {
+        setSubscriptionIntroModalVisible(true);
+        // 파라미터 제거
+        navigation.setParams({ showSubscriptionIntro: undefined });
+      }
+    }, [loadSettings, loadSubscriptionInfo, route.params, navigation]),
   );
 
   const handleProfileEditSave = useCallback(() => {
@@ -172,13 +188,20 @@ function SettingsContent() {
     loadSettings();
   }, [loadSettings]);
 
-  const handleBusinessIconSave = useCallback(() => {
-    loadSettings();
-    setToastVisible(true);
-    setTimeout(() => {
-      setToastVisible(false);
-    }, 2000);
-  }, [loadSettings]);
+  // 구독 활성화
+  const handleActivateSubscription = useCallback(async () => {
+    try {
+      await activateFreeSubscription();
+      await loadSubscriptionInfo();
+      setToastVisible(true);
+      setTimeout(() => {
+        setToastVisible(false);
+      }, 2000);
+    } catch (error) {
+      Alert.alert('오류', '구독 활성화에 실패했습니다.');
+    }
+  }, [loadSubscriptionInfo]);
+
 
   const handleNoticePress = () => {
     navigation.navigate('NoticesList' as never);
@@ -235,16 +258,42 @@ function SettingsContent() {
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* 프로필 섹션 */}
         <ProfileSection>
-          <ProfileAvatarTouchable onPress={() => setBusinessIconModalVisible(true)}>
-            <ProfileAvatar>
-              {businessIcon ? (
-                <AvatarIcon>{getBusinessIconEmoji(businessIcon)}</AvatarIcon>
-              ) : (
-                <AvatarText>{userName ? userName.charAt(0) : '?'}</AvatarText>
-              )}
-            </ProfileAvatar>
-          </ProfileAvatarTouchable>
-          <ProfileIconHint>이미지를 터치해서 업종을 선택하세요.</ProfileIconHint>
+          {/* 구독 상태 섹션 1: 이미지 + 남은 기간 */}
+          <SubscriptionImageSection>
+            <SubscriptionImageContainer>
+              <SubscriptionImage
+                source={
+                  subscriptionInfo?.status === 'none'
+                    ? require('../../assets/lock.png')
+                    : require('../../assets/goodok.png')
+                }
+                resizeMode="contain"
+              />
+            </SubscriptionImageContainer>
+            {subscriptionInfo?.status === 'none' ? (
+              <SubscriptionDaysText>지금 바로 무료 이용을 시작해 보세요</SubscriptionDaysText>
+            ) : subscriptionInfo?.status === 'trial' && subscriptionInfo.remainingDays !== null ? (
+              <SubscriptionDaysText>무료 사용까지 {subscriptionInfo.remainingDays}일 남았습니다.</SubscriptionDaysText>
+            ) : subscriptionInfo?.status === 'free' ? (
+              <SubscriptionDaysText>이용권 {subscriptionInfo.contractCount}/5개</SubscriptionDaysText>
+            ) : subscriptionInfo?.status === 'paid' ? (
+              <SubscriptionDaysText>월 3,900원</SubscriptionDaysText>
+            ) : null}
+          </SubscriptionImageSection>
+
+          {/* 구독 상태 섹션 2: 버튼 */}
+          <SubscriptionButtonSection>
+            {subscriptionInfo?.status === 'none' ? (
+              <SubscriptionActivateButton onPress={handleActivateSubscription}>
+                <SubscriptionActivateButtonText>2개월 무료 체험 시작</SubscriptionActivateButtonText>
+              </SubscriptionActivateButton>
+            ) : (
+              <SubscriptionActiveButton disabled>
+                <SubscriptionActiveButtonText>구독 중</SubscriptionActiveButtonText>
+              </SubscriptionActiveButton>
+            )}
+          </SubscriptionButtonSection>
+
           <ProfileNameRow onPress={() => setProfileEditModalVisible(true)}>
           <ProfileName>{orgCode || '상호명 없음'}</ProfileName>
             <ChevronIcon>›</ChevronIcon>
@@ -396,11 +445,9 @@ function SettingsContent() {
         initialAccountNumber={accountNumber}
         initialAccountHolder={accountHolder}
       />
-      <BusinessIconModal
-        visible={businessIconModalVisible}
-        onClose={() => setBusinessIconModalVisible(false)}
-        onSave={handleBusinessIconSave}
-        initialIcon={businessIcon}
+      <SubscriptionIntroModal
+        visible={subscriptionIntroModalVisible}
+        onClose={() => setSubscriptionIntroModalVisible(false)}
       />
       <LogoutModal
         visible={logoutModalVisible}
@@ -667,10 +714,64 @@ const QuickAccessLabel = styled.Text`
   text-align: center;
 `;
 
-const ProfileIconHint = styled.Text`
-  font-size: 12px;
-  color: #6b7280;
+// 구독 상태 섹션 1: 이미지 + 남은 기간
+const SubscriptionImageSection = styled.View`
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 20px;
+  width: 100%;
+`;
+
+const SubscriptionImageContainer = styled.View`
+  width: 80px;
+  height: 80px;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 12px;
+`;
+
+const SubscriptionImage = styled.Image`
+  width: 80px;
+  height: 80px;
+`;
+
+const SubscriptionDaysText = styled.Text`
+  font-size: 15px;
+  color: #1d42d8;
   font-weight: 500;
   text-align: center;
-  margin-bottom: 12px;
+`;
+
+// 구독 상태 섹션 2: 버튼
+const SubscriptionButtonSection = styled.View`
+  width: 100%;
+  margin-bottom: 16px;
+`;
+
+const SubscriptionActivateButton = styled.TouchableOpacity`
+  background-color: #1d42d8;
+  padding: 14px;
+  border-radius: 8px;
+  align-items: center;
+  width: 100%;
+`;
+
+const SubscriptionActivateButtonText = styled.Text`
+  color: #fff;
+  font-size: 16px;
+  font-weight: bold;
+`;
+
+const SubscriptionActiveButton = styled.TouchableOpacity<{ disabled?: boolean }>`
+  background-color: #e0e0e0;
+  padding: 14px;
+  border-radius: 8px;
+  align-items: center;
+  width: 100%;
+`;
+
+const SubscriptionActiveButtonText = styled.Text`
+  color: #666;
+  font-size: 16px;
+  font-weight: bold;
 `;

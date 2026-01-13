@@ -1,5 +1,5 @@
-import { Controller, Post, Patch, Get, Param, Body, Req, UseGuards, ParseIntPipe, Query } from '@nestjs/common';
-import { Request } from 'express';
+import { Controller, Post, Patch, Get, Param, Body, Req, UseGuards, ParseIntPipe, Query, Res, Header } from '@nestjs/common';
+import { Request, Response } from 'express';
 import { AttendanceService } from './attendance.service';
 import { CreateAttendanceDto, UpdateAttendanceDto } from './dto/create-attendance.dto';
 import { VoidAttendanceDto } from './dto/void-attendance.dto';
@@ -14,10 +14,11 @@ export class AttendanceController {
    * 라우트 순서상 다른 :id 라우트보다 먼저 정의해야 함
    */
   @Get(':id/view')
-  async getAttendanceView(@Param('id', ParseIntPipe) id: number) {
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  async getAttendanceView(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
     // 공개 엔드포인트: 인증 없이 사용처리 기록 조회 가능
     const html = await this.attendanceService.generateAttendanceViewHtml(id);
-    return { html };
+    return res.send(html);
   }
 
   @Post()

@@ -44,6 +44,10 @@ export class CreateAttendanceDto {
   @IsOptional()
   @IsNumber()
   amount?: number | null; // 차감 금액 (금액권) 또는 사용 횟수 (횟수권, 기본값 1)
+
+  @IsOptional()
+  @IsNumber()
+  reservation_id?: number; // 예약 ID (대체일 지정 시 예약 날짜 업데이트용)
 }
 
 export class UpdateAttendanceDto {

@@ -35,7 +35,6 @@ export class DashboardService {
       distinct: ['student_id'],
     });
     const studentsCount = confirmedContractStudents.length;
-    console.log(`[Dashboard] studentsCount for userId=${userId}:`, studentsCount);
 
     // 총 계약 수 (확정/전송된 계약만 집계)
     const contractsCount = await this.prisma.contract.count({
@@ -44,7 +43,6 @@ export class DashboardService {
         status: { in: ['confirmed', 'sent'] },
       },
     });
-    console.log(`[Dashboard] contractsCount for userId=${userId}:`, contractsCount);
 
     // 비동기로 알림 생성 (응답 지연 없음)
     this.checkAndCreateNotifications(userId, currentYear, currentMonth).catch((err) => {
@@ -57,8 +55,6 @@ export class DashboardService {
       studentsCount,
       contractsCount,
     };
-    
-    console.log('[Dashboard] getSummary result', result);
     
     return result;
   }
@@ -85,15 +81,20 @@ export class DashboardService {
         send_status: 'sent',
       },
       select: {
+        id: true,
         final_amount: true,
+        invoice_number: true,
+        contract_id: true,
         contract: {
           select: {
+            id: true,
             policy_snapshot: true,
             ended_at: true,
           },
         },
       },
     });
+    
     let thisMonthRevenue = 0;
     let thisMonthAmountBasedRevenue = 0;
 
@@ -106,7 +107,8 @@ export class DashboardService {
         typeof snapshot.total_sessions === 'number'
           ? snapshot.total_sessions
           : (snapshot.total_sessions as number | undefined) ?? 0;
-      const isAmountBased = totalSessions === 0 && !!inv.contract?.ended_at;
+      const isAmountBased = totalSessions === 0; // 금액권 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
+      
       if (isAmountBased) {
         thisMonthAmountBasedRevenue += amount;
       }
@@ -123,7 +125,7 @@ export class DashboardService {
       },
     });
 
-    // 이번 달 사용 처리 금액(금액권) 합계
+    // 이번 달 사용 처리 금액(금액권) 합계 (사용 + 소멸)
     const thisMonthUsageAmountAgg = await this.prisma.attendanceLog.aggregate({
       where: {
         user_id: userId,
@@ -131,7 +133,7 @@ export class DashboardService {
           gte: monthStart,
           lte: monthEnd,
         },
-        status: 'present',
+        status: { in: ['present', 'vanish'] }, // 사용과 소멸 모두 포함
         voided: false,
         amount: { not: null },
       },
@@ -141,7 +143,7 @@ export class DashboardService {
     });
     const thisMonthUsageAmount = thisMonthUsageAmountAgg._sum.amount || 0;
 
-    // 이번 달 사용 처리 횟수(횟수권) 합계
+    // 이번 달 사용 처리 횟수(횟수권) 합계 (사용 + 소멸)
     const thisMonthUsageCount = await this.prisma.attendanceLog.count({
       where: {
         user_id: userId,
@@ -149,7 +151,7 @@ export class DashboardService {
           gte: monthStart,
           lte: monthEnd,
         },
-        status: 'present',
+        status: { in: ['present', 'vanish'] }, // 사용과 소멸 모두 포함
         voided: false,
         amount: null,
       },
@@ -362,7 +364,7 @@ export class DashboardService {
             gte: monthStart,
             lte: monthEnd,
           },
-          status: 'present',
+          status: { in: ['present', 'vanish'] }, // 사용과 소멸 모두 포함
           voided: false,
           amount: { not: null },
         },
@@ -392,7 +394,7 @@ export class DashboardService {
       const monthStart = new Date(Date.UTC(currentYear, month - 1, 1, 0, 0, 0, 0));
       const monthEnd = new Date(Date.UTC(currentYear, month, 0, 23, 59, 59, 999));
 
-      // 횟수권 계약의 사용처리 횟수 (status='present'이고 amount가 null인 경우)
+      // 횟수권 계약의 사용처리 횟수 (사용 + 소멸, amount가 null인 경우)
       const count = await this.prisma.attendanceLog.count({
         where: {
           user_id: userId,
@@ -400,7 +402,7 @@ export class DashboardService {
             gte: monthStart,
             lte: monthEnd,
           },
-          status: 'present',
+          status: { in: ['present', 'vanish'] }, // 사용과 소멸 모두 포함
           voided: false,
           amount: null,
         },
@@ -445,8 +447,8 @@ export class DashboardService {
       const totalSessions = typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
       const endedAt = contract.ended_at ? new Date(contract.ended_at) : null;
 
-      // 횟수권: 사용된 횟수 계산 (totalSessions > 0 && !ended_at)
-      if (totalSessions > 0 && !endedAt) {
+      // 횟수권: 사용된 횟수 계산 (totalSessions > 0, ended_at은 표시용일 뿐, 판별에 사용하지 않음)
+      if (totalSessions > 0) {
         const usedSessions = await this.prisma.attendanceLog.count({
           where: {
             user_id: userId,
@@ -471,8 +473,8 @@ export class DashboardService {
         }
       }
 
-      // 금액권: 잔여금액 계산 (ended_at이 있음, 뷰티앱: 잔여금액 20,000원 이하)
-      if (endedAt && totalSessions === 0) {
+      // 금액권: 잔여금액 계산 (totalSessions === 0, ended_at은 표시용일 뿐, 판별에 사용하지 않음, 뷰티앱: 잔여금액 20,000원 이하)
+      if (totalSessions === 0) {
         // 사용된 금액 계산
         const attendanceLogsWithAmount = await this.prisma.attendanceLog.findMany({
           where: {

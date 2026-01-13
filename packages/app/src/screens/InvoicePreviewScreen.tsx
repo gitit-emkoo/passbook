@@ -24,6 +24,7 @@ const LoadingContainer = styled.View`
 const WebViewContainer = styled.View`
   width: ${SCREEN_WIDTH}px;
   flex: 1;
+  overflow: hidden;
 `;
 
 const Footer = styled.View`
@@ -55,11 +56,12 @@ const PageIndicator = styled.View`
   gap: 8px;
 `;
 
-const IndicatorDot = styled.View<{ $active: boolean }>`
+const IndicatorDot = styled.TouchableOpacity<{ $active: boolean }>`
   width: ${props => props.$active ? '8px' : '6px'};
   height: ${props => props.$active ? '8px' : '6px'};
   border-radius: ${props => props.$active ? '4px' : '3px'};
   background-color: ${props => props.$active ? '#1d42d8' : '#d0d0d0'};
+  margin: 0 4px;
 `;
 
 function InvoicePreviewContent() {
@@ -143,11 +145,15 @@ function InvoicePreviewContent() {
     }
   };
 
-  const handleScroll = (event: any) => {
-    const offsetX = event.nativeEvent.contentOffset.x;
-    const index = Math.round(offsetX / SCREEN_WIDTH);
-    if (index !== currentIndex && index >= 0 && index < htmls.length) {
+  const handleDotPress = (index: number) => {
+    if (index >= 0 && index < htmls.length && index !== currentIndex) {
       setCurrentIndex(index);
+      if (flatListRef.current) {
+        flatListRef.current.scrollToIndex({
+          index,
+          animated: true,
+        });
+      }
     }
   };
 
@@ -164,10 +170,14 @@ function InvoicePreviewContent() {
           scrollEnabled={true}
           bounces={false}
           overScrollMode="never"
-          nestedScrollEnabled={true}
+          nestedScrollEnabled={false}
           androidLayerType="hardware"
           cacheEnabled={true}
-          cacheMode="LOAD_CACHE_ELSE_NETWORK"
+          cacheMode="LOAD_DEFAULT"
+          directionalLockEnabled={true}
+          startInLoadingState={false}
+          domStorageEnabled={false}
+          sharedCookiesEnabled={false}
         />
       ) : (
         <LoadingContainer>
@@ -203,10 +213,12 @@ function InvoicePreviewContent() {
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
-        onScroll={handleScroll}
+        scrollEnabled={false}
         scrollEventThrottle={16}
         decelerationRate="fast"
         bounces={false}
+        nestedScrollEnabled={false}
+        removeClippedSubviews={false}
         getItemLayout={(_, index) => ({
           length: SCREEN_WIDTH,
           offset: SCREEN_WIDTH * index,
@@ -224,7 +236,12 @@ function InvoicePreviewContent() {
       {htmls.length > 1 && (
         <PageIndicator>
           {htmls.map((_, index) => (
-            <IndicatorDot key={index} $active={index === currentIndex} />
+            <IndicatorDot
+              key={index}
+              $active={index === currentIndex}
+              onPress={() => handleDotPress(index)}
+              activeOpacity={0.7}
+            />
           ))}
         </PageIndicator>
       )}

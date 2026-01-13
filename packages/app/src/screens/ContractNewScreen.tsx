@@ -243,6 +243,29 @@ export default function ContractNewScreen() {
       Alert.alert('입력 오류', '수강생 연락처는 010-1234-5678 형식으로 입력해주세요.');
       return false;
     }
+    // 횟수권일 때 총 회차 및 총 금액 검증
+    if (lessonType === 'sessions') {
+      const total = Number(totalSessions) || 0;
+      const totalAmt = Number(sessionsTotalAmount) || 0;
+      if (total <= 0) {
+        Alert.alert('입력 오류', '횟수권의 총 회차를 입력해주세요.');
+        return false;
+      }
+      if (totalAmt <= 0) {
+        Alert.alert('입력 오류', '횟수권의 총 금액을 입력해주세요.');
+        return false;
+      }
+    }
+    // 청구서 수신 전화번호 검증
+    // recipientTargets가 입력되어 있으면 형식 검증, 없으면 studentPhone 사용 (이미 검증됨)
+    if (recipientTargets.length > 0 && recipientTargets[0].trim()) {
+      const trimmedRecipientPhone = recipientTargets[0].trim();
+      if (!phoneRegex.test(trimmedRecipientPhone.replace(/\s+/g, ''))) {
+        Alert.alert('입력 오류', '청구서 수신 전화번호는 010-1234-5678 형식으로 입력해주세요.');
+        return false;
+      }
+    }
+    // recipientTargets가 비어있으면 studentPhone을 사용하므로 이미 검증됨
     if (!subject.trim()) {
       Alert.alert('입력 오류', '과목명을 입력해주세요.');
       return false;
@@ -335,6 +358,14 @@ export default function ContractNewScreen() {
     loadSettings();
   }, []);
 
+  // 전화번호 포맷팅 (입력 중 자동 하이픈 추가): 01012345678 -> 010-1234-5678
+  const formatPhone = useCallback((text: string): string => {
+    const numbers = text.replace(/[^0-9]/g, '');
+    if (numbers.length <= 3) return numbers;
+    if (numbers.length <= 7) return `${numbers.slice(0, 3)}-${numbers.slice(3)}`;
+    return `${numbers.slice(0, 3)}-${numbers.slice(3, 7)}-${numbers.slice(7, 11)}`;
+  }, []);
+
   const normalizePhone = useCallback((phone: string): string => {
     const cleaned = phone.replace(/[^0-9]/g, '');
     if (cleaned.length === 11 && cleaned.startsWith('010')) {
@@ -375,13 +406,20 @@ export default function ContractNewScreen() {
       // 2. recipient_targets 최종 설정 (정규화된 전화번호 사용)
       const finalRecipientTargets: string[] = [];
       // recipientTargets가 비어있으면 고객 전화번호 사용
-      if (recipientTargets.length > 0) {
+      if (recipientTargets.length > 0 && recipientTargets[0].trim()) {
         recipientTargets.forEach((target) => {
           const normalized = normalizePhone(target);
           if (normalized) finalRecipientTargets.push(normalized);
         });
       } else if (normalizedStudentPhone) {
         finalRecipientTargets.push(normalizedStudentPhone);
+      }
+      
+      // 안전장치: finalRecipientTargets가 비어있으면 에러 (validateForm에서 이미 검증했지만 이중 체크)
+      if (finalRecipientTargets.length === 0) {
+        Alert.alert('입력 오류', '청구서를 받으실 전화번호를 입력하거나 고객정보의 연락처를 사용해주세요.');
+        setLoading(false);
+        return;
       }
 
       // 3. 계약서 생성 (초안 저장 - draft 상태)
@@ -398,8 +436,11 @@ export default function ContractNewScreen() {
         const total = Number(totalSessions) || 0;
         const totalAmt = Number(sessionsTotalAmount) || 0;
         const per = total > 0 ? roundToNearestHundred(totalAmt / total) : 0;
-        policySnapshot.total_sessions = total;
-        policySnapshot.per_session_amount = per;
+        // 횟수권일 때만 total_sessions를 명시적으로 설정 (0이면 전송하지 않음)
+        if (total > 0) {
+          policySnapshot.total_sessions = total;
+          policySnapshot.per_session_amount = per;
+        }
       } else if (lessonType === 'monthly') {
         // 월단위: 예정 회차 계산 및 단가 계산
         policySnapshot.per_session_amount = effectivePerSessionAmount;
@@ -430,10 +471,10 @@ export default function ContractNewScreen() {
         attendance_requires_signature: attendanceRequiresSignature,
         recipient_policy: 'student_only', // 뷰티 앱에서는 고객만
         recipient_targets: finalRecipientTargets,
+        started_at: formatDateOnly(startDate),
+        ended_at: formatDateOnly(endDate),
         ...(lessonType === 'monthly'
           ? {
-              started_at: formatDateOnly(startDate),
-              ended_at: formatDateOnly(endDate),
               payment_schedule: paymentSchedule, // 월납 / 일시납
             }
           : {}),
@@ -499,10 +540,11 @@ export default function ContractNewScreen() {
           <FormLabel label="연락처" required />
           <TextInput
             value={studentPhone}
-            onChangeText={setStudentPhone}
+            onChangeText={(text) => setStudentPhone(formatPhone(text))}
             placeholder="010-0000-0000"
             keyboardType="phone-pad"
             autoCapitalize="none"
+            maxLength={13}
           />
         </Section>
 
@@ -550,89 +592,83 @@ export default function ContractNewScreen() {
             ))}
           </OptionsContainer>
 
-          {/* 계약 기간 */}
-          {lessonType === 'monthly' ? (
-            <>
-              <FormLabel label="이용권 발행일" required />
-              <DatePickerButton onPress={() => setShowStartDatePicker(true)}>
-                <DatePickerText>
-                  {startDate.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })}
-                </DatePickerText>
-                <DatePickerCaret>▾</DatePickerCaret>
-              </DatePickerButton>
-              {showStartDatePicker && (
-                <DateTimePicker
-                  value={startDate}
-                  mode="date"
-                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                  onChange={(event, selectedDate) => {
-                    setShowStartDatePicker(Platform.OS === 'ios');
-                    if (selectedDate) {
-                      setStartDate(selectedDate);
-                      if (selectedDate > endDate) {
-                        const newEndDate = new Date(selectedDate);
-                        newEndDate.setFullYear(newEndDate.getFullYear() + 1);
-                        newEndDate.setDate(newEndDate.getDate() - 1); // 하루전 (예: 12.24 ~ 다음년 12.23)
-                        setEndDate(newEndDate);
-                      }
-                    }
-                  }}
-                />
-              )}
+          {/* 유효기간 */}
+          <FormLabel label="이용권 발행일" required />
+          <DatePickerButton onPress={() => setShowStartDatePicker(true)}>
+            <DatePickerText>
+              {startDate.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })}
+            </DatePickerText>
+            <DatePickerCaret>▾</DatePickerCaret>
+          </DatePickerButton>
+          {showStartDatePicker && (
+            <DateTimePicker
+              value={startDate}
+              mode="date"
+              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              onChange={(event, selectedDate) => {
+                setShowStartDatePicker(Platform.OS === 'ios');
+                if (selectedDate) {
+                  setStartDate(selectedDate);
+                  if (selectedDate > endDate) {
+                    const newEndDate = new Date(selectedDate);
+                    newEndDate.setFullYear(newEndDate.getFullYear() + 1);
+                    newEndDate.setDate(newEndDate.getDate() - 1); // 하루전 (예: 12.24 ~ 다음년 12.23)
+                    setEndDate(newEndDate);
+                  }
+                }
+              }}
+            />
+          )}
 
-              <FormLabel label="이용권 종료일" required />
-              <DatePickerButton onPress={() => {
-                // 캘린더를 열 때 현재 일자 저장
-                setEndDateDay(endDate.getDate());
-                setShowEndDatePicker(true);
-              }}>
-                <DatePickerText>
-                  {endDate.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })}
-                </DatePickerText>
-                <DatePickerCaret>▾</DatePickerCaret>
-              </DatePickerButton>
-              {showEndDatePicker && (
-                <DateTimePicker
-                  value={endDate}
-                  mode="date"
-                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                  minimumDate={startDate}
-                  onChange={(event, selectedDate) => {
-                    setShowEndDatePicker(Platform.OS === 'ios');
-                    if (selectedDate) {
-                      // 선택된 날짜의 월이 변경되었는지 확인
-                      const selectedMonth = selectedDate.getMonth();
-                      const selectedYear = selectedDate.getFullYear();
-                      const currentMonth = endDate.getMonth();
-                      const currentYear = endDate.getFullYear();
-                      
-                      // 월이 변경되었으면 일자는 유지
-                      if (selectedMonth !== currentMonth || selectedYear !== currentYear) {
-                        // 해당 월의 마지막 날짜 확인
-                        const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
-                        const dayToUse = Math.min(endDateDay, daysInMonth);
-                        
-                        const newEndDate = new Date(selectedYear, selectedMonth, dayToUse);
-                        // 최소 날짜 체크
-                        if (newEndDate >= startDate) {
-                          setEndDate(newEndDate);
-                        } else {
-                          // 최소 날짜보다 이전이면 선택된 날짜 사용
-                          setEndDate(selectedDate);
-                          setEndDateDay(selectedDate.getDate());
-                        }
-                      } else {
-                        // 월이 변경되지 않았으면 선택된 날짜 사용 (일자 변경)
-                        setEndDate(selectedDate);
-                        setEndDateDay(selectedDate.getDate());
-                      }
+          <FormLabel label="이용권 종료일" required />
+          <DatePickerButton onPress={() => {
+            // 캘린더를 열 때 현재 일자 저장
+            setEndDateDay(endDate.getDate());
+            setShowEndDatePicker(true);
+          }}>
+            <DatePickerText>
+              {endDate.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })}
+            </DatePickerText>
+            <DatePickerCaret>▾</DatePickerCaret>
+          </DatePickerButton>
+          {showEndDatePicker && (
+            <DateTimePicker
+              value={endDate}
+              mode="date"
+              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              minimumDate={startDate}
+              onChange={(event, selectedDate) => {
+                setShowEndDatePicker(Platform.OS === 'ios');
+                if (selectedDate) {
+                  // 선택된 날짜의 월이 변경되었는지 확인
+                  const selectedMonth = selectedDate.getMonth();
+                  const selectedYear = selectedDate.getFullYear();
+                  const currentMonth = endDate.getMonth();
+                  const currentYear = endDate.getFullYear();
+                  
+                  // 월이 변경되었으면 일자는 유지
+                  if (selectedMonth !== currentMonth || selectedYear !== currentYear) {
+                    // 해당 월의 마지막 날짜 확인
+                    const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
+                    const dayToUse = Math.min(endDateDay, daysInMonth);
+                    
+                    const newEndDate = new Date(selectedYear, selectedMonth, dayToUse);
+                    // 최소 날짜 체크
+                    if (newEndDate >= startDate) {
+                      setEndDate(newEndDate);
+                    } else {
+                      // 최소 날짜보다 이전이면 선택된 날짜 사용
+                      setEndDate(selectedDate);
+                      setEndDateDay(selectedDate.getDate());
                     }
-                  }}
-                />
-              )}
-            </>
-          ) : (
-            <HelperText>횟수제 계약은 기간 입력 없이 회차만으로 관리됩니다.</HelperText>
+                  } else {
+                    // 월이 변경되지 않았으면 선택된 날짜 사용 (일자 변경)
+                    setEndDate(selectedDate);
+                    setEndDateDay(selectedDate.getDate());
+                  }
+                }
+              }}
+            />
           )}
 
           {lessonType === 'monthly' && (
@@ -821,10 +857,14 @@ export default function ContractNewScreen() {
           </CustomerPhoneButton>
           <TextInput
             value={recipientTargets.length > 0 ? recipientTargets[0] : ''}
-            onChangeText={(text) => setRecipientTargets(text.trim() ? [text.trim()] : [])}
+            onChangeText={(text) => {
+              const formatted = formatPhone(text);
+              setRecipientTargets(formatted.trim() ? [formatted.trim()] : []);
+            }}
             placeholder="청구서가 발송될 전화번호를 입력하세요."
             keyboardType="phone-pad"
             autoCapitalize="none"
+            maxLength={13}
           />
           <FormLabel label="계좌 정보" required />
           <HelperText>설정에서 등록한 계좌가 없다면 여기에서 직접 입력해 주세요.</HelperText>
@@ -1285,9 +1325,13 @@ function autoPerSessionFromSessions(total: string, totalAmount: string, current:
 }
 
 function autoPerSessionFromMonthly(monthAmt: string, planned: number, current: string, contractMonths?: number, paymentSchedule?: 'monthly' | 'lump_sum'): string {
-  console.log('[autoPerSessionFromMonthly]', { monthAmt, planned, current, contractMonths, paymentSchedule });
+  if (__DEV__) {
+    console.log('[autoPerSessionFromMonthly]', { monthAmt, planned, current, contractMonths, paymentSchedule });
+  }
   if (current?.trim().length) {
-    console.log('[autoPerSessionFromMonthly] 기존 값 사용:', current);
+    if (__DEV__) {
+      console.log('[autoPerSessionFromMonthly] 기존 값 사용:', current);
+    }
     return current;
   }
   // 일시납부의 경우: 총 금액 / 총 회차
@@ -1296,14 +1340,18 @@ function autoPerSessionFromMonthly(monthAmt: string, planned: number, current: s
     const totalAmount = Number(cleanedAmount) || 0;
     if (planned > 0 && totalAmount > 0) {
       const autoValue = roundToNearestHundred(totalAmount / planned);
-      console.log('[autoPerSessionFromMonthly] 일시납부 계산:', { totalAmount, planned, autoValue });
+      if (__DEV__) {
+        console.log('[autoPerSessionFromMonthly] 일시납부 계산:', { totalAmount, planned, autoValue });
+      }
       return autoValue > 0 ? String(autoValue) : '';
     }
     return '';
   }
   // 월납부의 경우: 기존 로직
   const autoValue = calculateAutoPerSessionFromMonthly(monthAmt, planned, contractMonths);
-  console.log('[autoPerSessionFromMonthly] 월납부 계산:', { autoValue });
+  if (__DEV__) {
+    console.log('[autoPerSessionFromMonthly] 월납부 계산:', { autoValue });
+  }
   return autoValue > 0 ? String(autoValue) : '';
 }
 
@@ -1332,16 +1380,18 @@ function calculateAutoPerSessionFromMonthly(monthAmt: string, planned: number, c
     const result = roundToNearestHundred(totalAmount / plannedCount);
     
     // 디버깅: 계산 값 확인
-    console.log('[단가계산]', {
-      monthAmt,
-      cleanedAmount,
-      monthlyAmount,
-      months,
-      plannedCount,
-      totalAmount,
-      result,
-      contractMonths,
-    });
+    if (__DEV__) {
+      console.log('[단가계산]', {
+        monthAmt,
+        cleanedAmount,
+        monthlyAmount,
+        months,
+        plannedCount,
+        totalAmount,
+        result,
+        contractMonths,
+      });
+    }
     
     return result;
   }

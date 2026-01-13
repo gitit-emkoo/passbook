@@ -279,11 +279,6 @@ function HomeContent() {
       // 사용처리 완료 안내 미리보기 화면으로 이동
       if (result?.id) {
         const studentPhone = selectedClassItem.student?.phone;
-        console.log('[Home] Navigating to AttendanceView', { 
-          attendanceLogId: result.id, 
-          studentPhone,
-          student: selectedClassItem.student 
-        });
         homeNavigation.navigate('AttendanceView', {
           attendanceLogId: result.id,
           studentPhone: studentPhone || undefined,
@@ -357,9 +352,10 @@ function HomeContent() {
 
   // 결석/대체 기록 API 호출
   const handleAttendanceAbsenceSubmit = useCallback(async (data: {
-    status: 'absent' | 'substitute';
+    status: 'vanish' | 'substitute'; // 소멸 = vanish, 대체 = substitute
     substitute_at?: string;
     reason: string;
+    amount?: number | null; // 차감 금액 (금액권 소멸 시)
   }) => {
     if (!selectedClassItem) return;
 
@@ -402,9 +398,11 @@ function HomeContent() {
         substitute_at: data.substitute_at,
         // 사유를 memo_public에 저장
         memo_public: data.reason,
+        // 금액권 소멸 시 차감 금액 (입력하지 않으면 undefined)
+        amount: data.amount ?? undefined,
       });
       
-      Alert.alert('완료', `${data.status === 'absent' ? '노쇼' : '대체'}이 기록되었습니다.`);
+      Alert.alert('완료', `${data.status === 'vanish' ? '소멸' : '대체'}이 기록되었습니다.`);
       // 목록/정산 새로고침 (출석 로그 상태 및 정산 반영)
       await handleAttendanceRecorded();
       // 해당 수강생의 상세 정보도 강제로 새로고침 (수강생 상세 화면 실시간 반영)
@@ -413,12 +411,29 @@ function HomeContent() {
       }
     } catch (error: any) {
       console.error('[Home] attendance absence error', error);
-      const errorMessage = typeof error?.response?.data?.message === 'string' 
-        ? error.response.data.message 
-        : typeof error?.message === 'string'
-        ? error.message
-        : '기록에 실패했습니다.';
-      Alert.alert('오류', errorMessage);
+      
+      // 에러 메시지 추출 및 사용자 친화적 메시지로 변환
+      let errorMessage = '기록에 실패했습니다.';
+      
+      // 백엔드에서 직접 오는 메시지 우선 확인
+      const backendMessage = error?.response?.data?.message;
+      if (typeof backendMessage === 'string') {
+        errorMessage = backendMessage;
+      } else if (typeof error?.message === 'string') {
+        errorMessage = error.message;
+      }
+      
+      // "잘못된 요청입니다:" 접두사 제거 및 메시지 정리
+      if (errorMessage.includes('잘못된 요청입니다:')) {
+        errorMessage = errorMessage.replace('잘못된 요청입니다:', '').trim();
+      }
+      
+      // 중복 예약 관련 메시지인 경우 더 명확하게 표시
+      if (errorMessage.includes('이미 예약된 날짜') || errorMessage.includes('중복')) {
+        errorMessage = '이미 예약이 등록된 날짜입니다. 다른 날짜를 선택해주세요.';
+      }
+      
+      Alert.alert('알림', errorMessage);
     }
   }, [selectedClassItem, createOccurredAt, handleAttendanceRecorded, fetchStudentDetail]);
 
@@ -438,14 +453,14 @@ function HomeContent() {
     setSelectedClassItem(classItem);
     
     // 마이페이지 기본값 설정 읽어오기
-    let defaultAbsenceStatus: 'absent' | 'substitute' | undefined;
+    let defaultAbsenceStatus: 'vanish' | 'substitute' | undefined;
     try {
       const user = await usersApi.getMe();
       const settings = (user.settings || {}) as Record<string, unknown>;
       if (settings.default_absence_policy) {
-        // 'carry_over' -> 'substitute', 'vanish' -> 'absent'
+        // 'carry_over' -> 'substitute', 'vanish' -> 'vanish'
         const policy = settings.default_absence_policy as 'carry_over' | 'vanish';
-        defaultAbsenceStatus = policy === 'carry_over' ? 'substitute' : 'absent';
+        defaultAbsenceStatus = policy === 'carry_over' ? 'substitute' : 'vanish';
       }
     } catch (error) {
       console.error('[Home] Failed to load default absence policy', error);
@@ -794,13 +809,13 @@ function HomeContent() {
           ) : (
             <ListContainer>
               {todayClasses.map((classItem) => {
-                // 계약 타입 판단: policy_snapshot.total_sessions와 ended_at으로 판단
+                // 계약 타입 판단: totalSessions만으로 판단 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
                 // 뷰티앱: 금액권과 횟수권 모두 선불 횟수 계약 로직 사용
                 const snapshot = classItem.policy_snapshot || {};
                 const totalSessions = typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
-                // 횟수권: totalSessions > 0 && !ended_at
-                // 금액권: ended_at이 있음 (유효기간이 있음)
-                const contractType = totalSessions > 0 && !classItem.ended_at ? 'sessions' : 'amount';
+                // 횟수권: totalSessions > 0
+                // 금액권: totalSessions === 0
+                const contractType = totalSessions > 0 ? 'sessions' : 'amount';
                 const contractTypeLabel = getContractTypeLabel(contractType === 'sessions' ? 'sessions' : 'amount');
                 const absencePolicyLabel = getAbsencePolicyLabel(classItem.absence_policy, classItem.billing_type);
                 const amount = classItem.monthly_amount ? `${classItem.monthly_amount.toLocaleString()}원` : '';
@@ -819,7 +834,7 @@ function HomeContent() {
                 // 금액권의 총금액/잔여금액 계산
                 const totalAmount = classItem.monthly_amount ?? 0;
                 const amountUsed = classItem.amount_used ?? 0;
-                const remainingAmount = contractType === 'amount' && classItem.ended_at ? Math.max(totalAmount - amountUsed, 0) : null;
+                const remainingAmount = contractType === 'amount' ? Math.max(totalAmount - amountUsed, 0) : null; // ended_at은 표시용일 뿐, 판별에 사용하지 않음
                 
                 // 시간 포맷팅
                 const formatTime = (time: string | null | undefined): string => {
@@ -885,7 +900,7 @@ function HomeContent() {
                                 <ClassExtendNoteRemaining>잔여{remainingSessions}회</ClassExtendNoteRemaining>
                               </ClassExtendNote>
                             </ClassExtendNoteContainer>
-                          ) : contractType === 'amount' && classItem.ended_at && typeof remainingAmount === 'number' ? (
+                          ) : contractType === 'amount' && typeof remainingAmount === 'number' ? (
                             <ClassExtendNoteContainer>
                               <ClassExtendNote>
                                 <ClassExtendNoteTotal>총{totalAmount.toLocaleString()}원</ClassExtendNoteTotal>
@@ -900,8 +915,8 @@ function HomeContent() {
                         </ClassCardRow3Right>
                       </ClassCardRow3Container>
 
-                      {/* 4줄(금액권만): 유효기간 (표시용만) */}
-                      {contractType === 'amount' && classItem.started_at && classItem.ended_at && (
+                      {/* 4줄: 유효기간 (표시용만) */}
+                      {classItem.started_at && classItem.ended_at && (
                         <ClassCardRow4>
                           <ClassValidPeriod>
                             유효기간: {formatDateRange(classItem.started_at, classItem.ended_at)}
@@ -950,7 +965,7 @@ function HomeContent() {
           <AllSchedulesCard onPress={() => homeNavigation.navigate('AllSchedules')}>
             <AllSchedulesCardIcon source={calendarIcon} resizeMode="contain" />
             <AllSchedulesCardContent>
-              <AllSchedulesCardTitle>&gt; Schedule Note</AllSchedulesCardTitle>
+              <AllSchedulesCardTitle>Schedule Note</AllSchedulesCardTitle>
               <AllSchedulesCardSubtitle>전체 예약 일정과 처리 내역을 확인하세요.</AllSchedulesCardSubtitle>
             </AllSchedulesCardContent>
             <AllSchedulesCardArrow>›</AllSchedulesCardArrow>
@@ -1088,9 +1103,9 @@ function HomeContent() {
         // 뷰티앱: 금액권과 횟수권 모두 선불 횟수 계약 로직 사용
         const snapshot = selectedClassItem.policy_snapshot || {};
         const totalSessions = typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
-        // 횟수권: totalSessions > 0 && !ended_at
-        // 금액권: ended_at이 있음 (유효기간이 있음)
-        const contractType = totalSessions > 0 && !selectedClassItem.ended_at ? 'sessions' : 'amount';
+        // 횟수권: totalSessions > 0 (ended_at은 표시용/예약 범위 체크용일 뿐, 판별에 사용하지 않음)
+        // 금액권: totalSessions === 0 (ended_at은 표시용/예약 범위 체크용일 뿐, 판별에 사용하지 않음)
+        const contractType = totalSessions > 0 ? 'sessions' : 'amount';
         
         return (
           <AttendanceSignatureModal
@@ -1106,7 +1121,7 @@ function HomeContent() {
             }}
             studentName={selectedClassItem.student.name}
             contractType={contractType}
-            remainingAmount={contractType === 'amount' && selectedClassItem.ended_at ? (() => {
+            remainingAmount={contractType === 'amount' ? (() => {
               const totalAmount = selectedClassItem.monthly_amount ?? 0;
               const amountUsed = selectedClassItem.amount_used ?? 0;
               return Math.max(totalAmount - amountUsed, 0);
@@ -1116,22 +1131,39 @@ function HomeContent() {
       })()}
 
       {/* 노쇼/대체일 지정 모달 */}
-      {selectedClassItem && (
-        <AttendanceAbsenceModal
-          visible={showAttendanceAbsenceModal}
-          onClose={() => {
-            setShowAttendanceAbsenceModal(false);
-            setSelectedClassItem(null);
-          }}
-          onConfirm={(data) => {
-            handleAttendanceAbsenceSubmit(data);
-            setShowAttendanceAbsenceModal(false);
-            setSelectedClassItem(null);
-          }}
-          studentName={selectedClassItem.student.name}
-          initialStatus={(selectedClassItem as any).defaultAbsenceStatus}
-        />
-      )}
+      {selectedClassItem && (() => {
+        // 계약 타입 판단
+        const snapshot = selectedClassItem.policy_snapshot || {};
+        const totalSessions = typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
+        // 횟수권: totalSessions > 0 && !ended_at
+        // 금액권: ended_at이 있음 (유효기간이 있음)
+        const contractType = totalSessions > 0 && !selectedClassItem.ended_at ? 'sessions' : 'amount';
+        const isAmountBased = contractType === 'amount';
+        const remainingAmount = isAmountBased && selectedClassItem.ended_at ? (() => {
+          const totalAmount = selectedClassItem.monthly_amount ?? 0;
+          const amountUsed = selectedClassItem.amount_used ?? 0;
+          return Math.max(totalAmount - amountUsed, 0);
+        })() : undefined;
+
+        return (
+          <AttendanceAbsenceModal
+            visible={showAttendanceAbsenceModal}
+            onClose={() => {
+              setShowAttendanceAbsenceModal(false);
+              setSelectedClassItem(null);
+            }}
+            onConfirm={(data) => {
+              handleAttendanceAbsenceSubmit(data);
+              setShowAttendanceAbsenceModal(false);
+              setSelectedClassItem(null);
+            }}
+            studentName={selectedClassItem.student.name}
+            initialStatus={(selectedClassItem as any).defaultAbsenceStatus}
+            isAmountBased={isAmountBased}
+            remainingAmount={remainingAmount}
+          />
+        );
+      })()}
 
       {/* 출결 기록 삭제 모달 */}
       {selectedClassItem && (

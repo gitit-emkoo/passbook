@@ -24,7 +24,7 @@ export default ({ config }) => ({
         foregroundImage: './assets/adaptive-icon.png',
         backgroundColor: '#ffffff',
       },
-      useCleartextTraffic: true, // STEP 2: 로컬 API 테스트를 위한 HTTP 허용
+      useCleartextTraffic: process.env.USE_CLEARTEXT_TRAFFIC === 'true' || process.env.NODE_ENV !== 'production', // 환경변수로 제어, 기본값: 개발환경 true, 프로덕션 false
       networkSecurityConfig: './android/network_security_config.xml',
       edgeToEdgeEnabled: true,
       predictiveBackGestureEnabled: false,
@@ -49,9 +49,6 @@ export default ({ config }) => ({
       },
       API_URL: process.env.API_URL || 'http://localhost:3000',
       API_KEY: process.env.API_KEY || '',
-      // Google AdMob 테스트 ID (나중에 실제 앱 ID로 교체)
-      ANDROID_ADMOB_APP_ID: process.env.ANDROID_ADMOB_APP_ID || 'ca-app-pub-3940256099942544~3347511713',
-      IOS_ADMOB_APP_ID: process.env.IOS_ADMOB_APP_ID || 'ca-app-pub-3940256099942544~1458002511',
     },
   },
 });

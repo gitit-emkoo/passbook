@@ -91,9 +91,9 @@ export default function ContractSettingsModal({
             <SettingLabel>결제 방식</SettingLabel>
             {/* 뷰티앱에서는 결제 방식은 항상 선불로 고정, 버튼은 선택된 상태로만 표시 (클릭 불가) */}
             <OptionRow>
-              <OptionButton $active>
+              <DisabledOptionButton $active>
                 <OptionText $active>선불</OptionText>
-              </OptionButton>
+              </DisabledOptionButton>
             </OptionRow>
           </SettingSection>
 
@@ -111,10 +111,11 @@ export default function ContractSettingsModal({
 
           <SettingSection>
             <SettingLabel>청구서 전송</SettingLabel>
+            {/* 뷰티앱에서는 청구서 전송은 항상 고객으로 고정, 버튼은 선택된 상태로만 표시 (클릭 불가) */}
             <OptionRow>
-              <OptionButton $active={sendTarget === 'student_only'} onPress={() => setSendTarget('student_only')}>
-                <OptionText $active={sendTarget === 'student_only'}>고객</OptionText>
-              </OptionButton>
+              <DisabledOptionButton $active>
+                <OptionText $active>고객</OptionText>
+              </DisabledOptionButton>
             </OptionRow>
           </SettingSection>
         </ModalContent>
@@ -196,6 +197,15 @@ const OptionButton = styled.TouchableOpacity<{ $active?: boolean }>`
   border-radius: 8px;
   background-color: ${(props) => (props.$active ? '#1d42d8' : '#f0f0f0')};
   align-items: center;
+`;
+
+const DisabledOptionButton = styled.View<{ $active?: boolean }>`
+  flex: 1;
+  padding: 12px;
+  border-radius: 8px;
+  background-color: ${(props) => (props.$active ? '#1d42d8' : '#f0f0f0')};
+  align-items: center;
+  opacity: 0.7;
 `;
 
 const OptionText = styled.Text<{ $active?: boolean }>`

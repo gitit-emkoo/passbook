@@ -18,6 +18,8 @@ import ContractPreviewScreen from '../screens/ContractPreviewScreen';
 import SettlementScreen from '../screens/SettlementScreen';
 import InvoicePreviewScreen from '../screens/InvoicePreviewScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import { canAddContract, getSubscriptionInfo } from '../utils/subscription';
+import { useStudentsStore } from '../store/useStudentsStore';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import NoticesListScreen from '../screens/NoticesListScreen';
 import NoticeDetailScreen from '../screens/NoticeDetailScreen';
@@ -63,7 +65,7 @@ interface TabIconImageProps {
   focused: boolean;
 }
 
-const TabIconImage = styled.Image.attrs<TabIconImageProps>((props) => ({
+const TabIconImage = styled.Image.attrs<TabIconImageProps>((props: TabIconImageProps) => ({
   resizeMode: 'contain' as const,
 }))<TabIconImageProps>`
   width: 24px;
@@ -304,7 +306,7 @@ function MainAppStack() {
         name="Terms"
         component={TermsScreen}
         options={({ route }) => ({
-          title: route.params.type === 'terms' ? '서비스 이용약관' : '개인정보처리방침',
+          title: (route.params as { type?: 'terms' | 'privacy' })?.type === 'terms' ? '서비스 이용약관' : '개인정보처리방침',
         })}
       />
       <Stack.Screen
@@ -359,7 +361,28 @@ export type MainTabsNavigationProp = BottomTabNavigationProp<MainTabsParamList>;
 function MainTabs() {
   const FAB_SIZE = 64;
 
-  const handleFABPress = React.useCallback((navigation: any) => {
+  const handleFABPress = React.useCallback(async (navigation: any) => {
+    // 구독 체크
+    // 현재 이용권 개수 확인 (계약이 있는 학생 수)
+    const students = useStudentsStore.getState().list.items;
+    const contractCount = students.filter((s) => s.latest_contract && s.latest_contract.status !== 'draft').length;
+    
+    const info = await getSubscriptionInfo(contractCount);
+    
+    // 구독이 없으면 안내 모달 표시
+    if (info.status === 'none') {
+      // Settings 화면으로 이동하고 모달 표시 플래그 전달
+      navigation.navigate('Settings', { showSubscriptionIntro: true });
+      return;
+    }
+    
+    const canAdd = await canAddContract(contractCount);
+    if (!canAdd) {
+      // 구독 필요 안내
+      navigation.navigate('Settings');
+      return;
+    }
+    
     // 계약서 작성 화면으로 이동
     navigation.navigate('Home', {
       screen: 'ContractNew',
@@ -590,10 +613,14 @@ export default function AppNavigator() {
     // 알림 리스너 설정
     notificationCleanup.current = setupNotificationListeners(
       (notification) => {
-        console.log('[AppNavigator] Notification received:', notification);
+        if (__DEV__) {
+          console.log('[AppNavigator] Notification received:', notification);
+        }
       },
       (response) => {
-        console.log('[AppNavigator] Notification tapped:', response);
+        if (__DEV__) {
+          console.log('[AppNavigator] Notification tapped:', response);
+        }
         const data = response.notification.request.content.data;
         if (data && typeof data === 'object' && 'targetRoute' in data && typeof data.targetRoute === 'string') {
           handleNotificationNavigation(data.targetRoute);

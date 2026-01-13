@@ -113,13 +113,15 @@ export class AuthService {
       },
     });
 
-    console.log('[AuthService] verifyCode - user lookup', {
-      phone,
-      normalizedPhone,
-      userFound: !!existingUser,
-      userId: existingUser?.id,
-      storedPhone: existingUser?.phone,
-    });
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[AuthService] verifyCode - user lookup', {
+        phone,
+        normalizedPhone,
+        userFound: !!existingUser,
+        userId: existingUser?.id,
+        storedPhone: existingUser?.phone,
+      });
+    }
 
     if (existingUser) {
       // 이미 가입한 사용자: 정식 accessToken 발급 (로그인)
@@ -170,13 +172,19 @@ export class AuthService {
    */
   private async validateTemporaryToken(token: string): Promise<TemporaryToken> {
     try {
-      console.log('[AuthService] validateTemporaryToken', { tokenLength: token?.length, tokenPrefix: token?.substring(0, 20) });
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[AuthService] validateTemporaryToken', { tokenLength: token?.length, tokenPrefix: token?.substring(0, 20) });
+      }
       const decoded = this.jwtService.verify(token) as { phone: string; sessionId: string; expiresIn: number };
-      console.log('[AuthService] token decoded', { phone: decoded.phone, sessionId: decoded.sessionId });
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[AuthService] token decoded', { phone: decoded.phone, sessionId: decoded.sessionId });
+      }
       
       // sessionId로 저장된 토큰 확인
       const storedToken = this.temporaryTokens.get(decoded.sessionId);
-      console.log('[AuthService] storedToken found', { found: !!storedToken, totalTokens: this.temporaryTokens.size });
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[AuthService] storedToken found', { found: !!storedToken, totalTokens: this.temporaryTokens.size });
+      }
       
       if (!storedToken) {
         throw new UnauthorizedException('유효하지 않은 인증 토큰입니다.');
@@ -210,16 +218,20 @@ export class AuthService {
     orgCode: string,
     settings?: Record<string, any>,
   ): Promise<{ accessToken: string; user: any }> {
-    console.log('[AuthService] completeSignup called', {
-      hasToken: !!temporaryToken,
-      tokenLength: temporaryToken?.length,
-      name,
-      orgCode,
-    });
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[AuthService] completeSignup called', {
+        hasToken: !!temporaryToken,
+        tokenLength: temporaryToken?.length,
+        name,
+        orgCode,
+      });
+    }
 
     // temporaryToken 검증
     const tokenData = await this.validateTemporaryToken(temporaryToken);
-    console.log('[AuthService] temporaryToken validated', { phone: tokenData.phone, sessionId: tokenData.sessionId });
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[AuthService] temporaryToken validated', { phone: tokenData.phone, sessionId: tokenData.sessionId });
+    }
 
     // 전화번호 정규화
     const normalizedPhone = this.normalizePhone(tokenData.phone);

@@ -9,8 +9,10 @@ import {
   UseGuards,
   ParseIntPipe,
   Query,
+  Header,
+  Res,
 } from '@nestjs/common';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { InvoicesService } from './invoices.service';
 import { JwtAuthGuard } from '../auth/jwt-auth/jwt-auth.guard';
 
@@ -48,9 +50,13 @@ export class InvoicesController {
   @Get('sections')
   @UseGuards(JwtAuthGuard)
   async getBySections(@Req() req: Request) {
-    console.log('[InvoicesController] getBySections called');
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[InvoicesController] getBySections called');
+    }
     const user = req.user as any;
-    console.log('[InvoicesController] User ID:', user.id ?? user.sub);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[InvoicesController] User ID:', user.id ?? user.sub);
+    }
     return this.invoicesService.getInvoicesBySections(user.id ?? user.sub);
   }
 
@@ -80,11 +86,17 @@ export class InvoicesController {
   @Patch(':id/move-to-today-billing')
   @UseGuards(JwtAuthGuard)
   async moveToTodayBilling(@Req() req: Request, @Param('id', ParseIntPipe) id: number) {
-    console.log('[InvoicesController] moveToTodayBilling called - invoiceId:', id);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[InvoicesController] moveToTodayBilling called - invoiceId:', id);
+    }
     const user = req.user as any;
-    console.log('[InvoicesController] User ID:', user.id ?? user.sub);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[InvoicesController] User ID:', user.id ?? user.sub);
+    }
     const result = await this.invoicesService.moveToTodayBilling(user.id ?? user.sub, id);
-    console.log('[InvoicesController] moveToTodayBilling result:', result);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[InvoicesController] moveToTodayBilling result:', result);
+    }
     return result;
   }
 
@@ -116,9 +128,10 @@ export class InvoicesController {
    * 청구서 HTML 조회 (공개 엔드포인트)
    */
   @Get(':id/view')
-  async getInvoiceView(@Param('id', ParseIntPipe) id: number) {
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  async getInvoiceView(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
     // 공개 엔드포인트: 인증 없이 청구서 조회 가능
     const html = await this.invoicesService.generateInvoiceHtml(id);
-    return { html };
+    return res.send(html);
   }
 }

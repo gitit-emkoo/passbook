@@ -20,9 +20,13 @@ export class StudentsController {
 	async list(@Query('search') search: string | undefined, @Query('filter') filter: string | undefined, @Req() req: Request) {
 		const user = req.user as any;
 		const userId = user.id ?? user.sub;
-		console.log(`[Students] GET /api/v1/students userId=${userId} search=${search || ''} filter=${filter || ''}`);
+		if (process.env.NODE_ENV !== 'production') {
+			console.log(`[Students] GET /api/v1/students userId=${userId} search=${search || ''} filter=${filter || ''}`);
+		}
 		const result = await this.studentsService.list({ search, filter, userId });
-		console.log(`[Students] list result count=${result.length}`);
+		if (process.env.NODE_ENV !== 'production') {
+			console.log(`[Students] list result count=${result.length}`);
+		}
 		return result;
 	}
 

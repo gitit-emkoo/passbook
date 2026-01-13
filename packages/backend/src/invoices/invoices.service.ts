@@ -62,10 +62,10 @@ export class InvoicesService {
       const policy = contract.policy_snapshot as Record<string, any>;
       const totalSessions = typeof policy?.total_sessions === 'number' ? policy.total_sessions : 0;
       // 뷰티앱: 금액권과 횟수권 모두 선불 횟수 계약 로직 사용
-      // 횟수권: totalSessions > 0 && !ended_at
-      // 금액권: totalSessions === 0 && ended_at 또는 totalSessions > 0 && ended_at
-      const isSessionBased = totalSessions > 0 && !contract.ended_at; // 횟수권
-      const isAmountBased = contract.ended_at; // 금액권 (유효기간이 있음)
+      // 횟수권: totalSessions > 0 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
+      // 금액권: totalSessions === 0 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
+      const isSessionBased = totalSessions > 0; // 횟수권
+      const isAmountBased = totalSessions === 0; // 금액권
       const isPrepaidSessionBased = (isSessionBased || isAmountBased) && contract.billing_type === 'prepaid';
       
       // 뷰티앱에서는 선불 횟수 계약만 사용
@@ -663,16 +663,20 @@ export class InvoicesService {
 
     // 연장 이력 확인
     const extensions = Array.isArray(policy.extensions) ? policy.extensions : [];
-    console.log(`[Invoice] createInvoiceForSessionBasedContract: contract_id=${normalizedContract.id}, extensions.length=${extensions.length}`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[Invoice] createInvoiceForSessionBasedContract: contract_id=${normalizedContract.id}, extensions.length=${extensions.length}`);
+    }
     if (extensions.length > 0) {
       extensions.forEach((ext, idx) => {
-        console.log(`[Invoice] Extension ${idx + 1}: added_sessions=${ext.added_sessions}, extension_amount=${ext.extension_amount}`);
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`[Invoice] Extension ${idx + 1}: added_sessions=${ext.added_sessions}, extension_amount=${ext.extension_amount}`);
+        }
       });
     }
     const totalSessions = typeof policy.total_sessions === 'number' ? policy.total_sessions : 0;
-    // 금액권 판단: totalSessions가 0이거나 ended_at이 있으면 금액권
-    const isAmountBased = totalSessions === 0 || normalizedContract.ended_at;
-    const isSessionBased = totalSessions > 0 && !normalizedContract.ended_at; // 횟수권
+    // 금액권 판단: totalSessions === 0 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
+    const isAmountBased = totalSessions === 0;
+    const isSessionBased = totalSessions > 0; // 횟수권
     
     // 최초 계약 총회차(연장분 제외)를 구해 단가 산정에 사용 (횟수권만)
     const addedSessionsTotal = extensions.reduce(
@@ -786,27 +790,41 @@ export class InvoicesService {
 
     // base_amount 계산 (연장 정산서의 경우 extension_amount 우선 사용)
     let baseAmount = monthlyAmount;
-    console.log(`[Invoice] baseAmount calculation: currentInvoiceNumber=${currentInvoiceNumber}, extensions.length=${extensions.length}, monthlyAmount=${monthlyAmount}`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[Invoice] baseAmount calculation: currentInvoiceNumber=${currentInvoiceNumber}, extensions.length=${extensions.length}, monthlyAmount=${monthlyAmount}`);
+    }
     if (currentInvoiceNumber > 1 && extensions.length >= currentInvoiceNumber - 1) {
       const extension = extensions[currentInvoiceNumber - 2];
       const added = extension?.added_sessions || 0;
-      console.log(`[Invoice] Extension found: added_sessions=${added}, extension_amount=${extension?.extension_amount}, extension object:`, JSON.stringify(extension));
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[Invoice] Extension found: added_sessions=${added}, extension_amount=${extension?.extension_amount}, extension object:`, JSON.stringify(extension));
+      }
       
       // extension_amount가 있으면 우선 사용 (사용자가 직접 입력한 금액)
       if (extension?.extension_amount && extension.extension_amount > 0) {
         baseAmount = extension.extension_amount;
-        console.log(`[Invoice] Extension baseAmount from extension_amount: ${baseAmount}`);
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`[Invoice] Extension baseAmount from extension_amount: ${baseAmount}`);
+        }
       } else if (perSession > 0 && added > 0) {
         // extension_amount가 없으면 단가 * 연장 회차로 계산
         baseAmount = perSession * added;
-        console.log(`[Invoice] Extension baseAmount calculated: ${baseAmount} = ${perSession} * ${added}`);
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`[Invoice] Extension baseAmount calculated: ${baseAmount} = ${perSession} * ${added}`);
+        }
       } else {
-        console.log(`[Invoice] Extension baseAmount NOT calculated: extension_amount=${extension?.extension_amount}, perSession=${perSession}, added=${added}`);
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`[Invoice] Extension baseAmount NOT calculated: extension_amount=${extension?.extension_amount}, perSession=${perSession}, added=${added}`);
+        }
       }
     } else {
-      console.log(`[Invoice] Not extension invoice: currentInvoiceNumber=${currentInvoiceNumber}, extensions.length=${extensions.length}`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[Invoice] Not extension invoice: currentInvoiceNumber=${currentInvoiceNumber}, extensions.length=${extensions.length}`);
+      }
     }
-    console.log(`[Invoice] Final baseAmount: ${baseAmount}`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[Invoice] Final baseAmount: ${baseAmount}`);
+    }
 
     // final_amount 계산
     const finalAmount = baseAmount + finalAutoAdjustment;
@@ -848,7 +866,9 @@ export class InvoicesService {
       
       // 연장 정산서인 경우 base_amount 재계산
       let updatedBaseAmount = baseAmount;
-      console.log(`[Invoice] Updating existing invoice ${existingInvoice.id}: updatedCurrentInvoiceNumber=${updatedCurrentInvoiceNumber}, extensions.length=${extensions.length}, baseAmount=${baseAmount}, perSession=${perSession}`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[Invoice] Updating existing invoice ${existingInvoice.id}: updatedCurrentInvoiceNumber=${updatedCurrentInvoiceNumber}, extensions.length=${extensions.length}, baseAmount=${baseAmount}, perSession=${perSession}`);
+      }
       if (updatedCurrentInvoiceNumber > 1 && extensions.length >= updatedCurrentInvoiceNumber - 1) {
         const extension = extensions[updatedCurrentInvoiceNumber - 2];
         const added = extension?.added_sessions || 0;
@@ -856,16 +876,24 @@ export class InvoicesService {
         // extension_amount가 있으면 우선 사용 (사용자가 직접 입력한 금액)
         if (extension?.extension_amount && extension.extension_amount > 0) {
           updatedBaseAmount = extension.extension_amount;
-          console.log(`[Invoice] Updated baseAmount from extension_amount: ${updatedBaseAmount}`);
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(`[Invoice] Updated baseAmount from extension_amount: ${updatedBaseAmount}`);
+          }
         } else if (perSession > 0 && added > 0) {
           // extension_amount가 없으면 단가 * 연장 회차로 계산
           updatedBaseAmount = perSession * added;
-          console.log(`[Invoice] Updated baseAmount: ${updatedBaseAmount} = ${perSession} * ${added}`);
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(`[Invoice] Updated baseAmount: ${updatedBaseAmount} = ${perSession} * ${added}`);
+          }
         } else {
-          console.log(`[Invoice] Updated baseAmount NOT calculated: extension_amount=${extension?.extension_amount}, perSession=${perSession}, added=${added}`);
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(`[Invoice] Updated baseAmount NOT calculated: extension_amount=${extension?.extension_amount}, perSession=${perSession}, added=${added}`);
+          }
         }
       } else {
-        console.log(`[Invoice] Not extension invoice: updatedCurrentInvoiceNumber=${updatedCurrentInvoiceNumber}, extensions.length=${extensions.length}`);
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`[Invoice] Not extension invoice: updatedCurrentInvoiceNumber=${updatedCurrentInvoiceNumber}, extensions.length=${extensions.length}`);
+        }
       }
       
       const updatedFinalAmount = updatedBaseAmount + finalAutoAdjustment;
@@ -1268,8 +1296,8 @@ export class InvoicesService {
       
       const policySnapshot = invoice.contract.policy_snapshot as any;
       const totalSessions = typeof policySnapshot?.total_sessions === 'number' ? policySnapshot.total_sessions : 0;
-      const isSessionBased = totalSessions > 0 && !invoice.contract.ended_at; // 횟수권
-      const isAmountBased = invoice.contract.ended_at; // 금액권 (유효기간이 있음)
+      const isSessionBased = totalSessions > 0; // 횟수권 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
+      const isAmountBased = totalSessions === 0; // 금액권 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
 
       // 날짜를 YYYY-MM-DD 문자열로 변환하는 헬퍼 함수
       const parseDateToLocalString = (dateValue: Date | string): string => {
@@ -1650,7 +1678,9 @@ export class InvoicesService {
 
       // force_to_today_billing이 true면 무조건 "오늘청구"에 포함 (전송 완료된 정산서 제외)
       if (invoice.force_to_today_billing) {
-        console.log(`[InvoicesService] Invoice ${invoice.id} moved to todayBilling (force_to_today_billing=true)`);
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`[InvoicesService] Invoice ${invoice.id} moved to todayBilling (force_to_today_billing=true)`);
+        }
         todayBilling.push(invoice);
         continue;
       }
@@ -1662,10 +1692,10 @@ export class InvoicesService {
       const policy = contract?.policy_snapshot as Record<string, any> | undefined;
       const totalSessions = typeof policy?.total_sessions === 'number' ? policy.total_sessions : 0;
       // 뷰티앱: 금액권과 횟수권 모두 선불 횟수 계약 로직 사용
-      // 횟수권: totalSessions > 0 && !ended_at
-      // 금액권: totalSessions === 0 && ended_at 또는 totalSessions > 0 && ended_at
-      const isSessionBased = totalSessions > 0 && !contract?.ended_at; // 횟수권
-      const isAmountBased = contract?.ended_at; // 금액권 (유효기간이 있음)
+      // 횟수권: totalSessions > 0 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
+      // 금액권: totalSessions === 0 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
+      const isSessionBased = totalSessions > 0; // 횟수권
+      const isAmountBased = totalSessions === 0; // 금액권
       const isPrepaidSessionBased = (isSessionBased || isAmountBased) && contract?.billing_type === 'prepaid';
       
       if (isPrepaidSessionBased) {
@@ -1812,10 +1842,10 @@ export class InvoicesService {
     const policySnapshot = invoice.contract.policy_snapshot as any;
     const totalSessions = typeof policySnapshot?.total_sessions === 'number' ? policySnapshot.total_sessions : 0;
     // 뷰티앱: 금액권과 횟수권 모두 선불 횟수 계약 로직 사용
-    // 횟수권: totalSessions > 0 && !ended_at
-    // 금액권: totalSessions === 0 && ended_at 또는 totalSessions > 0 && ended_at
-    const isSessionBased = totalSessions > 0 && !invoice.contract.ended_at; // 횟수권
-    const isAmountBased = invoice.contract.ended_at && invoice.contract.billing_type === 'prepaid'; // 금액권 (유효기간이 있고 선불)
+    // 횟수권: totalSessions > 0 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
+    // 금액권: totalSessions === 0 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
+    const isSessionBased = totalSessions > 0; // 횟수권
+    const isAmountBased = totalSessions === 0 && invoice.contract.billing_type === 'prepaid'; // 금액권 (선불)
     const isPrepaidSessionBased = (isSessionBased || isAmountBased); // 선불 횟수 계약 또는 금액권
 
     // 청구월 계산
@@ -2284,6 +2314,32 @@ export class InvoicesService {
         <div class="info-row">
           <div class="info-label">이용권 내용</div>
           <div class="info-value">${lessonNotes}</div>
+        </div>
+        ` : ''}
+        ${invoice.contract.started_at && invoice.contract.ended_at ? `
+        <div class="info-row">
+          <div class="info-label">유효기간</div>
+          <div class="info-value">${(() => {
+            const parseDate = (dateValue: Date | string): { year: number; month: number; day: number } => {
+              if (dateValue instanceof Date) {
+                return {
+                  year: dateValue.getFullYear(),
+                  month: dateValue.getMonth() + 1,
+                  day: dateValue.getDate(),
+                };
+              } else {
+                const date = new Date(dateValue);
+                return {
+                  year: date.getFullYear(),
+                  month: date.getMonth() + 1,
+                  day: date.getDate(),
+                };
+              }
+            };
+            const startDate = parseDate(invoice.contract.started_at);
+            const endDate = parseDate(invoice.contract.ended_at);
+            return `${startDate.year}.${String(startDate.month).padStart(2, '0')}.${String(startDate.day).padStart(2, '0')} ~ ${endDate.year}.${String(endDate.month).padStart(2, '0')}.${String(endDate.day).padStart(2, '0')}`;
+          })()}</div>
         </div>
         ` : ''}
       </div>

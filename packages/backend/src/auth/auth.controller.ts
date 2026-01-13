@@ -55,12 +55,14 @@ export class AuthController {
     @Headers('authorization') authorization: string,
     @Body() dto: CompleteSignupDto,
   ) {
-    console.log('[AuthController] complete-signup called', {
-      hasAuthorization: !!authorization,
-      authorizationPrefix: authorization?.substring(0, 20),
-      name: dto.name,
-      org_code: dto.org_code,
-    });
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[AuthController] complete-signup called', {
+        hasAuthorization: !!authorization,
+        authorizationPrefix: authorization?.substring(0, 20),
+        name: dto.name,
+        org_code: dto.org_code,
+      });
+    }
 
     if (!authorization) {
       throw new UnauthorizedException('인증 토큰이 필요합니다.');
@@ -69,12 +71,16 @@ export class AuthController {
     // Bearer 토큰 추출
     const tokenMatch = authorization.match(/^Bearer (.+)$/);
     if (!tokenMatch) {
-      console.log('[AuthController] Invalid authorization format', { authorization });
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[AuthController] Invalid authorization format', { authorization });
+      }
       throw new UnauthorizedException('올바른 인증 토큰 형식이 아닙니다.');
     }
 
     const temporaryToken = tokenMatch[1];
-    console.log('[AuthController] temporaryToken extracted', { tokenLength: temporaryToken?.length });
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[AuthController] temporaryToken extracted', { tokenLength: temporaryToken?.length });
+    }
 
     return this.authService.completeSignup(
       temporaryToken,

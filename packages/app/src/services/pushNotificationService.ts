@@ -44,14 +44,18 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
       return null;
     }
 
-    console.log('[PushNotification] FCM token obtained:', fcmToken.substring(0, 20) + '...');
+    if (__DEV__) {
+      console.log('[PushNotification] FCM token obtained:', fcmToken.substring(0, 20) + '...');
+    }
 
     // 백엔드에 FCM 토큰 저장
     try {
       await usersApi.updateSettings({
         fcm_token: fcmToken,
       });
-      console.log('[PushNotification] FCM token saved to backend');
+      if (__DEV__) {
+        console.log('[PushNotification] FCM token saved to backend');
+      }
     } catch (error: any) {
       console.error('[PushNotification] Failed to save FCM token to backend:', error?.message);
       // 토큰 저장 실패해도 계속 진행 (나중에 재시도 가능)
@@ -84,7 +88,9 @@ export function setupNotificationListeners(
 ): () => void {
   // 포그라운드 알림 수신 리스너
   const receivedSubscription = Notifications.addNotificationReceivedListener((notification) => {
-    console.log('[PushNotification] Notification received:', notification.request.identifier);
+    if (__DEV__) {
+      console.log('[PushNotification] Notification received:', notification.request.identifier);
+    }
     if (onNotificationReceived) {
       onNotificationReceived(notification);
     }
@@ -92,7 +98,9 @@ export function setupNotificationListeners(
 
   // 알림 탭 리스너
   const responseSubscription = Notifications.addNotificationResponseReceivedListener((response) => {
-    console.log('[PushNotification] Notification tapped:', response.notification.request.identifier);
+    if (__DEV__) {
+      console.log('[PushNotification] Notification tapped:', response.notification.request.identifier);
+    }
     if (onNotificationTapped) {
       onNotificationTapped(response);
     }

@@ -18,6 +18,9 @@ interface UnprocessedItem {
   day_of_week: string[];
   time: string | null;
   missed_date: string; // YYYY-MM-DD
+  reservation_id: number; // 예약 ID
+  is_amount_based?: boolean; // 금액권 여부
+  remaining_amount?: number; // 잔여 금액 (금액권일 때만)
 }
 
 function UnprocessedAttendanceContent() {
@@ -73,8 +76,13 @@ function UnprocessedAttendanceContent() {
 
   const handlePresent = useCallback((item: UnprocessedItem) => {
     setSelectedItem(item);
-    // 서명 필요 여부는 계약서 정보를 확인해야 하지만, 일단 기본값으로 처리
-    setShowAttendanceConfirmModal(true);
+    // 금액권인 경우 AttendanceSignatureModal을 열어서 금액 입력 받기
+    if (item.is_amount_based) {
+      setShowAttendanceSignatureModal(true);
+    } else {
+      // 횟수권인 경우 AttendanceConfirmModal 사용
+      setShowAttendanceConfirmModal(true);
+    }
   }, []);
 
   const handleAbsence = useCallback((item: UnprocessedItem) => {
@@ -83,7 +91,7 @@ function UnprocessedAttendanceContent() {
   }, []);
 
   const handleAttendancePresentSubmit = useCallback(
-    async (signatureData?: string) => {
+    async (signatureData?: string, amount?: number, memo?: string) => {
       if (!selectedItem) return;
 
       try {
@@ -96,6 +104,8 @@ function UnprocessedAttendanceContent() {
           occurred_at: occurredAt.toISOString(),
           status: 'present',
           signature_data: signatureData,
+          amount: amount, // 금액권인 경우 차감 금액
+          memo_public: memo, // 서비스 내용
         });
 
         Alert.alert('완료', '이용권 사용처리가 완료되었습니다.');
@@ -117,9 +127,10 @@ function UnprocessedAttendanceContent() {
 
   const handleAttendanceAbsenceSubmit = useCallback(
     async (data: {
-      status: 'absent' | 'substitute';
+      status: 'vanish' | 'substitute'; // 소멸 = vanish, 대체 = substitute
       substitute_at?: string;
       reason: string;
+      amount?: number | null; // 차감 금액 (금액권 소멸 시)
     }) => {
       if (!selectedItem) return;
 
@@ -134,9 +145,12 @@ function UnprocessedAttendanceContent() {
           status: data.status,
           substitute_at: data.substitute_at,
           memo_public: data.reason,
+          reservation_id: selectedItem.reservation_id, // 예약 ID 전달
+          // 금액권 소멸 시 차감 금액 (입력하지 않으면 undefined)
+          amount: data.amount ?? undefined,
         });
 
-        Alert.alert('완료', `${data.status === 'absent' ? '결석' : '대체'}이 기록되었습니다.`);
+        Alert.alert('완료', `${data.status === 'vanish' ? '소멸' : '대체'}이 기록되었습니다.`);
         await loadUnprocessed();
         // 해당 수강생의 상세 정보도 새로고침 (출결 기록 반영)
         if (selectedItem?.student_id) {
@@ -147,7 +161,29 @@ function UnprocessedAttendanceContent() {
         setSelectedItem(null);
       } catch (error: any) {
         console.error('[UnprocessedAttendance] create absence error', error);
-        Alert.alert('오류', error?.message || '기록에 실패했습니다.');
+        
+        // 에러 메시지 추출 및 사용자 친화적 메시지로 변환
+        let errorMessage = '기록에 실패했습니다.';
+        
+        // 백엔드에서 직접 오는 메시지 우선 확인
+        const backendMessage = error?.response?.data?.message;
+        if (typeof backendMessage === 'string') {
+          errorMessage = backendMessage;
+        } else if (typeof error?.message === 'string') {
+          errorMessage = error.message;
+        }
+        
+        // "잘못된 요청입니다:" 접두사 제거 및 메시지 정리
+        if (errorMessage.includes('잘못된 요청입니다:')) {
+          errorMessage = errorMessage.replace('잘못된 요청입니다:', '').trim();
+        }
+        
+        // 중복 예약 관련 메시지인 경우 더 명확하게 표시
+        if (errorMessage.includes('이미 예약된 날짜') || errorMessage.includes('중복')) {
+          errorMessage = '이미 예약이 등록된 날짜입니다. 다른 날짜를 선택해주세요.';
+        }
+        
+        Alert.alert('알림', errorMessage);
       }
     },
     [selectedItem, loadUnprocessed, fetchStudentDetail],
@@ -224,20 +260,22 @@ function UnprocessedAttendanceContent() {
           ))}
       </ScrollView>
 
-      {/* 출석 서명 모달 */}
-      {selectedItem && (
+      {/* 출석 서명 모달 (금액권용) */}
+      {selectedItem && selectedItem.is_amount_based && (
         <AttendanceSignatureModal
           visible={showAttendanceSignatureModal}
           onClose={() => {
             setShowAttendanceSignatureModal(false);
             setSelectedItem(null);
           }}
-          onConfirm={(signature: string) => {
-            handleAttendancePresentSubmit(signature);
+          onConfirm={(signature: string, amount?: number, memo?: string) => {
+            handleAttendancePresentSubmit(signature, amount, memo);
             setShowAttendanceSignatureModal(false);
             setSelectedItem(null);
           }}
           studentName={selectedItem.student_name}
+          contractType="amount"
+          remainingAmount={selectedItem.remaining_amount}
         />
       )}
 

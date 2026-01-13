@@ -82,12 +82,15 @@ interface AttendanceAbsenceModalProps {
   visible: boolean;
   onClose: () => void;
   onConfirm: (data: {
-    status: 'absent' | 'substitute';
+    status: 'vanish' | 'substitute'; // 소멸 = vanish, 대체 = substitute
     substitute_at?: string;
     reason: string; // 사유 (필수)
+    amount?: number | null; // 차감 금액 (금액권 소멸 시 선택사항)
   }) => void;
   studentName: string;
-  initialStatus?: 'absent' | 'substitute'; // 기본 선택값 (마이페이지 설정값)
+  initialStatus?: 'vanish' | 'substitute'; // 기본 선택값 (마이페이지 설정값)
+  isAmountBased?: boolean; // 금액권 여부
+  remainingAmount?: number; // 잔여 금액 (금액권일 때만)
 }
 
 /**
@@ -99,18 +102,26 @@ export default function AttendanceAbsenceModal({
   onConfirm,
   studentName,
   initialStatus,
+  isAmountBased = false,
+  remainingAmount,
 }: AttendanceAbsenceModalProps) {
-  const [status, setStatus] = useState<'absent' | 'substitute'>(initialStatus || 'absent');
+  const [status, setStatus] = useState<'vanish' | 'substitute'>(initialStatus || 'vanish');
   const [substituteDate, setSubstituteDate] = useState<Date | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [reason, setReason] = useState(''); // 사유 (필수)
+  const [amount, setAmount] = useState<string>(''); // 차감 금액 (금액권 소멸 시)
 
-  // 모달이 열릴 때 initialStatus 적용
+  // 모달이 열릴 때 initialStatus 적용 및 초기화
   useEffect(() => {
-    if (visible && initialStatus) {
-      setStatus(initialStatus);
-    } else if (visible && !initialStatus) {
-      setStatus('absent'); // 기본값이 없으면 'absent' (소멸)
+    if (visible) {
+      if (initialStatus) {
+        setStatus(initialStatus);
+      } else {
+        setStatus('vanish'); // 기본값이 없으면 'vanish' (소멸)
+      }
+      setAmount(''); // 금액 초기화
+      setReason(''); // 사유 초기화
+      setSubstituteDate(null); // 대체일 초기화
     }
   }, [visible, initialStatus]);
 
@@ -126,24 +137,42 @@ export default function AttendanceAbsenceModal({
       return;
     }
 
+    // 금액 검증 (금액권 소멸 시)
+    let amountValue: number | null = null;
+    if (isAmountBased && status === 'vanish' && amount.trim()) {
+      const amountNum = parseInt(amount.trim().replace(/,/g, ''), 10);
+      if (isNaN(amountNum) || amountNum < 0) {
+        Alert.alert('알림', '올바른 금액을 입력해주세요.');
+        return;
+      }
+      if (remainingAmount !== undefined && amountNum > remainingAmount) {
+        Alert.alert('알림', `잔여 금액(${remainingAmount.toLocaleString()}원)을 초과할 수 없습니다.`);
+        return;
+      }
+      amountValue = amountNum;
+    }
+
     onConfirm({
       status,
       substitute_at: substituteDate ? substituteDate.toISOString() : undefined,
       reason: reason.trim(),
+      amount: amountValue, // 입력하지 않으면 null
     });
 
     // 초기화
-    setStatus(initialStatus || 'absent');
+    setStatus(initialStatus || 'vanish');
     setSubstituteDate(null);
     setReason('');
+    setAmount('');
     onClose();
   };
 
   const handleClose = () => {
     // 초기화
-    setStatus(initialStatus || 'absent');
+    setStatus(initialStatus || 'vanish');
     setSubstituteDate(null);
     setReason('');
+    setAmount('');
     onClose();
   };
 
@@ -165,10 +194,10 @@ export default function AttendanceAbsenceModal({
               <InputLabel>처리 유형</InputLabel>
               <ButtonRow>
                 <Button
-                  variant={status === 'absent' ? 'primary' : 'secondary'}
-                  onPress={() => setStatus('absent')}
+                  variant={status === 'vanish' ? 'primary' : 'secondary'}
+                  onPress={() => setStatus('vanish')}
                 >
-                  <ButtonText variant={status === 'absent' ? 'primary' : 'secondary'}>소멸</ButtonText>
+                  <ButtonText variant={status === 'vanish' ? 'primary' : 'secondary'}>소멸</ButtonText>
                 </Button>
                 <ButtonLast
                   variant={status === 'substitute' ? 'primary' : 'secondary'}
@@ -198,6 +227,28 @@ export default function AttendanceAbsenceModal({
                         }
                       }}
                     />
+                  )}
+                </>
+              )}
+
+              {/* 금액권 소멸 시 차감 금액 입력 필드 */}
+              {isAmountBased && status === 'vanish' && (
+                <>
+                  <InputLabel>차감 금액 (선택사항)</InputLabel>
+                  <TextInput
+                    placeholder={remainingAmount !== undefined ? `최대 ${remainingAmount.toLocaleString()}원` : '차감할 금액을 입력하세요'}
+                    value={amount}
+                    onChangeText={(text) => {
+                      // 숫자와 쉼표만 허용
+                      const numericText = text.replace(/[^0-9,]/g, '');
+                      setAmount(numericText);
+                    }}
+                    keyboardType="numeric"
+                  />
+                  {remainingAmount !== undefined && (
+                    <InputLabel style={{ fontSize: 12, color: '#999', marginTop: -12, marginBottom: 16 }}>
+                      잔여 금액: {remainingAmount.toLocaleString()}원
+                    </InputLabel>
                   )}
                 </>
               )}

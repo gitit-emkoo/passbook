@@ -32,7 +32,7 @@ const Footer = styled.View`
 const ActionButton = styled.TouchableOpacity<{ $primary?: boolean; disabled?: boolean }>`
   padding: 14px 16px;
   border-radius: 10px;
-  background-color: ${(p) => (p.$primary ? '#ff6b00' : '#f2f2f7')};
+  background-color: ${(p) => (p.$primary ? '#B22222' : '#f2f2f7')};
   opacity: ${(p) => (p.disabled ? 0.5 : 1)};
   align-items: center;
   justify-content: center;
@@ -70,8 +70,8 @@ const SignatureButton = styled.TouchableOpacity<{ $filled?: boolean }>`
   padding: 12px 10px;
   border-radius: 10px;
   border-width: 1px;
-  border-color: ${(p) => (p.$filled ? '#d1d1d6' : '#ff6b00')};
-  background-color: ${(p) => (p.$filled ? '#f0f0f0' : '#ff6b00')};
+  border-color: ${(p) => (p.$filled ? '#d1d1d6' : '#B22222')};
+  background-color: ${(p) => (p.$filled ? '#f0f0f0' : '#B22222')};
   align-items: center;
   justify-content: center;
   opacity: ${(p) => (p.disabled ? 0.6 : 1)};
@@ -99,7 +99,6 @@ function ContractPreviewContent() {
   const [confirming, setConfirming] = useState(false);
   const fetchDashboard = useDashboardStore((s) => s.fetchDashboard);
   const fetchInvoicesCurrent = useInvoicesStore((s) => s.fetchCurrentMonth);
-  const fetchInvoicesSections = useInvoicesStore((s) => s.fetchSections);
 
   useEffect(() => {
     const loadContract = async () => {
@@ -220,45 +219,10 @@ function ContractPreviewContent() {
     }
   }, [contractId, contractMeta, canConfirm, tempTeacherSignature, tempStudentSignature]);
 
-  const handleSend = useCallback(
-    async (channel: 'sms' | 'link') => {
-      if (!contractMeta) {
-        return;
-      }
-      if (channel === 'link') {
-        return;
-      }
-      try {
-        setSending(true);
-        await contractsApi.updateStatus(contractId, 'sent');
-        setContractMeta((prev: any) =>
-          prev
-            ? {
-                ...prev,
-                status: 'sent',
-              }
-            : prev,
-        );
-        await Promise.all([
-          fetchDashboard({ force: true }),
-          fetchInvoicesCurrent({ historyMonths: 3, force: true }),
-          fetchInvoicesSections(true), // 정산 섹션 새로고침 (오늘청구 섹션에 바로 반영)
-        ]);
-        Alert.alert('완료', '계약서가 전송되었습니다.');
-      } catch (err: any) {
-        console.error('[ContractPreview] send error', err);
-        Alert.alert('오류', err?.message || '계약서 전송에 실패했습니다.');
-      } finally {
-        setSending(false);
-      }
-    },
-    [contractId, contractMeta],
-  );
-
   if (loading) {
     return (
       <LoadingContainer>
-        <ActivityIndicator size="large" color="#ff6b00" />
+        <ActivityIndicator size="large" color="#B22222" />
       </LoadingContainer>
     );
   }
@@ -266,15 +230,10 @@ function ContractPreviewContent() {
   if (error || !html) {
     return (
       <LoadingContainer>
-        <ActivityIndicator size="large" color="#ff6b00" />
+        <ActivityIndicator size="large" color="#B22222" />
       </LoadingContainer>
     );
   }
-
-  const recipientPhone =
-    contractMeta?.recipient_targets?.[0] ??
-    contractMeta?.student?.phone ??
-    contractMeta?.student?.guardian_phone;
 
   return (
     <Container>

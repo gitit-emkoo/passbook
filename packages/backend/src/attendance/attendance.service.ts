@@ -58,7 +58,9 @@ export class AttendanceService {
     // 출결 기록 생성
     // signature_data는 현재 로깅만 하고, 필요시 별도 필드 추가 예정
     if (dto.signature_data) {
-      console.log('[Attendance] signature_data received', { length: dto.signature_data.length });
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[Attendance] signature_data received', { length: dto.signature_data.length });
+      }
     }
 
     const attendanceLog = await this.prisma.attendanceLog.create({
@@ -95,20 +97,32 @@ export class AttendanceService {
     // 대체일 지정 시 예약 날짜 업데이트
     if (dto.status === 'substitute' && dto.substitute_at) {
       try {
-        const occurredDate = new Date(dto.occurred_at);
-        // 원래 예약 날짜와 계약 ID로 예약 찾기
-        const occurredDateStart = new Date(occurredDate.getFullYear(), occurredDate.getMonth(), occurredDate.getDate(), 0, 0, 0, 0);
-        const occurredDateEnd = new Date(occurredDate.getFullYear(), occurredDate.getMonth(), occurredDate.getDate(), 23, 59, 59, 999);
+        let reservation = null;
         
-        const reservation = await this.prisma.reservation.findFirst({
-          where: {
-            contract_id: dto.contract_id,
-            reserved_date: {
-              gte: occurredDateStart,
-              lte: occurredDateEnd,
+        // reservation_id가 있으면 직접 조회, 없으면 날짜로 찾기
+        if (dto.reservation_id) {
+          reservation = await this.prisma.reservation.findFirst({
+            where: {
+              id: dto.reservation_id,
+              contract_id: dto.contract_id,
             },
-          },
-        });
+          });
+        } else {
+          // 기존 로직: 날짜로 예약 찾기
+          const occurredDate = new Date(dto.occurred_at);
+          const occurredDateStart = new Date(occurredDate.getFullYear(), occurredDate.getMonth(), occurredDate.getDate(), 0, 0, 0, 0);
+          const occurredDateEnd = new Date(occurredDate.getFullYear(), occurredDate.getMonth(), occurredDate.getDate(), 23, 59, 59, 999);
+          
+          reservation = await this.prisma.reservation.findFirst({
+            where: {
+              contract_id: dto.contract_id,
+              reserved_date: {
+                gte: occurredDateStart,
+                lte: occurredDateEnd,
+              },
+            },
+          });
+        }
 
         if (reservation) {
           // 대체일로 예약 날짜 업데이트
@@ -122,9 +136,9 @@ export class AttendanceService {
             },
           });
           
-          this.logger.log(`[Attendance] Updated reservation ${reservation.id} date from ${occurredDate.toISOString()} to ${substituteDateStart.toISOString()}, updated reserved_date: ${updatedReservation.reserved_date}`);
+          this.logger.log(`[Attendance] Updated reservation ${reservation.id} date from ${reservation.reserved_date.toISOString()} to ${substituteDateStart.toISOString()}, updated reserved_date: ${updatedReservation.reserved_date}`);
         } else {
-          this.logger.warn(`[Attendance] No reservation found for contract ${dto.contract_id} on ${occurredDate.toISOString()}`);
+          this.logger.warn(`[Attendance] No reservation found for contract ${dto.contract_id}${dto.reservation_id ? ` with reservation_id ${dto.reservation_id}` : ` on ${dto.occurred_at}`}`);
         }
       } catch (error: any) {
         // 예약 업데이트 실패해도 출결 기록은 유지
@@ -143,7 +157,7 @@ export class AttendanceService {
     try {
       const policy = (contract.policy_snapshot ?? {}) as Record<string, any>;
       const totalSessions = typeof policy.total_sessions === 'number' ? policy.total_sessions : 0;
-      const isSessionBased = totalSessions > 0 && !contract.ended_at; // 횟수계약 (계약기간없음)
+      const isSessionBased = totalSessions > 0; // 횟수계약 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
       
       if (isSessionBased) {
         // 연장 이력 확인
@@ -243,7 +257,9 @@ export class AttendanceService {
             
             // 첫 계약의 사용된 횟수가 첫 계약의 총 횟수와 같거나 크면 2회 연장 청구서 생성
             // 확정 개념: 직전 계약의 마지막 회차 소진 시점에 정산서 생성
-            console.log(`[Attendance] Contract ${contract.id}: firstContractUsedSessions=${firstContractUsedSessions}, firstContractTotalSessions=${firstContractTotalSessions}, allUsedSessions=${allUsedSessions}`);
+            if (process.env.NODE_ENV !== 'production') {
+              console.log(`[Attendance] Contract ${contract.id}: firstContractUsedSessions=${firstContractUsedSessions}, firstContractTotalSessions=${firstContractTotalSessions}, allUsedSessions=${allUsedSessions}`);
+            }
             if (firstContractUsedSessions >= firstContractTotalSessions) {
               // 실제 소진 시점의 year/month 사용 (다음 달로 미루지 않음)
               const lastAttendanceLog = await this.prisma.attendanceLog.findFirst({
@@ -274,9 +290,13 @@ export class AttendanceService {
               }
               
               await this.invoicesService.createInvoiceForSessionBasedContract(userId, contract, year, month);
-              console.log(`[Attendance] Prepaid session-based invoice created (first extension) for contract ${contract.id}, student ${contract.student_id}, year=${year}, month=${month}`);
+              if (process.env.NODE_ENV !== 'production') {
+                console.log(`[Attendance] Prepaid session-based invoice created (first extension) for contract ${contract.id}, student ${contract.student_id}, year=${year}, month=${month}`);
+              }
             } else {
-              console.log(`[Attendance] Contract ${contract.id}: Not creating invoice yet. firstContractUsedSessions=${firstContractUsedSessions} < firstContractTotalSessions=${firstContractTotalSessions}`);
+              if (process.env.NODE_ENV !== 'production') {
+                console.log(`[Attendance] Contract ${contract.id}: Not creating invoice yet. firstContractUsedSessions=${firstContractUsedSessions} < firstContractTotalSessions=${firstContractTotalSessions}`);
+              }
             }
           } else if (nextInvoiceNumber > 2 && nextInvoiceNumber <= extensions.length + 1) {
             // 3회 연장 이상의 청구서: 이전 연장의 횟수 소진 시점 확인
@@ -338,7 +358,9 @@ export class AttendanceService {
                 }
                 
                 await this.invoicesService.createInvoiceForSessionBasedContract(userId, contract, year, month);
-                console.log(`[Attendance] Prepaid session-based invoice created (extension ${nextInvoiceNumber - 1}) for contract ${contract.id}, year=${year}, month=${month}`);
+                if (process.env.NODE_ENV !== 'production') {
+                  console.log(`[Attendance] Prepaid session-based invoice created (extension ${nextInvoiceNumber - 1}) for contract ${contract.id}, year=${year}, month=${month}`);
+                }
               }
             }
           }
@@ -346,7 +368,7 @@ export class AttendanceService {
       }
 
       // 금액권 연장 처리 (뷰티앱: 선불 횟수 계약 로직 사용)
-      const isAmountBased = contract.ended_at && totalSessions === 0; // 금액권
+      const isAmountBased = totalSessions === 0; // 금액권 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
       
       if (isAmountBased && contract.billing_type === 'prepaid') {
         // 연장 이력 확인
@@ -392,7 +414,9 @@ export class AttendanceService {
             
             // 첫 계약의 사용된 금액이 첫 계약의 총 금액과 같거나 크면 2회 연장 청구서 생성
             // 확정 개념: 직전 계약의 마지막 금액 소진 시점에 정산서 생성
-            console.log(`[Attendance] Contract ${contract.id}: firstContractUsedAmount=${firstContractUsedAmount}, firstContractTotalAmount=${firstContractTotalAmount}, allUsedAmount=${allUsedAmount}`);
+            if (process.env.NODE_ENV !== 'production') {
+              console.log(`[Attendance] Contract ${contract.id}: firstContractUsedAmount=${firstContractUsedAmount}, firstContractTotalAmount=${firstContractTotalAmount}, allUsedAmount=${allUsedAmount}`);
+            }
             if (firstContractUsedAmount >= firstContractTotalAmount) {
               // 실제 소진 시점의 year/month 사용 (다음 달로 미루지 않음)
               const lastAttendanceLog = await this.prisma.attendanceLog.findFirst({
@@ -424,9 +448,13 @@ export class AttendanceService {
               }
               
               await this.invoicesService.createInvoiceForSessionBasedContract(userId, contract, year, month);
-              console.log(`[Attendance] Prepaid amount-based invoice created (first extension) for contract ${contract.id}, student ${contract.student_id}, year=${year}, month=${month}`);
+              if (process.env.NODE_ENV !== 'production') {
+                console.log(`[Attendance] Prepaid amount-based invoice created (first extension) for contract ${contract.id}, student ${contract.student_id}, year=${year}, month=${month}`);
+              }
             } else {
-              console.log(`[Attendance] Contract ${contract.id}: Not creating invoice yet. firstContractUsedAmount=${firstContractUsedAmount} < firstContractTotalAmount=${firstContractTotalAmount}`);
+              if (process.env.NODE_ENV !== 'production') {
+                console.log(`[Attendance] Contract ${contract.id}: Not creating invoice yet. firstContractUsedAmount=${firstContractUsedAmount} < firstContractTotalAmount=${firstContractTotalAmount}`);
+              }
             }
           } else if (nextInvoiceNumber > 2 && nextInvoiceNumber <= extensions.length + 1) {
             // 3회 연장 이상의 청구서: 이전 연장의 금액 소진 시점 확인
@@ -494,7 +522,9 @@ export class AttendanceService {
                 }
                 
                 await this.invoicesService.createInvoiceForSessionBasedContract(userId, contract, year, month);
-                console.log(`[Attendance] Prepaid amount-based invoice created (extension ${nextInvoiceNumber - 1}) for contract ${contract.id}, year=${year}, month=${month}`);
+                if (process.env.NODE_ENV !== 'production') {
+                  console.log(`[Attendance] Prepaid amount-based invoice created (extension ${nextInvoiceNumber - 1}) for contract ${contract.id}, year=${year}, month=${month}`);
+                }
               }
             }
           }
@@ -783,6 +813,9 @@ export class AttendanceService {
             id: true,
             subject: true,
             time: true,
+            ended_at: true,
+            monthly_amount: true,
+            policy_snapshot: true,
             student: {
               select: {
                 id: true,
@@ -806,6 +839,9 @@ export class AttendanceService {
       day_of_week: string[];
       time: string | null;
       missed_date: string; // YYYY-MM-DD 형식
+      reservation_id: number; // 예약 ID
+      is_amount_based?: boolean; // 금액권 여부
+      remaining_amount?: number; // 잔여 금액 (금액권일 때만)
     }> = [];
 
     // 각 예약에 대해 출결 기록 확인
@@ -835,6 +871,31 @@ export class AttendanceService {
       // 출결 기록이 없으면 미처리로 추가
       if (!existingLog) {
         const missedDateStr = `${reservedDate.getFullYear()}-${String(reservedDate.getMonth() + 1).padStart(2, '0')}-${String(reservedDate.getDate()).padStart(2, '0')}`;
+        
+        // 계약 타입 판단 및 잔여 금액 계산
+        const contract = reservation.contract;
+        const snapshot = (contract.policy_snapshot ?? {}) as Record<string, unknown>;
+        const totalSessions = typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
+        const isAmountBased = totalSessions === 0; // 금액권 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
+        
+        let remainingAmount: number | undefined = undefined;
+        if (isAmountBased && contract.monthly_amount) {
+          // 사용된 금액 합계 계산
+          const usedAmountResult = await this.prisma.attendanceLog.aggregate({
+            where: {
+              user_id: userId,
+              contract_id: reservation.contract_id,
+              voided: false,
+              amount: { not: null },
+            },
+            _sum: {
+              amount: true,
+            },
+          });
+          const usedAmount = usedAmountResult._sum.amount ?? 0;
+          remainingAmount = Math.max(contract.monthly_amount - usedAmount, 0);
+        }
+        
         unprocessedItems.push({
           contract_id: reservation.contract_id,
           student_id: reservation.contract.student.id,
@@ -843,6 +904,9 @@ export class AttendanceService {
           day_of_week: [], // 뷰티앱에서는 요일 정보 불필요
           time: reservation.reserved_time || reservation.contract.time,
           missed_date: missedDateStr,
+          reservation_id: reservation.id, // 예약 ID 추가
+          is_amount_based: isAmountBased,
+          remaining_amount: remainingAmount,
         });
       }
     }
@@ -904,8 +968,8 @@ export class AttendanceService {
     // 계약 타입 판단
     const policySnapshot = attendanceLog.contract.policy_snapshot as any;
     const totalSessions = typeof policySnapshot?.total_sessions === 'number' ? policySnapshot.total_sessions : 0;
-    const isSessionBased = totalSessions > 0 && !attendanceLog.contract.ended_at; // 횟수권
-    const isAmountBased = attendanceLog.contract.ended_at && attendanceLog.contract.billing_type === 'prepaid'; // 선불권
+    const isSessionBased = totalSessions > 0; // 횟수권 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
+    const isAmountBased = totalSessions === 0 && attendanceLog.contract.billing_type === 'prepaid'; // 선불권 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
 
     // 처리일 포맷팅 (날짜 + 시간)
     const occurredAt = new Date(attendanceLog.occurred_at);
@@ -947,11 +1011,11 @@ export class AttendanceService {
       const usedAmountResult = await this.prisma.attendanceLog.aggregate({
         where: {
           contract_id: attendanceLog.contract_id,
-          status: 'present',
+          status: { in: ['present', 'vanish'] }, // present와 vanish 모두 포함 (vanish도 금액 사용)
           voided: false,
           occurred_at: { lte: attendanceLog.occurred_at },
           amount: { not: null },
-        },
+        } as any,
         _sum: {
           amount: true,
         },
@@ -1081,12 +1145,14 @@ export class AttendanceService {
       font-size: 12px;
       color: #ffffff;
       text-align: center;
-      margin: 24px -24px -24px;
-      padding: 16px 24px;
+      margin: 0;
+      padding: 20px 24px;
       background-color: #0f1b4d;
-      line-height: 1.6;
+      line-height: 1.8;
       position: relative;
       z-index: 1;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
     }
     .share-button {
       display: inline-block;

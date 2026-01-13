@@ -18,28 +18,30 @@ export class SmsService {
   private readonly apiKey: string;
   private readonly apiSecret: string;
   private readonly senderNumber: string;
-  private readonly apiUrl = 'https://apis.aligo.in/send/';
+  private readonly memberId: string;
+  private readonly apiUrl = 'https://api.solapi.com/messages/v4/send';
 
   constructor(private configService: ConfigService) {
-    this.apiKey = this.configService.get<string>('SMS_API_KEY') || '';
-    this.apiSecret = this.configService.get<string>('SMS_API_SECRET') || '';
-    this.senderNumber = this.configService.get<string>('SMS_SENDER_NUMBER') || '';
+    this.apiKey = this.configService.get<string>('SOLAPI_API_KEY') || '';
+    this.apiSecret = this.configService.get<string>('SOLAPI_API_SECRET') || '';
+    this.senderNumber = this.configService.get<string>('SOLAPI_SENDER_NUMBER') || '';
+    this.memberId = this.configService.get<string>('SOLAPI_MEMBER_ID') || '';
 
     if (!this.apiKey || !this.apiSecret || !this.senderNumber) {
-      this.logger.warn('SMS credentials not configured. SMS sending will be disabled.');
+      this.logger.warn('Solapi credentials not configured. SMS sending will be disabled.');
     }
   }
 
   /**
    * SMS 발송
-   * 알리고 API를 사용하여 SMS를 발송합니다.
+   * 솔라피 API를 사용하여 SMS를 발송합니다.
    */
   async sendSms(options: SendSmsOptions): Promise<SendSmsResult> {
     if (!this.apiKey || !this.apiSecret || !this.senderNumber) {
-      this.logger.error('SMS credentials not configured');
+      this.logger.error('Solapi credentials not configured');
       return {
         success: false,
-        error: 'SMS credentials not configured',
+        error: 'Solapi credentials not configured',
       };
     }
 
@@ -56,37 +58,60 @@ export class SmsService {
     }
 
     try {
-      // 알리고 API 요청 파라미터
-      const formData = new URLSearchParams();
-      formData.append('key', this.apiKey);
-      formData.append('user_id', this.apiKey); // 알리고는 key와 user_id가 동일
-      formData.append('sender', this.senderNumber);
-      formData.append('receiver', cleanPhone);
-      formData.append('msg', options.message);
-      formData.append('testmode_yn', 'N'); // 실제 발송 (테스트 모드: 'Y')
+      // 솔라피 API 요청 파라미터
+      const requestBody: any = {
+        message: {
+          to: cleanPhone,
+          from: this.senderNumber,
+          text: options.message,
+        },
+      };
 
+      // memberId 필수 (14자리)
+      if (!this.memberId || this.memberId.length !== 14) {
+        this.logger.error(`Invalid memberId: ${this.memberId} (must be 14 digits)`);
+        return {
+          success: false,
+          error: 'Solapi memberId not configured or invalid',
+        };
+      }
+      requestBody.memberId = this.memberId;
+
+      // Solapi user 인증 방식: user apiKey:apiSecret
       const response = await fetch(this.apiUrl, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Type': 'application/json',
+          'Authorization': `user ${this.apiKey}:${this.apiSecret}`,
         },
-        body: formData.toString(),
+        body: JSON.stringify(requestBody),
       });
 
       const result = await response.json();
 
-      // 알리고 API 응답 형식: { result_code: '1', message: 'success', ... }
-      if (result.result_code === '1') {
-        this.logger.log(`SMS sent successfully to ${cleanPhone}`);
-        return {
-          success: true,
-          messageId: result.msg_id || result.message_id,
-        };
+      // 솔라피 API 응답 형식: { groupId: 'xxx', messageList: [{ messageId: 'xxx', statusCode: '2000', ... }] }
+      if (response.ok && result.messageList && result.messageList.length > 0) {
+        const messageResult = result.messageList[0];
+        if (messageResult.statusCode === '2000') {
+          this.logger.log(`SMS sent successfully to ${cleanPhone}`);
+          return {
+            success: true,
+            messageId: messageResult.messageId || result.groupId,
+          };
+        } else {
+          this.logger.error(`SMS send failed: ${messageResult.statusMessage || messageResult.statusCode}`);
+          return {
+            success: false,
+            error: messageResult.statusMessage || `SMS send failed: ${messageResult.statusCode}`,
+          };
+        }
       } else {
-        this.logger.error(`SMS send failed: ${result.message || result.result_code}`);
+        // API 에러 응답
+        const errorMessage = result.errorMessage || result.message || 'Unknown error';
+        this.logger.error(`SMS send failed: ${errorMessage}`);
         return {
           success: false,
-          error: result.message || `SMS send failed: ${result.result_code}`,
+          error: errorMessage,
         };
       }
     } catch (error: any) {

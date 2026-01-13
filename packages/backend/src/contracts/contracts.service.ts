@@ -44,14 +44,22 @@ export class ContractsService {
     // policy_snapshot 생성 (생성 시점 규정 고정 저장)
     // 프론트에서 전송한 policy_snapshot이 있으면 그대로 사용, 없으면 새로 생성
     const frontendSnapshot = (dto as any).policy_snapshot || {};
+    
+    // total_sessions 판별: 프론트엔드에서 전달한 값이 있으면 사용, 없거나 0이면 0으로 설정 (금액권)
+    // 횟수권은 반드시 total_sessions > 0으로 전송되어야 함
+    const totalSessions = frontendSnapshot.total_sessions !== undefined && frontendSnapshot.total_sessions !== null && frontendSnapshot.total_sessions > 0
+      ? frontendSnapshot.total_sessions
+      : 0; // 금액권은 total_sessions = 0으로 명시적으로 설정
+    
     const policySnapshot = {
       billing_type: dto.billing_type,
       absence_policy: dto.absence_policy,
       monthly_amount: dto.monthly_amount,
       recipient_policy: dto.recipient_policy,
       recipient_targets: dto.recipient_targets,
-      // 프론트에서 전송한 횟수제 정보 포함 (total_sessions, per_session_amount)
-      ...(frontendSnapshot.total_sessions ? { total_sessions: frontendSnapshot.total_sessions } : {}),
+      // total_sessions: 프론트엔드에서 전달한 값이 있으면 사용, 없거나 0이면 0 (금액권으로 명시)
+      total_sessions: totalSessions,
+      // 프론트에서 전송한 per_session_amount, planned_count_override 포함
       ...(frontendSnapshot.per_session_amount ? { per_session_amount: frontendSnapshot.per_session_amount } : {}),
       ...(frontendSnapshot.planned_count_override ? { planned_count_override: frontendSnapshot.planned_count_override } : {}),
       // 계좌 정보 포함
@@ -135,7 +143,9 @@ export class ContractsService {
         created_at: 'desc',
       },
     });
-    console.log(`[Contracts] findAll userId=${userId} found ${contracts.length} contracts`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[Contracts] findAll userId=${userId} found ${contracts.length} contracts`);
+    }
     return contracts;
   }
 
@@ -185,7 +195,7 @@ export class ContractsService {
     // 뷰티 앱: 오늘 날짜에 예약된 Reservation 조회
     // reserved_date는 DateTime 타입이지만 날짜만 저장되므로, 날짜만 비교
     // 두 가지 방식으로 조회 시도 (UTC와 로컬 시간)
-    const todayReservations = await this.prisma.reservation.findMany({
+    const todayReservations = await (this.prisma as any).reservation.findMany({
       where: {
         OR: [
           {
@@ -335,8 +345,8 @@ export class ContractsService {
               },
             },
           });
-        } else if (contract.ended_at) {
-          // 금액권 계약: 사용된 금액 합계 계산
+        } else if (totalSessions === 0) {
+          // 금액권 계약: 사용된 금액 합계 계산 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
           const attendanceLogsWithAmount = await this.prisma.attendanceLog.findMany({
             where: {
               user_id: userId,
@@ -344,12 +354,12 @@ export class ContractsService {
               voided: false,
               status: { in: ['present', 'absent', 'substitute', 'vanish'] },
               amount: { not: null },
-            },
+            } as any,
             select: {
               amount: true,
-            },
+            } as any,
           });
-          amountUsed = attendanceLogsWithAmount.reduce((sum, log) => sum + (log.amount || 0), 0);
+          amountUsed = attendanceLogsWithAmount.reduce((sum, log: any) => sum + (log.amount || 0), 0);
         }
         
         return {
@@ -642,7 +652,9 @@ export class ContractsService {
           throw new Error('Student information is missing from contract');
         }
         const invoice = await this.createPrepaidInvoice(userId, contract);
-        console.log(`[Contracts] Prepaid invoice created for contract ${id}, invoice id: ${invoice.id}, year: ${invoice.year}, month: ${invoice.month}, send_status: ${invoice.send_status}`);
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`[Contracts] Prepaid invoice created for contract ${id}, invoice id: ${invoice.id}, year: ${invoice.year}, month: ${invoice.month}, send_status: ${invoice.send_status}`);
+        }
         
         // 확정 개념: 계약서 발송과 청구서 발송은 분리됨
         // 선불 청구서는 생성되어 오늘청구 섹션에 표시되며, 사용자가 수동으로 전송해야 함
@@ -661,7 +673,7 @@ export class ContractsService {
         }
         const policySnapshot = (contract.policy_snapshot ?? {}) as Record<string, any>;
         const totalSessions = typeof policySnapshot.total_sessions === 'number' ? policySnapshot.total_sessions : 0;
-        const isSessionBased = totalSessions > 0 && !contract.ended_at;
+        const isSessionBased = totalSessions > 0; // 횟수권 (ended_at과 무관하게 totalSessions만으로 판별)
 
         if (isSessionBased) {
           // 횟수제 후불: 계약서 전송 시 정산서 생성 (정산중 섹션 노출용)
@@ -670,21 +682,21 @@ export class ContractsService {
           const month = now.getMonth() + 1;
 
           // 첫 정산서만 확인 (invoice_number: 1)
-          const existingInvoice = await this.prisma.invoice.findUnique({
+          const existingInvoice = await this.prisma.invoice.findFirst({
             where: {
-              student_id_contract_id_year_month_invoice_number: {
-                student_id: contract.student_id,
-                contract_id: contract.id,
-                year,
-                month,
-                invoice_number: 1,
-              },
-            },
+              student_id: contract.student_id,
+              contract_id: contract.id,
+              year,
+              month,
+              invoice_number: 1,
+            } as any,
           });
 
           if (!existingInvoice) {
             const invoice = await this.invoicesService.createInvoiceForSessionBasedContract(userId, contract, year, month);
-            console.log(`[Contracts] Postpaid session invoice created for contract ${id}, invoice id: ${invoice.id}, year: ${invoice.year}, month: ${invoice.month}, send_status: ${invoice.send_status}`);
+            if (process.env.NODE_ENV !== 'production') {
+              console.log(`[Contracts] Postpaid session invoice created for contract ${id}, invoice id: ${invoice.id}, year: ${invoice.year}, month: ${invoice.month}, send_status: ${invoice.send_status}`);
+            }
           }
         } else {
           // 일시납부 계약은 월단위 정산서 생성 로직에서 제외
@@ -713,21 +725,21 @@ export class ContractsService {
           const invoiceMonth = nextBillingDate.getMonth() + 1;
           
           // 첫 정산서만 확인 (invoice_number: 1)
-          const existingInvoice = await this.prisma.invoice.findUnique({
+          const existingInvoice = await this.prisma.invoice.findFirst({
             where: {
-              student_id_contract_id_year_month_invoice_number: {
-                student_id: contract.student_id,
-                contract_id: contract.id,
-                year: invoiceYear,
-                month: invoiceMonth,
-                invoice_number: 1,
-              },
-            },
+              student_id: contract.student_id,
+              contract_id: contract.id,
+              year: invoiceYear,
+              month: invoiceMonth,
+              invoice_number: 1,
+            } as any,
           });
           
           if (!existingInvoice) {
             const invoice = await this.invoicesService.createInvoiceForContract(userId, contract, invoiceYear, invoiceMonth);
-            console.log(`[Contracts] Postpaid invoice created for contract ${id}, invoice id: ${invoice.id}, year: ${invoice.year}, month: ${invoice.month}, send_status: ${invoice.send_status}`);
+            if (process.env.NODE_ENV !== 'production') {
+              console.log(`[Contracts] Postpaid invoice created for contract ${id}, invoice id: ${invoice.id}, year: ${invoice.year}, month: ${invoice.month}, send_status: ${invoice.send_status}`);
+            }
           }
         }
       } catch (error: any) {
@@ -882,7 +894,9 @@ export class ContractsService {
             const year = now.getFullYear();
             const month = now.getMonth() + 1;
             await this.invoicesService.createInvoiceForSessionBasedContract(userId, updatedContract, year, month);
-            console.log(`[Contracts] Prepaid session-based invoice created after extension (all sessions exhausted) for contract ${id}, year=${year}, month=${month}`);
+            if (process.env.NODE_ENV !== 'production') {
+              console.log(`[Contracts] Prepaid session-based invoice created after extension (all sessions exhausted) for contract ${id}, year=${year}, month=${month}`);
+            }
           } catch (error: any) {
             console.error(`[Contracts] Failed to create prepaid session-based invoice after extension for contract ${id}:`, error?.message);
             // 청구서 생성 실패해도 연장은 유지
@@ -921,7 +935,9 @@ export class ContractsService {
             const year = now.getFullYear();
             const month = now.getMonth() + 1;
             await this.invoicesService.createInvoiceForSessionBasedContract(userId, updatedContract, year, month);
-            console.log(`[Contracts] Postpaid session-based invoice created after extension (all sessions exhausted) for contract ${id}, year: ${year}, month: ${month}`);
+            if (process.env.NODE_ENV !== 'production') {
+              console.log(`[Contracts] Postpaid session-based invoice created after extension (all sessions exhausted) for contract ${id}, year: ${year}, month: ${month}`);
+            }
           } catch (error: any) {
             console.error(`[Contracts] Failed to create postpaid session-based invoice after extension for contract ${id}:`, error?.message);
             // 청구서 생성 실패해도 연장은 유지
@@ -934,9 +950,12 @@ export class ContractsService {
 
     // 금액권 연장 (뷰티앱: 선불 횟수 계약 로직 사용)
     if (dto.added_amount && dto.added_amount > 0) {
-      if (!contract.ended_at) {
-        throw new BadRequestException('금액권 계약이 아닙니다.');
+      const policySnapshot = (contract.policy_snapshot ?? {}) as Record<string, any>;
+      const totalSessions = typeof policySnapshot.total_sessions === 'number' ? policySnapshot.total_sessions : 0;
+      if (totalSessions > 0) {
+        throw new BadRequestException('금액권 계약이 아닙니다.'); // 횟수권은 연장 불가
       }
+      // totalSessions === 0이면 금액권 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
 
       const currentAmount = contract.monthly_amount ?? 0;
       const newTotalAmount = currentAmount + dto.added_amount;
@@ -986,13 +1005,13 @@ export class ContractsService {
               lt: new Date(extensionRecord.extended_at),
             },
             amount: { not: null },
-          },
+          } as any,
           _sum: {
             amount: true,
-          },
+          } as any,
         });
 
-        const previousAmountUsed = previousContractUsedAmount._sum.amount ?? 0;
+        const previousAmountUsed = (previousContractUsedAmount._sum as any)?.amount ?? 0;
         const firstContractTotalAmount = extensionRecord.previous_total ?? currentAmount;
 
         // 금액 모두 소진 후 연장처리인 경우에만 정산서 생성
@@ -1003,7 +1022,9 @@ export class ContractsService {
             const year = now.getFullYear();
             const month = now.getMonth() + 1;
             await this.invoicesService.createInvoiceForSessionBasedContract(userId, updatedContract, year, month);
-            console.log(`[Contracts] Prepaid amount-based invoice created after extension (all amount exhausted) for contract ${id}, year=${year}, month=${month}`);
+            if (process.env.NODE_ENV !== 'production') {
+              console.log(`[Contracts] Prepaid amount-based invoice created after extension (all amount exhausted) for contract ${id}, year=${year}, month=${month}`);
+            }
           } catch (error: any) {
             console.error(`[Contracts] Failed to create prepaid amount-based invoice after extension for contract ${id}:`, error?.message);
             // 청구서 생성 실패해도 연장은 유지
@@ -1142,7 +1163,9 @@ export class ContractsService {
 
                 // 두번째 정산서 생성
                 await this.invoicesService.createPrepaidMonthlyInvoice(userId, updatedContract, invoiceYear, invoiceMonth, billingDate);
-                console.log(`[Contracts] Second invoice created immediately after prepaid one-month contract extension for contract ${id}, year=${invoiceYear}, month=${invoiceMonth}`);
+                if (process.env.NODE_ENV !== 'production') {
+                  console.log(`[Contracts] Second invoice created immediately after prepaid one-month contract extension for contract ${id}, year=${invoiceYear}, month=${invoiceMonth}`);
+                }
               }
             }
           } catch (error: any) {
@@ -1173,20 +1196,20 @@ export class ContractsService {
 
     // 이미 선불 청구서가 생성되었는지 확인 (중복 방지)
     // 첫 정산서만 확인 (invoice_number: 1)
-    const existingInvoice = await this.prisma.invoice.findUnique({
+    const existingInvoice = await this.prisma.invoice.findFirst({
       where: {
-        student_id_contract_id_year_month_invoice_number: {
-          student_id: contract.student_id,
-          contract_id: contract.id,
-          year,
-          month,
-          invoice_number: 1,
-        },
-      },
+        student_id: contract.student_id,
+        contract_id: contract.id,
+        year,
+        month,
+        invoice_number: 1,
+      } as any,
     });
 
     if (existingInvoice) {
-      console.log(`[Contracts] Prepaid invoice already exists for contract ${contract.id}, year ${year}, month ${month}`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[Contracts] Prepaid invoice already exists for contract ${contract.id}, year ${year}, month ${month}`);
+      }
       return existingInvoice;
     }
 
@@ -1194,10 +1217,10 @@ export class ContractsService {
     const policySnapshot = (contract.policy_snapshot ?? {}) as Record<string, any>;
     const totalSessions = typeof policySnapshot.total_sessions === 'number' ? policySnapshot.total_sessions : 0;
     // 뷰티앱: 금액권과 횟수권 모두 선불 횟수 계약 로직 사용
-    // 횟수권: totalSessions > 0 && !ended_at
-    // 금액권: ended_at이 있고 선불인 경우 (유효기간이 있음)
-    const isSessionBased = totalSessions > 0 && !contract.ended_at; // 횟수권
-    const isAmountBased = contract.ended_at && contract.billing_type === 'prepaid'; // 금액권 (유효기간이 있고 선불)
+    // 횟수권: totalSessions > 0 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
+    // 금액권: totalSessions === 0 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
+    const isSessionBased = totalSessions > 0; // 횟수권
+    const isAmountBased = totalSessions === 0 && contract.billing_type === 'prepaid'; // 금액권 (선불)
     
     // 뷰티앱: 선불 계약(횟수권 또는 금액권)은 모두 선불 횟수 계약 로직 사용
     // 확정 개념: 선불 계약 (연장 없음) - 정산서 생성일=마감일=계약서 전송 시점
@@ -1648,7 +1671,7 @@ export class ContractsService {
     }
 
     // 중복 예약 확인
-    const existing = await this.prisma.reservation.findFirst({
+    const existing = await (this.prisma as any).reservation.findFirst({
       where: {
         contract_id: contractId,
         reserved_date: reservedDate,
@@ -1660,7 +1683,7 @@ export class ContractsService {
     }
 
     // 예약 생성
-    const reservation = await this.prisma.reservation.create({
+    const reservation = await (this.prisma as any).reservation.create({
       data: {
         contract_id: contractId,
         reserved_date: reservedDate,
@@ -1688,7 +1711,7 @@ export class ContractsService {
     }
 
     // 예약 목록 조회
-    const reservations = await this.prisma.reservation.findMany({
+    const reservations = await (this.prisma as any).reservation.findMany({
       where: {
         contract_id: contractId,
       },
@@ -1837,6 +1860,7 @@ export class ContractsService {
     }
 
     // 출결 로그 조회 (모든 계약의 출결 로그)
+    // 사용처리 완료 = present(사용) 또는 vanish(소멸)
     const attendanceLogs = await this.prisma.attendanceLog.findMany({
       where: {
         user_id: userId,
@@ -1844,7 +1868,7 @@ export class ContractsService {
           in: contractIds,
         },
         voided: false,
-        status: 'present',
+        status: { in: ['present', 'vanish'] }, // 사용처리 완료: 사용 또는 소멸
       },
       select: {
         contract_id: true,
@@ -1918,7 +1942,7 @@ export class ContractsService {
     }
 
     // 예약 확인
-    const reservation = await this.prisma.reservation.findFirst({
+    const reservation = await (this.prisma as any).reservation.findFirst({
       where: {
         id: reservationId,
         contract_id: contractId,
@@ -1964,7 +1988,7 @@ export class ContractsService {
       }
 
       // 중복 예약 확인 (자기 자신 제외)
-      const existing = await this.prisma.reservation.findFirst({
+      const existing = await (this.prisma as any).reservation.findFirst({
         where: {
           contract_id: contractId,
           reserved_date: reservedDate,
@@ -1984,7 +2008,7 @@ export class ContractsService {
     }
 
     // 예약 업데이트
-    const updated = await this.prisma.reservation.update({
+    const updated = await (this.prisma as any).reservation.update({
       where: {
         id: reservationId,
       },
@@ -2011,7 +2035,7 @@ export class ContractsService {
     }
 
     // 예약 확인
-    const reservation = await this.prisma.reservation.findFirst({
+    const reservation = await (this.prisma as any).reservation.findFirst({
       where: {
         id: reservationId,
         contract_id: contractId,
@@ -2023,7 +2047,7 @@ export class ContractsService {
     }
 
     // 예약 삭제
-    await this.prisma.reservation.delete({
+    await (this.prisma as any).reservation.delete({
       where: {
         id: reservationId,
       },

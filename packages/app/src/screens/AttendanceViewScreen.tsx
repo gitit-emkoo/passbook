@@ -56,7 +56,7 @@ function AttendanceViewContent() {
         setLoading(true);
         setError(null);
         
-        // 백엔드에서 HTML 가져오기
+        // 백엔드에서 HTML 가져오기 (이제 HTML을 직접 반환)
         const viewLink = attendanceApi.getViewLink(attendanceLogId);
         const response = await fetch(viewLink);
         
@@ -64,8 +64,9 @@ function AttendanceViewContent() {
           throw new Error('사용처리 완료 안내를 불러오지 못했습니다.');
         }
         
-        const data = await response.json();
-        setHtml(data.html);
+        // HTML을 직접 받아서 사용
+        const htmlContent = await response.text();
+        setHtml(htmlContent);
       } catch (err: any) {
         console.error('[AttendanceView] load error', err);
         setError(err?.message || '사용처리 완료 안내를 불러오는 중 오류가 발생했습니다.');

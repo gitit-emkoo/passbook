@@ -159,8 +159,8 @@ export class StudentsService {
 			if (latestContract) {
 				const snapshot = (latestContract.policy_snapshot ?? {}) as Record<string, any>;
 				const totalSessions = typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
-				const isSessionBased = totalSessions > 0 && !latestContract.ended_at; // 횟수권
-				const isAmountBased = latestContract.ended_at; // 금액권 (유효기간이 있음)
+				const isSessionBased = totalSessions > 0; // 횟수권 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
+				const isAmountBased = totalSessions === 0; // 금액권 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
 				
 				if (isSessionBased) {
 					// 횟수권: 사용된 횟수 계산

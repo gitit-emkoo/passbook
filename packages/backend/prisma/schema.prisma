@@ -75,6 +75,7 @@ model Student {
   phone         String
   guardian_name String?
   guardian_phone String?
+  memo          String?  // 고객 메모
   is_active     Boolean  @default(true)
   created_at    DateTime @default(now())
   updated_at    DateTime @updatedAt

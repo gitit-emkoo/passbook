@@ -81,7 +81,7 @@ export default function ProfileEditModal({
           <ButtonContainer>
             <SaveButton onPress={handleSave} disabled={saving}>
               {saving ? (
-                <ActivityIndicator color="#ff6b00" />
+                <ActivityIndicator color="#B22222" />
               ) : (
                 <SaveButtonText>수정</SaveButtonText>
               )}
@@ -129,7 +129,7 @@ const CloseButton = styled.TouchableOpacity`
 
 const CloseButtonText = styled.Text`
   font-size: 16px;
-  color: #ff6b00;
+  color: #B22222;
   font-weight: 600;
 `;
 
@@ -160,7 +160,7 @@ const ButtonContainer = styled.View`
 `;
 
 const SaveButton = styled.TouchableOpacity<{ disabled?: boolean }>`
-  background-color: ${(props) => (props.disabled ? '#cccccc' : '#ff6b00')};
+  background-color: ${(props) => (props.disabled ? '#cccccc' : '#B22222')};
   padding: 16px;
   border-radius: 12px;
   align-items: center;

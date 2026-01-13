@@ -104,11 +104,13 @@ apiClient.interceptors.response.use(
         error.message = '잘못된 요청입니다. 입력값을 확인해주세요.';
       }
       
-      console.error('[HTTP] 400 Bad Request', {
-        url: error.config?.url,
-        message: error.message,
-        data: responseData,
-      });
+      if (__DEV__) {
+        console.error('[HTTP] 400 Bad Request', {
+          url: error.config?.url,
+          message: error.message,
+          data: responseData,
+        });
+      }
     }
     
     return Promise.reject(error);
