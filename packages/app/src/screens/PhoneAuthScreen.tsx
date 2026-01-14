@@ -310,24 +310,23 @@ export default function PhoneAuthScreen() {
           <HeaderArea>
             <AppTitle>Passbook</AppTitle>
             <LogoImage source={logoImage} resizeMode="contain" />
-            <AppSlogan>샵 이용권 운영 자동화</AppSlogan>
+            <AppSlogan>이용권 운영 자동화</AppSlogan>
             <AppSubtitle>이용권 발행부터 사용처리까지 더 편리해집니다.</AppSubtitle>
           </HeaderArea>
           <Content>
             <StepContainer>
               {hasPreviousLogin ? (
                 <>
-                  <Title>전화번호 간편 로그인</Title>
-                  <Subtitle>가입된 전화번호로 인증을 진행해주세요</Subtitle>
+                  <Title>전화번호로 간편하게 시작하세요</Title>
                 </>
               ) : (
                 <>
                   <Title>전화번호로 시작하기</Title>
-                  <Subtitle>간편하게 전화번호로 김쌤을 이용하실 수 있어요</Subtitle>
+                  <Subtitle>간편하게 전화번호로 패스북을 이용하실 수 있어요</Subtitle>
                 </>
               )}
 
-              <InputLabel>전화번호</InputLabel>
+              <InputLabel>휴대폰 번호</InputLabel>
               <PhoneInput
                 value={phone}
                 onChangeText={(text) => setPhone(formatPhone(text))}
@@ -356,7 +355,7 @@ export default function PhoneAuthScreen() {
                     <ActivityIndicator color="#ffffff" />
                   ) : (
                     <PrimaryButtonText>
-                      {hasPreviousLogin ? '인증요청 로그인' : '인증번호 요청'}
+                      {hasPreviousLogin ? '시작하기' : '인증번호 요청'}
                     </PrimaryButtonText>
                   )}
                 </PrimaryButton>
@@ -524,6 +523,7 @@ const LogoImage = styled.Image`
   width: 80px;
   height: 80px;
   margin-bottom: 8px;
+  border-radius: 40px;
 `;
 
 const AppSlogan = styled.Text`

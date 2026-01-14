@@ -110,8 +110,8 @@ function ContractPreviewContent() {
         if (!response.ok) {
           throw new Error('계약서를 불러오지 못했습니다.');
         }
-        const data = await response.json();
-        setHtml(data.html);
+        const html = await response.text();
+        setHtml(html);
       } catch (err: any) {
         console.error('[ContractPreview] load error', err);
         setError(err?.message || '계약서를 불러오는 중 오류가 발생했습니다.');

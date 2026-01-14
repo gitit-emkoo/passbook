@@ -16,6 +16,7 @@ export interface CompleteSignupRequest {
   name: string;
   org_code: string;
   settings?: {
+    default_lesson_type?: 'monthly' | 'session';
     default_billing_type?: 'prepaid' | 'postpaid';
     default_absence_policy?: 'carry_over' | 'deduct_next' | 'vanish';
     default_send_target?: 'student_only' | 'guardian_only' | 'both';

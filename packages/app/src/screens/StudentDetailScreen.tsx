@@ -2,13 +2,12 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } fro
 import { ActivityIndicator, Alert, Linking, Platform, Clipboard } from 'react-native';
 import styled from 'styled-components/native';
 import Modal from 'react-native-modal';
-import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute, CommonActions } from '@react-navigation/native';
 import { useStudentsStore } from '../store/useStudentsStore';
 import { useContractsStore } from '../store/useContractsStore';
 import { contractsApi } from '../api/contracts';
 import { studentsApi } from '../api/students';
 import { attendanceApi } from '../api/attendance';
-import ContractSendModal from '../components/modals/ContractSendModal';
 import ExtendContractModal from '../components/modals/ExtendContractModal';
 import { StudentsStackNavigationProp, StudentsStackParamList } from '../navigation/AppNavigator';
 import type { RouteProp } from '@react-navigation/native';
@@ -29,9 +28,6 @@ function StudentDetailContent() {
   const status = detailState?.status ?? 'idle';
   const detail = detailState?.data;
   const errorMessage = detailState?.errorMessage;
-  const [sendingContractId, setSendingContractId] = useState<number | null>(null);
-  const [showSendModal, setShowSendModal] = useState(false);
-  const [selectedContract, setSelectedContract] = useState<{ id: number; studentPhone?: string; billingType?: 'prepaid' | 'postpaid' } | null>(null);
   const [isAttendanceExpanded, setIsAttendanceExpanded] = useState(false);
   const [showExtendModal, setShowExtendModal] = useState(false);
   const [selectedAttendanceMonth, setSelectedAttendanceMonth] = useState<{ year: number; month: number } | null>(null);
@@ -118,58 +114,25 @@ function StudentDetailContent() {
   }, [loadDetail, navigation, studentId, viewableContractId]);
 
   const handleSendContractClick = useCallback(
-    async (contractId: number) => {
-      // 계약서 상세 정보 가져오기
-      try {
-        const contract = await contractsApi.getById(contractId);
-        setSelectedContract({
-          id: contractId,
-          studentPhone: contract.student?.phone || contract.student?.guardian_phone,
-          billingType: contract.billing_type as 'prepaid' | 'postpaid',
-        });
-        setShowSendModal(true);
-      } catch (error: any) {
-        console.error('[StudentDetail] get contract error', error);
-        Alert.alert('오류', '계약서 정보를 불러오지 못했습니다.');
-      }
+    (contractId: number) => {
+      // 미리보기 화면으로 이동 (다른 경로와 동일한 로직)
+      // ContractPreview는 HomeStack에 있으므로 CommonActions 사용
+      navigation.dispatch(
+        CommonActions.navigate({
+          name: 'MainTabs',
+          params: {
+            screen: 'Home',
+            params: {
+              screen: 'ContractPreview',
+              params: { contractId },
+            },
+          },
+        }),
+      );
     },
-    [],
+    [navigation],
   );
 
-  const handleSend = useCallback(
-    async (channel: 'sms' | 'link') => {
-      if (!selectedContract) {
-        return;
-      }
-
-      if (sendingContractId !== null) {
-        return;
-      }
-
-      setSendingContractId(selectedContract.id);
-      try {
-        if (channel === 'sms') {
-          // 계약서 상태를 'sent'로 업데이트
-          // 선불 계약의 경우 백엔드에서 자동으로 청구서 생성
-          await contractsApi.updateStatus(selectedContract.id, 'sent');
-        } else {
-          // 링크만 복사하는 경우는 ContractSendModal에서 처리
-          return;
-        }
-        // 수강생 상세 정보 다시 불러오기
-        await fetchStudentDetail(studentId, { force: true });
-        
-        // 링크 복사인 경우는 이미 위에서 return 했으므로 여기 도달하지 않음
-        // SMS 전송인 경우 모달에서 Alert를 표시하므로 여기서는 모달만 닫지 않음
-      } catch (error: any) {
-        console.error('[StudentDetail] send contract error', error);
-        Alert.alert('오류', error?.message || '계약서 전송에 실패했습니다.');
-      } finally {
-        setSendingContractId(null);
-      }
-    },
-    [selectedContract, fetchStudentDetail, studentId, sendingContractId],
-  );
 
   const contractsList: StudentContractDetail[] = useMemo(() => {
     if (!Array.isArray(detail?.contracts)) return [];
@@ -1034,7 +997,6 @@ const guardianLine = useMemo(() => {
                 const isConfirmed = contract.status === 'confirmed';
                 const isSent = contract.status === 'sent';
                 const showSendButton = isConfirmed && !isSent;
-                const isSending = sendingContractId === contract.id;
 
                 return (
                   <ContractCard key={contract.id}>
@@ -1390,20 +1352,6 @@ const guardianLine = useMemo(() => {
         </SectionCard>
       </Content>
 
-      {/* 전송 모달 */}
-      {selectedContract && (
-        <ContractSendModal
-          visible={showSendModal}
-          onClose={() => {
-            setShowSendModal(false);
-            setSelectedContract(null);
-          }}
-          onSend={handleSend}
-          contractLink={contractsApi.getViewLink(selectedContract.id)}
-          recipientPhone={selectedContract.studentPhone}
-          billingType={selectedContract.billingType}
-        />
-      )}
 
       {/* 연장 모달 */}
       {primaryContract && extendModalProps && (

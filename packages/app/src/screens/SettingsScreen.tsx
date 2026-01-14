@@ -42,6 +42,7 @@ function SettingsContent() {
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
   const [withdrawModalVisible, setWithdrawModalVisible] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('수정되었습니다');
   const [subscriptionIntroModalVisible, setSubscriptionIntroModalVisible] = useState(false);
   
   // 구독 상태
@@ -174,6 +175,7 @@ function SettingsContent() {
 
   const handleProfileEditSave = useCallback(() => {
     loadSettings();
+    setToastMessage('수정되었습니다');
     setToastVisible(true);
     setTimeout(() => {
       setToastVisible(false);
@@ -193,6 +195,7 @@ function SettingsContent() {
     try {
       await activateFreeSubscription();
       await loadSubscriptionInfo();
+      setToastMessage('2개월 무료구독이 시작되었습니다');
       setToastVisible(true);
       setTimeout(() => {
         setToastVisible(false);
@@ -461,7 +464,7 @@ function SettingsContent() {
       {/* 토스트 메시지 */}
       {toastVisible && (
         <ToastContainer>
-          <ToastText>수정되었습니다</ToastText>
+          <ToastText>{toastMessage}</ToastText>
         </ToastContainer>
       )}
     </Container>
@@ -600,16 +603,22 @@ const ToastContainer = styled.View`
   position: absolute;
   bottom: 100px;
   align-self: center;
-  background-color: rgba(0, 0, 0, 0.8);
-  padding: 12px 24px;
-  border-radius: 8px;
+  background-color: #1d42d8;
+  padding: 14px 24px;
+  border-radius: 12px;
   z-index: 1000;
+  shadow-color: rgba(29, 66, 216, 0.3);
+  shadow-opacity: 0.3;
+  shadow-radius: 8px;
+  shadow-offset: 0px 4px;
+  elevation: 4;
 `;
 
 const ToastText = styled.Text`
-  font-size: 14px;
+  font-size: 15px;
   color: #ffffff;
-  font-weight: 500;
+  font-weight: 600;
+  text-align: center;
 `;
 
 const HelperText = styled.Text`

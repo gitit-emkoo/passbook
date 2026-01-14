@@ -23,9 +23,8 @@ export default function SignupScreen() {
   const [orgCode, setOrgCode] = useState('');
 
   // Step 2: 기본 설정
-  const [billingType, setBillingType] = useState<'prepaid' | 'postpaid' | null>(null);
-  const [absencePolicy, setAbsencePolicy] = useState<'carry_over' | 'deduct_next' | 'vanish' | null>(null);
-  const [sendTarget, setSendTarget] = useState<'student_only' | 'guardian_only' | 'both' | null>(null);
+  const [lessonType, setLessonType] = useState<'monthly' | 'session' | null>(null);
+  const [absencePolicy, setAbsencePolicy] = useState<'carry_over' | 'vanish' | null>(null);
   const [skipSettings, setSkipSettings] = useState(false);
 
   // Step 3: 완료 처리
@@ -44,20 +43,15 @@ export default function SignupScreen() {
     setStep(2);
   }, [name, orgCode]);
 
-  // Step 2: 건너뛰기 또는 완료
-  const handleStep2Skip = useCallback(() => {
-    setSkipSettings(true);
-    setStep(3);
-  }, []);
-
+  // Step 2: 완료
   const handleStep2Complete = useCallback(() => {
-    if (!billingType || !absencePolicy || !sendTarget) {
+    if (!lessonType || !absencePolicy) {
       Alert.alert('입력 오류', '모든 설정을 선택해주세요.');
       return;
     }
     setSkipSettings(false);
     setStep(3);
-  }, [billingType, absencePolicy, sendTarget]);
+  }, [lessonType, absencePolicy]);
 
   // Step 3: 회원가입 완료
   const handleCompleteSignup = useCallback(async () => {
@@ -76,9 +70,10 @@ export default function SignupScreen() {
         settings: skipSettings
           ? undefined
           : {
-              default_billing_type: billingType!,
+              default_lesson_type: lessonType!,
+              default_billing_type: 'prepaid', // 뷰티앱: 항상 선불로 고정
               default_absence_policy: absencePolicy!,
-              default_send_target: sendTarget!,
+              default_send_target: 'student_only', // 뷰티앱: 항상 고객으로 고정
             },
       };
 
@@ -94,7 +89,7 @@ export default function SignupScreen() {
       Alert.alert('오류', error?.response?.data?.message || '회원가입에 실패했습니다.');
       setCompleting(false);
     }
-  }, [temporaryToken, name, orgCode, skipSettings, billingType, absencePolicy, sendTarget, login, navigation]);
+  }, [temporaryToken, name, orgCode, skipSettings, lessonType, absencePolicy, login, navigation]);
 
   // Step 3는 자동으로 실행
   useEffect(() => {
@@ -115,7 +110,7 @@ export default function SignupScreen() {
         >
           <HeaderArea>
             <LogoImage source={logoImage} resizeMode="contain" />
-            <AppSlogan>계약부터 정산까지 간편한 레슨관리 김쌤</AppSlogan>
+            <AppSlogan>고객과 신뢰로 나누는 이용권 관리</AppSlogan>
           </HeaderArea>
           <Content>
             {/* Step 표시 */}
@@ -161,38 +156,39 @@ export default function SignupScreen() {
                 <Title>기본 설정</Title>
                 <Subtitle>
                   계약서에 입력되는 조건을 설정해 주세요.{'\n'}
-                  건너뛸 수 있고 마이페이지에서 수정할 수 있습니다.
+                  마이페이지에서 수정할 수 있습니다.
                 </Subtitle>
 
-                <InputLabel>결제 방식</InputLabel>
+                <InputLabel>이용권 타입</InputLabel>
                 <OptionRow>
                   <OptionButton
-                    $selected={billingType === 'prepaid'}
-                    onPress={() => setBillingType('prepaid')}
+                    $selected={lessonType === 'monthly'}
+                    onPress={() => setLessonType('monthly')}
                   >
-                    <OptionButtonText $selected={billingType === 'prepaid'}>선불</OptionButtonText>
+                    <OptionButtonText $selected={lessonType === 'monthly'}>선불권</OptionButtonText>
                   </OptionButton>
                   <OptionButton
-                    $selected={billingType === 'postpaid'}
-                    onPress={() => setBillingType('postpaid')}
+                    $selected={lessonType === 'session'}
+                    onPress={() => setLessonType('session')}
                   >
-                    <OptionButtonText $selected={billingType === 'postpaid'}>후불</OptionButtonText>
+                    <OptionButtonText $selected={lessonType === 'session'}>횟수권</OptionButtonText>
                   </OptionButton>
                 </OptionRow>
 
-                <InputLabel style={{ marginTop: 20 }}>결석 처리</InputLabel>
+                <InputLabel style={{ marginTop: 20 }}>결제 방식</InputLabel>
                 <OptionRow>
-                  <OptionButton
-                    $selected={absencePolicy === 'deduct_next'}
-                    onPress={() => setAbsencePolicy('deduct_next')}
-                  >
-                    <OptionButtonText $selected={absencePolicy === 'deduct_next'}>차감</OptionButtonText>
-                  </OptionButton>
+                  <DisabledOptionButton $selected>
+                    <OptionButtonText $selected>선불</OptionButtonText>
+                  </DisabledOptionButton>
+                </OptionRow>
+
+                <InputLabel style={{ marginTop: 20 }}>노쇼처리</InputLabel>
+                <OptionRow>
                   <OptionButton
                     $selected={absencePolicy === 'carry_over'}
                     onPress={() => setAbsencePolicy('carry_over')}
                   >
-                    <OptionButtonText $selected={absencePolicy === 'carry_over'}>회차이월</OptionButtonText>
+                    <OptionButtonText $selected={absencePolicy === 'carry_over'}>대체</OptionButtonText>
                   </OptionButton>
                   <OptionButton
                     $selected={absencePolicy === 'vanish'}
@@ -202,36 +198,16 @@ export default function SignupScreen() {
                   </OptionButton>
                 </OptionRow>
 
-                <InputLabel style={{ marginTop: 20 }}>전송 대상</InputLabel>
+                <InputLabel style={{ marginTop: 20 }}>청구서 전송</InputLabel>
                 <OptionRow>
-                  <OptionButton
-                    $selected={sendTarget === 'student_only'}
-                    onPress={() => setSendTarget('student_only')}
-                  >
-                    <OptionButtonText $selected={sendTarget === 'student_only'}>수강생만</OptionButtonText>
-                  </OptionButton>
-                  <OptionButton
-                    $selected={sendTarget === 'guardian_only'}
-                    onPress={() => setSendTarget('guardian_only')}
-                  >
-                    <OptionButtonText $selected={sendTarget === 'guardian_only'}>보호자만</OptionButtonText>
-                  </OptionButton>
-                  <OptionButton
-                    $selected={sendTarget === 'both'}
-                    onPress={() => setSendTarget('both')}
-                  >
-                    <OptionButtonText $selected={sendTarget === 'both'}>둘 다</OptionButtonText>
-                  </OptionButton>
+                  <DisabledOptionButton $selected>
+                    <OptionButtonText $selected>고객</OptionButtonText>
+                  </DisabledOptionButton>
                 </OptionRow>
 
-                <ButtonRow>
-                  <SkipButton onPress={handleStep2Skip}>
-                    <SkipButtonText>건너뛰기</SkipButtonText>
-                  </SkipButton>
-                  <PrimaryButton onPress={handleStep2Complete} disabled={!billingType || !absencePolicy || !sendTarget}>
-                    <PrimaryButtonText>완료</PrimaryButtonText>
-                  </PrimaryButton>
-                </ButtonRow>
+                <PrimaryButton onPress={handleStep2Complete} disabled={!lessonType || !absencePolicy}>
+                  <PrimaryButtonText>완료</PrimaryButtonText>
+                </PrimaryButton>
               </StepContainer>
             )}
 
@@ -264,6 +240,7 @@ const LogoImage = styled.Image`
   width: 80px;
   height: 80px;
   margin-bottom: 8px;
+  border-radius: 40px;
 `;
 
 const AppSlogan = styled.Text`
@@ -370,24 +347,15 @@ const OptionButtonText = styled.Text<{ $selected: boolean }>`
   color: ${(props) => (props.$selected ? '#1d42d8' : '#333333')};
 `;
 
-const ButtonRow = styled.View`
-  flex-direction: row;
-  gap: 12px;
-  margin-top: 24px;
-`;
-
-const SkipButton = styled.TouchableOpacity`
+const DisabledOptionButton = styled.View<{ $selected?: boolean }>`
   flex: 1;
-  padding: 16px;
-  border-radius: 12px;
+  min-width: 80px;
+  padding: 12px 16px;
+  border-width: 1px;
+  border-color: ${(props) => (props.$selected ? '#1d42d8' : '#e0e0e0')};
+  border-radius: 8px;
+  background-color: ${(props) => (props.$selected ? '#eef2ff' : '#ffffff')};
   align-items: center;
-  justify-content: center;
-  background-color: #1d42d8;
-`;
-
-const SkipButtonText = styled.Text`
-  color: #ffffff;
-  font-size: 16px;
-  font-weight: 600;
+  opacity: 0.7;
 `;
 

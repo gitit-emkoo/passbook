@@ -91,8 +91,8 @@ function InvoicePreviewContent() {
               throw new Error(`청구서 ${id}를 불러오지 못했습니다.`);
             }
             
-            const data = await response.json();
-            return { id, html: data.html };
+            const html = await response.text();
+            return { id, html };
           } catch (err) {
             console.error(`[InvoicePreview] load error for invoice ${id}`, err);
             return { id, html: null };

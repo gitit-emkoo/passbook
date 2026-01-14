@@ -25,10 +25,17 @@ export class SmsService {
     this.apiKey = this.configService.get<string>('SOLAPI_API_KEY') || '';
     this.apiSecret = this.configService.get<string>('SOLAPI_API_SECRET') || '';
     this.senderNumber = this.configService.get<string>('SOLAPI_SENDER_NUMBER') || '';
-    this.memberId = this.configService.get<string>('SOLAPI_MEMBER_ID') || '';
+    this.memberId = (this.configService.get<string>('SOLAPI_MEMBER_ID') || '').trim();
 
-    if (!this.apiKey || !this.apiSecret || !this.senderNumber) {
+    // 환경변수 로드 확인 로그
+    this.logger.log(`[SmsService] Initialized - memberId length: ${this.memberId.length}, value: "${this.memberId}"`);
+
+    if (!this.apiKey || !this.apiSecret || !this.senderNumber || !this.memberId) {
       this.logger.warn('Solapi credentials not configured. SMS sending will be disabled.');
+    }
+    
+    if (this.memberId && this.memberId.length !== 14) {
+      this.logger.error(`Solapi memberId length is ${this.memberId.length}, expected 14. Current value: "${this.memberId}"`);
     }
   }
 
