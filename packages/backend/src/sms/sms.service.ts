@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as crypto from 'crypto';
 
 export interface SendSmsOptions {
   to: string; // 수신자 전화번호 (하이픈 없이 숫자만)
@@ -18,25 +19,56 @@ export class SmsService {
   private readonly apiKey: string;
   private readonly apiSecret: string;
   private readonly senderNumber: string;
-  private readonly memberId: string;
   private readonly apiUrl = 'https://api.solapi.com/messages/v4/send';
 
   constructor(private configService: ConfigService) {
+    // Solapi 인증 정보: 환경변수에서만 읽음 (고정값)
+    // ⚠️ 중요: memberId는 사용하지 않음!
+    // Solapi는 API Key + Secret만으로 Account ID → Member ID를 자동 매핑함
+    // memberId를 payload에 포함하면 오히려 에러 발생
     this.apiKey = this.configService.get<string>('SOLAPI_API_KEY') || '';
     this.apiSecret = this.configService.get<string>('SOLAPI_API_SECRET') || '';
     this.senderNumber = this.configService.get<string>('SOLAPI_SENDER_NUMBER') || '';
-    this.memberId = (this.configService.get<string>('SOLAPI_MEMBER_ID') || '').trim();
 
-    // 환경변수 로드 확인 로그
-    this.logger.log(`[SmsService] Initialized - memberId length: ${this.memberId.length}, value: "${this.memberId}"`);
-
-    if (!this.apiKey || !this.apiSecret || !this.senderNumber || !this.memberId) {
+    // 환경변수 로드 확인
+    if (!this.apiKey || !this.apiSecret || !this.senderNumber) {
       this.logger.warn('Solapi credentials not configured. SMS sending will be disabled.');
+    } else {
+      this.logger.log('SmsService initialized successfully');
     }
+  }
+
+  /**
+   * Solapi v4 HMAC-SHA256 인증 헤더 생성
+   * 형식: HMAC-SHA256 apiKey=<key>, date=<ISO8601>, salt=<random>, signature=<hmac>
+   */
+  private generateAuthHeader(): string {
+    // date: ISO 8601 UTC 형식
+    const date = new Date().toISOString();
     
-    if (this.memberId && this.memberId.length !== 14) {
-      this.logger.error(`Solapi memberId length is ${this.memberId.length}, expected 14. Current value: "${this.memberId}"`);
-    }
+    // salt: 랜덤 문자열 (64자리 hex, 공식 예제와 동일)
+    // 공식 예제: crypto.randomBytes(32).toString('hex') = 64자
+    const salt = crypto.randomBytes(32).toString('hex');
+    
+    // signature: HMAC-SHA256(date + salt, apiSecret)
+    const data = date + salt;
+    const signature = crypto
+      .createHmac('sha256', this.apiSecret)
+      .update(data)
+      .digest('hex');
+    
+    // ⚠️ 디버깅: 시그니처 생성 정보 (Fly.io 로그와 비교용)
+    this.logger.log(`[Signature 디버깅] date: "${date}" (길이: ${date.length})`);
+    this.logger.log(`[Signature 디버깅] salt: "${salt}" (길이: ${salt.length})`);
+    this.logger.log(`[Signature 디버깅] signatureString (date+salt): "${data}" (길이: ${data.length})`);
+    this.logger.log(`[Signature 디버깅] apiSecret 길이: ${this.apiSecret.length}, 처음4자: "${this.apiSecret.substring(0, 4)}", 마지막4자: "${this.apiSecret.substring(this.apiSecret.length - 4)}"`);
+    this.logger.log(`[Signature 디버깅] 계산된 signature: "${signature}" (길이: ${signature.length})`);
+    
+    // Authorization 헤더 생성
+    const authHeader = `HMAC-SHA256 apiKey=${this.apiKey}, date=${date}, salt=${salt}, signature=${signature}`;
+    this.logger.log(`[Signature 디버깅] Authorization 헤더 전체: ${authHeader}`);
+    
+    return authHeader;
   }
 
   /**
@@ -65,7 +97,11 @@ export class SmsService {
     }
 
     try {
-      // 솔라피 API 요청 파라미터
+      // Solapi API 요청 파라미터
+      // ⚠️ 중요: memberId를 절대 포함하지 않음!
+      // Solapi는 API Key + Secret만으로 Account ID → Member ID를 자동 매핑함
+      // memberId를 payload에 포함하면 오히려 에러 발생
+      // 단일 메시지의 경우 "message" 객체 사용 (복수형 "messages" 배열 사용 불가)
       const requestBody: any = {
         message: {
           to: cleanPhone,
@@ -74,53 +110,92 @@ export class SmsService {
         },
       };
 
-      // memberId 필수 (14자리)
-      if (!this.memberId || this.memberId.length !== 14) {
-        this.logger.error(`Invalid memberId: ${this.memberId} (must be 14 digits)`);
-        return {
-          success: false,
-          error: 'Solapi memberId not configured or invalid',
-        };
-      }
-      requestBody.memberId = this.memberId;
+      // HMAC-SHA256 인증 헤더 생성
+      const authHeader = this.generateAuthHeader();
+      const requestBodyString = JSON.stringify(requestBody);
 
-      // Solapi user 인증 방식: user apiKey:apiSecret
+      // ⚠️ 디버깅: 요청 정보 (Fly.io 로그와 비교용)
+      this.logger.log(`[Request 디버깅] method: "POST"`);
+      this.logger.log(`[Request 디버깅] path: "/messages/v4/send"`);
+      this.logger.log(`[Request 디버깅] timestamp: "${Date.now()}"`);
+      this.logger.log(`[Request 디버깅] body: ${requestBodyString}`);
+      this.logger.log(`[Request 디버깅] headers: ${JSON.stringify({
+        'Content-Type': 'application/json',
+        'Authorization': authHeader,
+      })}`);
+
+      // Solapi v4 HMAC-SHA256 인증 방식
       const response = await fetch(this.apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `user ${this.apiKey}:${this.apiSecret}`,
+          'Authorization': authHeader,
         },
-        body: JSON.stringify(requestBody),
+        body: requestBodyString,
       });
 
-      const result = await response.json();
+      // 응답 본문 파싱
+      const responseText = await response.text();
+      let result: any;
+      try {
+        result = JSON.parse(responseText);
+      } catch (e) {
+        this.logger.error(`Failed to parse SMS response as JSON: ${e}`);
+        result = { error: 'Invalid JSON response', raw: responseText };
+      }
 
-      // 솔라피 API 응답 형식: { groupId: 'xxx', messageList: [{ messageId: 'xxx', statusCode: '2000', ... }] }
-      if (response.ok && result.messageList && result.messageList.length > 0) {
-        const messageResult = result.messageList[0];
-        if (messageResult.statusCode === '2000') {
+      // ⚠️ 디버깅: 응답 정보 (Fly.io 로그와 비교용)
+      this.logger.log(`[Response 디버깅] status: ${response.status}`);
+      this.logger.log(`[Response 디버깅] body: ${responseText}`);
+
+      // 솔라피 API 응답 형식:
+      // 1. 단일 메시지: { groupId, messageId, statusCode, statusMessage, to, from, ... }
+      // 2. 여러 메시지: { groupId, messageList: [{ messageId, statusCode, ... }] }
+      if (response.ok) {
+        // 단일 메시지 응답 처리 (messageList 없이 직접 응답 객체에 정보가 있는 경우)
+        if (result.statusCode === '2000') {
           this.logger.log(`SMS sent successfully to ${cleanPhone}`);
           return {
             success: true,
-            messageId: messageResult.messageId || result.groupId,
-          };
-        } else {
-          this.logger.error(`SMS send failed: ${messageResult.statusMessage || messageResult.statusCode}`);
-          return {
-            success: false,
-            error: messageResult.statusMessage || `SMS send failed: ${messageResult.statusCode}`,
+            messageId: result.messageId || result.groupId,
           };
         }
-      } else {
-        // API 에러 응답
-        const errorMessage = result.errorMessage || result.message || 'Unknown error';
-        this.logger.error(`SMS send failed: ${errorMessage}`);
-        return {
-          success: false,
-          error: errorMessage,
-        };
+        
+        // 여러 메시지 응답 처리 (messageList가 있는 경우)
+        if (result.messageList && result.messageList.length > 0) {
+          const messageResult = result.messageList[0];
+          if (messageResult.statusCode === '2000') {
+            this.logger.log(`SMS sent successfully to ${cleanPhone}`);
+            return {
+              success: true,
+              messageId: messageResult.messageId || result.groupId,
+            };
+          } else {
+            this.logger.error(`SMS send failed: ${messageResult.statusMessage || messageResult.statusCode}`);
+            return {
+              success: false,
+              error: messageResult.statusMessage || `SMS send failed: ${messageResult.statusCode}`,
+            };
+          }
+        }
+        
+        // statusCode가 있지만 2000이 아닌 경우
+        if (result.statusCode) {
+          this.logger.error(`SMS send failed: ${result.statusMessage || result.statusCode}`);
+          return {
+            success: false,
+            error: result.statusMessage || `SMS send failed: ${result.statusCode}`,
+          };
+        }
       }
+      
+      // API 에러 응답
+      const errorMessage = result.errorMessage || result.message || 'Unknown error';
+      this.logger.error(`SMS send failed: ${errorMessage}`);
+      return {
+        success: false,
+        error: errorMessage,
+      };
     } catch (error: any) {
       this.logger.error(`SMS send error: ${error?.message || error}`);
       return {

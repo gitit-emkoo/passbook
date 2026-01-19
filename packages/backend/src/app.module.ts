@@ -19,7 +19,8 @@ import { SmsModule } from './sms/sms.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      // ⚠️ 중요: envFilePath를 명시하지 않으면 로컬(.env)과 Fly.io(시스템 환경변수) 모두 지원
+      // envFilePath: '.env', // Fly.io에서는 .env 파일이 없으므로 제거
     }),
     ScheduleModule.forRoot(),
     AuthModule,
