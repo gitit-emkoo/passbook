@@ -22,15 +22,10 @@ export class SmsService {
   private readonly apiUrl = 'https://api.solapi.com/messages/v4/send';
 
   constructor(private configService: ConfigService) {
-    // Solapi 인증 정보: 환경변수에서만 읽음 (고정값)
-    // ⚠️ 중요: memberId는 사용하지 않음!
-    // Solapi는 API Key + Secret만으로 Account ID → Member ID를 자동 매핑함
-    // memberId를 payload에 포함하면 오히려 에러 발생
     this.apiKey = this.configService.get<string>('SOLAPI_API_KEY') || '';
     this.apiSecret = this.configService.get<string>('SOLAPI_API_SECRET') || '';
     this.senderNumber = this.configService.get<string>('SOLAPI_SENDER_NUMBER') || '';
 
-    // 환경변수 로드 확인
     if (!this.apiKey || !this.apiSecret || !this.senderNumber) {
       this.logger.warn('Solapi credentials not configured. SMS sending will be disabled.');
     } else {
@@ -40,35 +35,18 @@ export class SmsService {
 
   /**
    * Solapi v4 HMAC-SHA256 인증 헤더 생성
-   * 형식: HMAC-SHA256 apiKey=<key>, date=<ISO8601>, salt=<random>, signature=<hmac>
    */
   private generateAuthHeader(): string {
-    // date: ISO 8601 UTC 형식
-    const date = new Date().toISOString();
-    
-    // salt: 랜덤 문자열 (64자리 hex, 공식 예제와 동일)
-    // 공식 예제: crypto.randomBytes(32).toString('hex') = 64자
+    const rawDate = new Date().toISOString();
+    const date = rawDate.replace(/\.\d{3}Z$/, 'Z'); // 밀리초 제거
     const salt = crypto.randomBytes(32).toString('hex');
-    
-    // signature: HMAC-SHA256(date + salt, apiSecret)
     const data = date + salt;
     const signature = crypto
       .createHmac('sha256', this.apiSecret)
       .update(data)
       .digest('hex');
     
-    // ⚠️ 디버깅: 시그니처 생성 정보 (Fly.io 로그와 비교용)
-    this.logger.log(`[Signature 디버깅] date: "${date}" (길이: ${date.length})`);
-    this.logger.log(`[Signature 디버깅] salt: "${salt}" (길이: ${salt.length})`);
-    this.logger.log(`[Signature 디버깅] signatureString (date+salt): "${data}" (길이: ${data.length})`);
-    this.logger.log(`[Signature 디버깅] apiSecret 길이: ${this.apiSecret.length}, 처음4자: "${this.apiSecret.substring(0, 4)}", 마지막4자: "${this.apiSecret.substring(this.apiSecret.length - 4)}"`);
-    this.logger.log(`[Signature 디버깅] 계산된 signature: "${signature}" (길이: ${signature.length})`);
-    
-    // Authorization 헤더 생성
-    const authHeader = `HMAC-SHA256 apiKey=${this.apiKey}, date=${date}, salt=${salt}, signature=${signature}`;
-    this.logger.log(`[Signature 디버깅] Authorization 헤더 전체: ${authHeader}`);
-    
-    return authHeader;
+    return `HMAC-SHA256 apiKey=${this.apiKey}, date=${date}, salt=${salt}, signature=${signature}`;
   }
 
   /**
@@ -97,12 +75,7 @@ export class SmsService {
     }
 
     try {
-      // Solapi API 요청 파라미터
-      // ⚠️ 중요: memberId를 절대 포함하지 않음!
-      // Solapi는 API Key + Secret만으로 Account ID → Member ID를 자동 매핑함
-      // memberId를 payload에 포함하면 오히려 에러 발생
-      // 단일 메시지의 경우 "message" 객체 사용 (복수형 "messages" 배열 사용 불가)
-      const requestBody: any = {
+      const requestBody = {
         message: {
           to: cleanPhone,
           from: this.senderNumber,
@@ -113,16 +86,6 @@ export class SmsService {
       // HMAC-SHA256 인증 헤더 생성
       const authHeader = this.generateAuthHeader();
       const requestBodyString = JSON.stringify(requestBody);
-
-      // ⚠️ 디버깅: 요청 정보 (Fly.io 로그와 비교용)
-      this.logger.log(`[Request 디버깅] method: "POST"`);
-      this.logger.log(`[Request 디버깅] path: "/messages/v4/send"`);
-      this.logger.log(`[Request 디버깅] timestamp: "${Date.now()}"`);
-      this.logger.log(`[Request 디버깅] body: ${requestBodyString}`);
-      this.logger.log(`[Request 디버깅] headers: ${JSON.stringify({
-        'Content-Type': 'application/json',
-        'Authorization': authHeader,
-      })}`);
 
       // Solapi v4 HMAC-SHA256 인증 방식
       const response = await fetch(this.apiUrl, {
@@ -144,13 +107,6 @@ export class SmsService {
         result = { error: 'Invalid JSON response', raw: responseText };
       }
 
-      // ⚠️ 디버깅: 응답 정보 (Fly.io 로그와 비교용)
-      this.logger.log(`[Response 디버깅] status: ${response.status}`);
-      this.logger.log(`[Response 디버깅] body: ${responseText}`);
-
-      // 솔라피 API 응답 형식:
-      // 1. 단일 메시지: { groupId, messageId, statusCode, statusMessage, to, from, ... }
-      // 2. 여러 메시지: { groupId, messageList: [{ messageId, statusCode, ... }] }
       if (response.ok) {
         // 단일 메시지 응답 처리 (messageList 없이 직접 응답 객체에 정보가 있는 경우)
         if (result.statusCode === '2000') {

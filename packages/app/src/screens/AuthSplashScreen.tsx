@@ -78,7 +78,7 @@ export default function AuthSplashScreen() {
         <LogoImage source={logoImage} resizeMode="contain" />
       </LogoCard>
       <LoadingRow>
-        <ActivityIndicator color="#ffffff" />
+        <ActivityIndicator color="#1d42d8" />
       </LoadingRow>
     </Container>
   );

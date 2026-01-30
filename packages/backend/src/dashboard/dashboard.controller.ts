@@ -1,4 +1,4 @@
-import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Req, UseGuards, Logger } from '@nestjs/common';
 import { Request } from 'express';
 import { DashboardService } from './dashboard.service';
 import { JwtAuthGuard } from '../auth/jwt-auth/jwt-auth.guard';
@@ -6,12 +6,19 @@ import { JwtAuthGuard } from '../auth/jwt-auth/jwt-auth.guard';
 @UseGuards(JwtAuthGuard)
 @Controller('api/v1/dashboard')
 export class DashboardController {
+  private readonly logger = new Logger(DashboardController.name);
+
   constructor(private readonly dashboardService: DashboardService) {}
 
   @Get('summary')
   async getSummary(@Req() req: Request) {
     const user = req.user as any;
-    return this.dashboardService.getSummary(user.id ?? user.sub);
+    try {
+      return await this.dashboardService.getSummary(user.id ?? user.sub);
+    } catch (error: any) {
+      this.logger.error(`[getSummary] Error: ${error?.message || error}`, error?.stack);
+      throw error;
+    }
   }
 
   @Get('statistics')

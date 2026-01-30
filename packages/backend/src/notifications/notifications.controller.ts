@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Param, Query, Req, UseGuards, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Patch, Param, Query, Req, UseGuards, ParseIntPipe, Post, Body } from '@nestjs/common';
 import { Request } from 'express';
 import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../auth/jwt-auth/jwt-auth.guard';
@@ -33,5 +33,26 @@ export class NotificationsController {
   async markAllAsRead(@Req() req: Request) {
     const user = req.user as any;
     return this.notificationsService.markAllAsRead(user.id ?? user.sub);
+  }
+
+  /**
+   * 테스트용 푸시 알림 전송
+   */
+  @Post('test')
+  async sendTestNotification(@Req() req: Request, @Body() body?: { title?: string; body?: string }) {
+    const user = req.user as any;
+    const userId = user.id ?? user.sub;
+    
+    const title = body?.title || '테스트 알림';
+    const bodyText = body?.body || '푸시 알림 테스트입니다!';
+    
+    return this.notificationsService.createAndSendNotification(
+      userId,
+      'test',
+      title,
+      bodyText,
+      '/home',
+      { skipDuplicateCheck: true },
+    );
   }
 }

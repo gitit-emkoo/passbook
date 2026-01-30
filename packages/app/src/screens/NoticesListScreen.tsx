@@ -46,7 +46,7 @@ export default function NoticesListScreen() {
 
   const handleNoticePress = useCallback(
     (noticeId: number) => {
-      navigation.navigate('NoticeDetail' as never, { noticeId } as never);
+      navigation.navigate('NoticeDetail', { noticeId });
     },
     [navigation],
   );
@@ -55,7 +55,7 @@ export default function NoticesListScreen() {
     return (
       <Container>
         <CenteredContainer>
-          <ActivityIndicator size="large" color="#ff6b00" />
+          <ActivityIndicator size="large" color="#1d42d8" />
           <CenteredText>공지사항을 불러오는 중...</CenteredText>
         </CenteredContainer>
       </Container>

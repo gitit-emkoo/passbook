@@ -8,7 +8,8 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_KOTLIN_VERSION": "1.9.25"
+        "EXPO_KOTLIN_VERSION": "1.9.25",
+        "API_URL": "https://kimssam-backend.fly.dev"
       },
       "android": {
         "buildType": "apk",
@@ -22,7 +23,8 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_KOTLIN_VERSION": "1.9.25"
+        "EXPO_KOTLIN_VERSION": "1.9.25",
+        "API_URL": "https://kimssam-backend.fly.dev"
       },
       "android": {
         "buildType": "apk"
@@ -32,7 +34,8 @@
       "developmentClient": false,
       "distribution": "internal",
       "env": {
-        "EXPO_KOTLIN_VERSION": "1.9.25"
+        "EXPO_KOTLIN_VERSION": "1.9.25",
+        "API_URL": "https://kimssam-backend.fly.dev"
       },
       "android": {
         "buildType": "apk"
@@ -40,7 +43,8 @@
     },
     "production": {
       "env": {
-        "EXPO_KOTLIN_VERSION": "1.9.25"
+        "EXPO_KOTLIN_VERSION": "1.9.25",
+        "API_URL": "https://kimssam-backend.fly.dev"
       },
       "android": {
         "buildType": "apk"

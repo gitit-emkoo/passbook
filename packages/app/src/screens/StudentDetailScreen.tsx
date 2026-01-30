@@ -895,7 +895,7 @@ const guardianLine = useMemo(() => {
   if (status === 'loading' && !detail) {
     return (
       <CenteredContainer>
-        <ActivityIndicator color="#ff6b00" />
+        <ActivityIndicator color="#1d42d8" />
         <CenteredText>고객 정보를 불러오는 중이에요...</CenteredText>
       </CenteredContainer>
     );
@@ -1280,7 +1280,7 @@ const guardianLine = useMemo(() => {
         </SectionCard>
 
         {/* 정산서 전송내역 섹션 */}
-        <SectionCard>
+        <SectionCardLast>
           <SectionHeader>
             <SectionTitle>정산서 전송내역</SectionTitle>
           </SectionHeader>
@@ -1349,7 +1349,7 @@ const guardianLine = useMemo(() => {
               })}
             </InvoiceList>
           )}
-        </SectionCard>
+        </SectionCardLast>
       </Content>
 
 
@@ -2007,26 +2007,22 @@ const getAttendanceStatusColor = (status: string) => {
 
 const Container = styled.ScrollView`
   flex: 1;
-  background-color: #f2f2f7;
+  background-color: #ffffff;
 `;
 
 const Content = styled.View`
-  padding: 20px 16px 40px;
-  gap: 16px;
+  padding: 0;
+  padding-bottom: 40px;
 `;
 
 const HeaderCard = styled.View`
   background-color: #ffffff;
-  border-radius: 16px;
-  padding: 20px;
+  padding: 20px 16px;
   flex-direction: row;
   justify-content: space-between;
   align-items: flex-start;
-  shadow-color: #000;
-  shadow-opacity: 0.08;
-  shadow-offset: 0px 4px;
-  shadow-radius: 12px;
-  elevation: 4;
+  border-bottom-width: 1px;
+  border-bottom-color: #e5e5ea;
 `;
 
 const HeaderTexts = styled.View`
@@ -2090,24 +2086,21 @@ const ExtendButtonText = styled.Text`
 
 const SectionCard = styled.View`
   background-color: #ffffff;
-  border-radius: 16px;
-  padding: 20px;
-  shadow-color: #000;
-  shadow-opacity: 0.06;
-  shadow-offset: 0px 4px;
-  shadow-radius: 10px;
-  elevation: 3;
+  padding: 20px 16px;
+  border-bottom-width: 1px;
+  border-bottom-color: #e5e5ea;
+`;
+
+const SectionCardLast = styled.View`
+  background-color: #ffffff;
+  padding: 20px 16px;
 `;
 
 const ScheduleSectionCard = styled.View`
   background-color: #ffffff;
-  border-radius: 16px;
-  padding: 16px 20px;
-  shadow-color: #000;
-  shadow-opacity: 0.06;
-  shadow-offset: 0px 4px;
-  shadow-radius: 10px;
-  elevation: 3;
+  padding: 16px;
+  border-bottom-width: 1px;
+  border-bottom-color: #e5e5ea;
 `;
 
 const SectionHeader = styled.View`
@@ -2246,8 +2239,6 @@ const AttendanceToggleButton = styled.TouchableOpacity`
   padding: 12px;
   align-items: center;
   justify-content: center;
-  border-top-width: 1px;
-  border-top-color: #f0f0f3;
 `;
 
 const AttendanceToggleText = styled.Text`

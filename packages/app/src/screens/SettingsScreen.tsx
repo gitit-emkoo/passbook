@@ -23,6 +23,7 @@ function SettingsContent() {
   // 기본 정보
   const [userName, setUserName] = useState('');
   const [orgCode, setOrgCode] = useState('');
+  const [userPhone, setUserPhone] = useState('');
 
   // 계약서 기본값 설정 모달
   const [contractSettingsModalVisible, setContractSettingsModalVisible] = useState(false);
@@ -44,12 +45,14 @@ function SettingsContent() {
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('수정되었습니다');
   const [subscriptionIntroModalVisible, setSubscriptionIntroModalVisible] = useState(false);
+  const [isFirstTimeBonusPath, setIsFirstTimeBonusPath] = useState(false);
   
   // 구독 상태
   const [subscriptionInfo, setSubscriptionInfo] = useState<{
     status: SubscriptionStatus;
     remainingDays: number | null;
     contractCount: number;
+    isFirstTimeBonus?: boolean;
   } | null>(null);
 
   // 개발자 옵션
@@ -147,6 +150,7 @@ function SettingsContent() {
         status: info.status,
         remainingDays: info.remainingDays,
         contractCount: info.contractCount,
+        isFirstTimeBonus: info.isFirstTimeBonus,
       });
     } catch (error) {
       console.error('[Settings] Failed to load subscription info', error);
@@ -164,11 +168,18 @@ function SettingsContent() {
       loadSubscriptionInfo();
       
       // 네비게이션 파라미터 확인 (구독 안내 모달 표시)
-      const params = (route.params as any) || {};
-      if (params.showSubscriptionIntro) {
+      const params = route.params as
+        | {
+            showSubscriptionIntro?: boolean;
+            isFirstTimeBonus?: boolean;
+          }
+        | undefined;
+      if (params?.showSubscriptionIntro) {
         setSubscriptionIntroModalVisible(true);
+        // isFirstTimeBonus 파라미터로 최초 접속 팝업 경로인지 구분
+        setIsFirstTimeBonusPath(params.isFirstTimeBonus === true);
         // 파라미터 제거
-        navigation.setParams({ showSubscriptionIntro: undefined });
+        navigation.setParams(undefined as never);
       }
     }, [loadSettings, loadSubscriptionInfo, route.params, navigation]),
   );
@@ -193,17 +204,20 @@ function SettingsContent() {
   // 구독 활성화
   const handleActivateSubscription = useCallback(async () => {
     try {
-      await activateFreeSubscription();
+      // 최초 접속 팝업 경로인지 확인 (상태로 저장된 값 사용)
+      await activateFreeSubscription(isFirstTimeBonusPath);
       await loadSubscriptionInfo();
-      setToastMessage('2개월 무료구독이 시작되었습니다');
+      setToastMessage(isFirstTimeBonusPath ? '3개월 무료구독이 시작되었습니다' : '2개월 무료구독이 시작되었습니다');
       setToastVisible(true);
       setTimeout(() => {
         setToastVisible(false);
       }, 2000);
+      // 활성화 후 플래그 초기화
+      setIsFirstTimeBonusPath(false);
     } catch (error) {
       Alert.alert('오류', '구독 활성화에 실패했습니다.');
     }
-  }, [loadSubscriptionInfo]);
+  }, [loadSubscriptionInfo, isFirstTimeBonusPath]);
 
 
   const handleNoticePress = () => {
@@ -249,7 +263,7 @@ function SettingsContent() {
     return (
       <Container>
         <CenteredContainer>
-          <ActivityIndicator size="large" color="#ff6b00" />
+          <ActivityIndicator size="large" color="#1d42d8" />
           <CenteredText>설정을 불러오는 중...</CenteredText>
         </CenteredContainer>
       </Container>
@@ -276,7 +290,12 @@ function SettingsContent() {
             {subscriptionInfo?.status === 'none' ? (
               <SubscriptionDaysText>지금 바로 무료 이용을 시작해 보세요</SubscriptionDaysText>
             ) : subscriptionInfo?.status === 'trial' && subscriptionInfo.remainingDays !== null ? (
-              <SubscriptionDaysText>무료 사용까지 {subscriptionInfo.remainingDays}일 남았습니다.</SubscriptionDaysText>
+              <>
+                <SubscriptionDaysText>무료 사용까지 {subscriptionInfo.remainingDays}일 남았습니다.</SubscriptionDaysText>
+                {subscriptionInfo?.isFirstTimeBonus && (
+                  <SubscriptionBonusText>(2개월 + 30일 연장 무료 사용 90일 적용)</SubscriptionBonusText>
+                )}
+              </>
             ) : subscriptionInfo?.status === 'free' ? (
               <SubscriptionDaysText>이용권 {subscriptionInfo.contractCount}/5개</SubscriptionDaysText>
             ) : subscriptionInfo?.status === 'paid' ? (
@@ -349,14 +368,17 @@ function SettingsContent() {
             <ChevronIcon>›</ChevronIcon>
           </SettingsItem>
 
-          <SettingsItem onPress={() => navigation.navigate('Terms' as never, { type: 'terms' } as never)}>
+          <SettingsItem onPress={() => (navigation as any).navigate('Terms', { type: 'terms' })}>
             <SettingsItemLeft>
               <SettingsItemTitle>서비스 이용약관</SettingsItemTitle>
             </SettingsItemLeft>
             <ChevronIcon>›</ChevronIcon>
           </SettingsItem>
 
-          <SettingsItem onPress={() => navigation.navigate('Terms' as never, { type: 'privacy' } as never)}>
+          <SettingsItem
+            onPress={() => (navigation as any).navigate('Terms', { type: 'privacy' })}
+            style={{ borderBottomWidth: 0 }}
+          >
             <SettingsItemLeft>
               <SettingsItemTitle>개인정보처리방침</SettingsItemTitle>
             </SettingsItemLeft>
@@ -368,13 +390,6 @@ function SettingsContent() {
           <SettingsItem onPress={() => setLogoutModalVisible(true)}>
             <SettingsItemLeft>
               <SettingsItemTitle>로그아웃</SettingsItemTitle>
-            </SettingsItemLeft>
-            <ChevronIcon>›</ChevronIcon>
-          </SettingsItem>
-
-          <SettingsItem onPress={() => setWithdrawModalVisible(true)}>
-            <SettingsItemLeft>
-              <SettingsItemTitle style={{ color: '#ff3b30' }}>회원탈퇴</SettingsItemTitle>
             </SettingsItemLeft>
             <ChevronIcon>›</ChevronIcon>
           </SettingsItem>
@@ -425,6 +440,17 @@ function SettingsContent() {
             </HealthResult>
           )}
         </Section>
+        {/* 하단 푸터: 사업자 정보 및 회원탈퇴 링크 (스크롤 맨 아래에 표시) */}
+        <FooterContainer>
+          <FooterText>KWCC(주)</FooterText>
+          <FooterText>사업자등록번호 : 849-81-02606</FooterText>
+          <FooterText>통신판매업신고 : 2023-화성동탄-1793호</FooterText>
+          <FooterText>cokwcc@gmail.com</FooterText>
+          <FooterText>V1.0.0</FooterText>
+          <FooterWithdrawText onPress={() => setWithdrawModalVisible(true)}>
+            회원탈퇴
+          </FooterWithdrawText>
+        </FooterContainer>
       </ScrollView>
 
       {/* 모달 */}
@@ -541,6 +567,12 @@ const ProfileEmail = styled.Text`
   color: #8e8e93;
 `;
 
+const ProfilePhone = styled.Text`
+  font-size: 14px;
+  color: #8e8e93;
+  margin-top: 4px;
+`;
+
 const Section = styled.View`
   background-color: #ffffff;
   margin: 0 16px 16px;
@@ -568,11 +600,15 @@ const SettingsItemLeft = styled.View`
   flex: 1;
 `;
 
-const SettingsItemTitle = styled.Text<{ $isOrange?: boolean }>`
+interface SettingsItemTitleProps {
+  $isOrange?: boolean;
+}
+
+const SettingsItemTitle = styled.Text<SettingsItemTitleProps>`
   font-size: 16px;
-  color: ${(props) => (props.$isOrange ? '#1d42d8' : '#111111')};
+  color: ${(props: SettingsItemTitleProps) => (props.$isOrange ? '#1d42d8' : '#111111')};
   margin-bottom: 4px;
-  font-weight: ${(props) => (props.$isOrange ? '700' : 'normal')};
+  font-weight: ${(props: SettingsItemTitleProps) => (props.$isOrange ? '700' : 'normal')};
 `;
 
 const SettingsItemValue = styled.Text`
@@ -751,6 +787,14 @@ const SubscriptionDaysText = styled.Text`
   text-align: center;
 `;
 
+const SubscriptionBonusText = styled.Text`
+  font-size: 13px;
+  color: #ff3b30;
+  font-weight: 500;
+  text-align: center;
+  margin-top: 4px;
+`;
+
 // 구독 상태 섹션 2: 버튼
 const SubscriptionButtonSection = styled.View`
   width: 100%;
@@ -783,4 +827,25 @@ const SubscriptionActiveButtonText = styled.Text`
   color: #666;
   font-size: 16px;
   font-weight: bold;
+`;
+
+const FooterContainer = styled.View`
+  padding: 24px 16px 32px;
+  background-color: #ffffff;
+  align-items: center;
+`;
+
+const FooterText = styled.Text`
+  font-size: 12px;
+  color: #9ca3af;
+  text-align: center;
+  margin-bottom: 2px;
+`;
+
+const FooterWithdrawText = styled.Text`
+  font-size: 12px;
+  color: #6b7280;
+  text-decoration: underline;
+  text-align: center;
+  margin-top: 6px;
 `;

@@ -614,7 +614,7 @@ export class AttendanceService {
   }
 
   /**
-   * SMS 전송 완료 표시
+   * SMS 전송 완료 표시 및 Solapi로 문자 발송
    * 미리보기 화면에서 전송 버튼을 눌렀을 때 호출
    */
   async markSmsSent(userId: number, id: number): Promise<{ success: boolean; studentPhone?: string }> {
@@ -629,6 +629,13 @@ export class AttendanceService {
             id: true,
             name: true,
             phone: true,
+          },
+        },
+        contract: {
+          select: {
+            id: true,
+            subject: true,
+            recipient_targets: true,
           },
         },
       },
@@ -649,6 +656,46 @@ export class AttendanceService {
         sms_sent: true,
       },
     });
+
+    // SMS 발송 (Solapi)
+    try {
+      const recipientTargets = (attendanceLog.contract?.recipient_targets as string[]) || [];
+      const recipientPhone = 
+        recipientTargets[0] ||
+        attendanceLog.student?.phone;
+      
+      if (recipientPhone) {
+        const apiBaseUrl = this.configService.get<string>('API_BASE_URL');
+        
+        // API_BASE_URL 필수 검증
+        if (!apiBaseUrl || apiBaseUrl.trim() === '') {
+          const errorMsg = '[Attendance] API_BASE_URL is not configured. Cannot send SMS with incomplete URL.';
+          this.logger.error(errorMsg);
+          throw new Error(errorMsg);
+        }
+        
+        const attendanceLink = `${apiBaseUrl}/api/v1/attendance/${id}/view`;
+        const message = `[Passbook] 사용 처리\n${attendanceLink}`;
+        
+        this.logger.log(`[Attendance] Sending SMS with link: ${attendanceLink}`);
+        
+        const smsResult = await this.smsService.sendSms({
+          to: recipientPhone,
+          message,
+        });
+
+        if (smsResult.success) {
+          this.logger.log(`[Attendance] SMS sent successfully for attendance ${id} to ${recipientPhone}`);
+        } else {
+          this.logger.error(`[Attendance] SMS send failed for attendance ${id}: ${smsResult.error}`);
+        }
+      } else {
+        this.logger.warn(`[Attendance] No recipient phone found for attendance ${id}`);
+      }
+    } catch (error: any) {
+      // SMS 실패해도 sms_sent 플래그는 유지
+      this.logger.error(`[Attendance] Failed to send SMS for attendance ${id}:`, error?.message || error);
+    }
 
     this.logger.log(`[Attendance] SMS sent marked for attendance ${id}`);
 
@@ -835,6 +882,7 @@ export class AttendanceService {
       contract_id: number;
       student_id: number;
       student_name: string;
+      student_phone: string | null; // 학생 전화번호
       subject: string;
       day_of_week: string[];
       time: string | null;
@@ -900,6 +948,7 @@ export class AttendanceService {
           contract_id: reservation.contract_id,
           student_id: reservation.contract.student.id,
           student_name: reservation.contract.student.name,
+          student_phone: reservation.contract.student.phone,
           subject: reservation.contract.subject,
           day_of_week: [], // 뷰티앱에서는 요일 정보 불필요
           time: reservation.reserved_time || reservation.contract.time,
@@ -960,10 +1009,11 @@ export class AttendanceService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: attendanceLog.user_id },
-      select: { name: true, org_code: true },
+      select: { name: true, org_code: true, phone: true },
     });
 
     const businessName = user?.org_code || '김쌤';
+    const businessPhone = user?.phone || '';
 
     // 계약 타입 판단
     const policySnapshot = attendanceLog.contract.policy_snapshot as any;
@@ -1199,6 +1249,12 @@ export class AttendanceService {
           <span class="info-label">상호</span>
           <span class="info-value">${businessName}</span>
         </div>
+        ${businessPhone ? `
+        <div class="info-row">
+          <span class="info-label">연락처</span>
+          <span class="info-value">${businessPhone}</span>
+        </div>
+        ` : ''}
         <div class="info-row">
           <span class="info-label">이용권</span>
           <span class="info-value">${contractType}</span>
@@ -1237,7 +1293,7 @@ export class AttendanceService {
     </div>
     
     <div class="footer-note">
-      본 안내는 패스 북 시스템에서 자동 발송 되었습니다.
+      본 안내는 패스북 시스템에서 자동 발송 되었습니다.
     </div>
   </div>
   

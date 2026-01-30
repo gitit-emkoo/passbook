@@ -7,10 +7,13 @@ export interface SubscriptionInfo {
   startDate: string | null;
   remainingDays: number | null;
   contractCount: number;
+  isFirstTimeBonus?: boolean; // 최초 접속 팝업 경로로 활성화된 경우 true
 }
 
 const SUBSCRIPTION_START_DATE_KEY = 'subscription_start_date';
 const SUBSCRIPTION_STATUS_KEY = 'subscription_status';
+const FIRST_TIME_POPUP_SHOWN_KEY = 'first_time_contract_bonus_popup_shown';
+const FIRST_TIME_BONUS_ACTIVATED_KEY = 'first_time_bonus_activated';
 
 /**
  * 구독 시작일 저장
@@ -60,12 +63,37 @@ export async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
 }
 
 /**
+ * 최초 접속 팝업 경로로 활성화되었는지 확인
+ */
+export async function isFirstTimeBonusActivated(): Promise<boolean> {
+  try {
+    const value = await AsyncStorage.getItem(FIRST_TIME_BONUS_ACTIVATED_KEY);
+    return value === 'true';
+  } catch (error) {
+    console.error('[Subscription] Failed to check first time bonus', error);
+    return false;
+  }
+}
+
+/**
+ * 최초 접속 팝업 경로로 활성화 플래그 설정
+ */
+export async function setFirstTimeBonusActivated(): Promise<void> {
+  try {
+    await AsyncStorage.setItem(FIRST_TIME_BONUS_ACTIVATED_KEY, 'true');
+  } catch (error) {
+    console.error('[Subscription] Failed to set first time bonus', error);
+  }
+}
+
+/**
  * 구독 정보 계산
  * @param contractCount 현재 이용권 개수
  */
 export async function getSubscriptionInfo(contractCount: number): Promise<SubscriptionInfo> {
   const startDate = await getSubscriptionStartDate();
   const savedStatus = await getSubscriptionStatus();
+  const isFirstTimeBonus = await isFirstTimeBonusActivated();
 
   // 구독 시작일이 없으면 none
   if (!startDate) {
@@ -74,6 +102,7 @@ export async function getSubscriptionInfo(contractCount: number): Promise<Subscr
       startDate: null,
       remainingDays: null,
       contractCount,
+      isFirstTimeBonus: false,
     };
   }
 
@@ -82,9 +111,15 @@ export async function getSubscriptionInfo(contractCount: number): Promise<Subscr
   today.setHours(0, 0, 0, 0);
   start.setHours(0, 0, 0, 0);
 
-  // 무료 체험 종료일 (2개월 후)
+  // 무료 체험 종료일 계산
+  // 최초 접속 팝업 경로로 활성화된 경우: 90일 (3개월)
+  // 일반 경로: 60일 (2개월)
   const trialEndDate = new Date(start);
-  trialEndDate.setMonth(trialEndDate.getMonth() + 2);
+  if (isFirstTimeBonus) {
+    trialEndDate.setMonth(trialEndDate.getMonth() + 3); // 90일
+  } else {
+    trialEndDate.setMonth(trialEndDate.getMonth() + 2); // 60일
+  }
 
   // 남은 일자 계산
   const remainingDays = Math.max(0, Math.ceil((trialEndDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
@@ -107,6 +142,7 @@ export async function getSubscriptionInfo(contractCount: number): Promise<Subscr
     startDate,
     remainingDays: status === 'trial' ? remainingDays : null,
     contractCount,
+    isFirstTimeBonus,
   };
 }
 
@@ -145,10 +181,38 @@ export async function canAddContract(contractCount: number): Promise<boolean> {
 
 /**
  * 구독 시작 (무료 구독 활성화)
+ * @param isFirstTimeBonus 최초 접속 팝업 경로로 활성화하는 경우 true (90일 적용)
  */
-export async function activateFreeSubscription(): Promise<void> {
+export async function activateFreeSubscription(isFirstTimeBonus: boolean = false): Promise<void> {
   const today = new Date().toISOString();
   await saveSubscriptionStartDate(today);
   await saveSubscriptionStatus('trial');
+  if (isFirstTimeBonus) {
+    await setFirstTimeBonusActivated();
+  }
+}
+
+/**
+ * 최초 접속 팝업 표시 여부 확인
+ */
+export async function hasSeenFirstTimePopup(): Promise<boolean> {
+  try {
+    const value = await AsyncStorage.getItem(FIRST_TIME_POPUP_SHOWN_KEY);
+    return value === 'true';
+  } catch (error) {
+    console.error('[Subscription] Failed to check first time popup', error);
+    return false;
+  }
+}
+
+/**
+ * 최초 접속 팝업 표시 완료로 표시
+ */
+export async function markFirstTimePopupAsShown(): Promise<void> {
+  try {
+    await AsyncStorage.setItem(FIRST_TIME_POPUP_SHOWN_KEY, 'true');
+  } catch (error) {
+    console.error('[Subscription] Failed to mark first time popup as shown', error);
+  }
 }
 

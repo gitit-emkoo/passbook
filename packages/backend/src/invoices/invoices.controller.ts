@@ -11,6 +11,7 @@ import {
   Query,
   Header,
   Res,
+  Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { InvoicesService } from './invoices.service';
@@ -18,6 +19,8 @@ import { JwtAuthGuard } from '../auth/jwt-auth/jwt-auth.guard';
 
 @Controller('api/v1/invoices')
 export class InvoicesController {
+  private readonly logger = new Logger(InvoicesController.name);
+
   constructor(private readonly invoicesService: InvoicesService) {}
 
   /**
@@ -27,7 +30,12 @@ export class InvoicesController {
   @UseGuards(JwtAuthGuard)
   async getCurrentMonth(@Req() req: Request) {
     const user = req.user as any;
-    return this.invoicesService.getCurrentMonthInvoices(user.id ?? user.sub);
+    try {
+      return await this.invoicesService.getCurrentMonthInvoices(user.id ?? user.sub);
+    } catch (error: any) {
+      this.logger.error(`[getCurrentMonth] Error: ${error?.message || error}`, error?.stack);
+      throw error;
+    }
   }
 
   /**

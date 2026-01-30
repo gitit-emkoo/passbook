@@ -25,8 +25,10 @@ import AttendanceSignatureModal from '../components/modals/AttendanceSignatureMo
 import AttendanceAbsenceModal from '../components/modals/AttendanceAbsenceModal';
 import AttendanceDeleteModal from '../components/modals/AttendanceDeleteModal';
 import ReservationChangeModal from '../components/modals/ReservationChangeModal';
+import FirstTimeContractBonusModal from '../components/modals/FirstTimeContractBonusModal';
 import styled from 'styled-components/native';
 import { RecentContract } from '../types/dashboard';
+import { hasSeenFirstTimePopup, markFirstTimePopupAsShown } from '../utils/subscription';
 
 // 아이콘 이미지
 const notificationBellIcon = require('../../assets/bell.png');
@@ -96,6 +98,8 @@ function HomeContent() {
   const todaySectionYRef = useRef(0);
   const [selectedClassItem, setSelectedClassItem] = useState<TodayClass | null>(null);
   const [unprocessedCount, setUnprocessedCount] = useState<number>(0);
+  const [showFirstTimeBonusModal, setShowFirstTimeBonusModal] = useState(false);
+  const firstTimePopupCheckedRef = useRef(false);
 
   const user = useAuthStore((state) => state.user);
   const apiBaseUrl = useAuthStore((state) => state.apiBaseUrl);
@@ -135,6 +139,24 @@ function HomeContent() {
       }),
     ]);
   }, [isPersistReady, loadedOnce, fetchDashboard, fetchInvoicesSections]);
+
+  // 최초 접속 팝업 체크 (구독 여부와 상관없이 최초 접속자에게만 표시)
+  React.useEffect(() => {
+    if (!isPersistReady || firstTimePopupCheckedRef.current) return;
+    
+    const checkFirstTimePopup = async () => {
+      firstTimePopupCheckedRef.current = true;
+      
+      // 최초 접속 팝업을 본 적이 없으면 표시 (구독 여부와 무관)
+      const hasSeen = await hasSeenFirstTimePopup();
+      if (!hasSeen) {
+        setShowFirstTimeBonusModal(true);
+        await markFirstTimePopupAsShown();
+      }
+    };
+    
+    checkFirstTimePopup();
+  }, [isPersistReady]);
 
   // persist 준비 완료 감지 및 오늘 수업 로드
   React.useEffect(() => {
@@ -231,15 +253,22 @@ function HomeContent() {
   }, [fetchDashboard]);
 
   // occurred_at 생성: 오늘 날짜 + 계약서 time
+  // 타임존 변환 없이 로컬 날짜를 유지하면서 ISO 형식으로 변환
   const createOccurredAt = useCallback((time: string | null | undefined): string => {
     const today = new Date();
     // time이 없으면 현재 시간 사용
     if (!time || !time.trim()) {
-      return today.toISOString();
+      // 타임존 오프셋 보정: 로컬 시각을 UTC 시각으로 변환하지 않고 그대로 유지
+      const offset = today.getTimezoneOffset();
+      const localTime = new Date(today.getTime() - offset * 60 * 1000);
+      return localTime.toISOString();
     }
     const [hours, minutes] = time.split(':').map(Number);
     today.setHours(hours, minutes, 0, 0);
-    return today.toISOString();
+    // 타임존 오프셋 보정: 로컬 시각을 UTC 시각으로 변환하지 않고 그대로 유지
+    const offset = today.getTimezoneOffset();
+    const localTime = new Date(today.getTime() - offset * 60 * 1000);
+    return localTime.toISOString();
   }, []);
 
   // 출석 기록 후 처리: 리스트에서 제거 및 새로고침
@@ -350,7 +379,7 @@ function HomeContent() {
     }
   }, [selectedClassItem, selectedNewReservationDate, selectedNewReservationHour, selectedNewReservationMinute, handleAttendanceRecorded, fetchStudentDetail]);
 
-  // 결석/대체 기록 API 호출
+  // 노쇼/대체 기록 API 호출
   const handleAttendanceAbsenceSubmit = useCallback(async (data: {
     status: 'vanish' | 'substitute'; // 소멸 = vanish, 대체 = substitute
     substitute_at?: string;
@@ -390,7 +419,7 @@ function HomeContent() {
 
       // 노쇼 처리 또는 reservation_id가 없는 경우 출결 기록 생성
       const occurredAt = createOccurredAt(selectedClassItem.time);
-      await attendanceApi.create({
+      const result = await attendanceApi.create({
         student_id: selectedClassItem.student.id,
         contract_id: selectedClassItem.id,
         occurred_at: occurredAt,
@@ -402,7 +431,16 @@ function HomeContent() {
         amount: data.amount ?? undefined,
       });
       
-      Alert.alert('완료', `${data.status === 'vanish' ? '소멸' : '대체'}이 기록되었습니다.`);
+      // 소멸도 사용처리와 동일하게 미리보기/발송 플로우로 이동
+      if (data.status === 'vanish' && result?.id) {
+        const studentPhone = selectedClassItem.student?.phone;
+        homeNavigation.navigate('AttendanceView', {
+          attendanceLogId: result.id,
+          studentPhone: studentPhone || undefined,
+        });
+      } else {
+        Alert.alert('완료', `${data.status === 'vanish' ? '소멸' : '대체'}이 기록되었습니다.`);
+      }
       // 목록/정산 새로고침 (출석 로그 상태 및 정산 반영)
       await handleAttendanceRecorded();
       // 해당 수강생의 상세 정보도 강제로 새로고침 (수강생 상세 화면 실시간 반영)
@@ -676,7 +714,7 @@ function HomeContent() {
     return (
       <Container>
         <LoadingContainer>
-          <ActivityIndicator size="large" color="#ff6b00" />
+          <ActivityIndicator size="large" color="#1d42d8" />
           <LoadingText>대시보드를 불러오는 중이에요...</LoadingText>
         </LoadingContainer>
       </Container>
@@ -798,9 +836,25 @@ function HomeContent() {
             <SectionTitle>오늘 방문 예정인 고객</SectionTitle>
           </SectionHeader>
           {todayClassesLoading ? (
-            <LoadingContainer>
-              <ActivityIndicator size="small" color="#ff6b00" />
-            </LoadingContainer>
+            <SkeletonContainer>
+              {Array.from({ length: 3 }).map((_, index) => (
+                <SkeletonClassCard key={index}>
+                  <SkeletonClassCardRow1>
+                    <SkeletonClassCardName />
+                    <SkeletonClassCardAmount />
+                  </SkeletonClassCardRow1>
+                  <SkeletonClassCardRow2 />
+                  <SkeletonClassCardRow3>
+                    <SkeletonClassCardRemaining />
+                    <SkeletonClassCardTime />
+                  </SkeletonClassCardRow3>
+                  <SkeletonClassCardButtons>
+                    <SkeletonButton />
+                    <SkeletonButton />
+                  </SkeletonClassCardButtons>
+                </SkeletonClassCard>
+              ))}
+            </SkeletonContainer>
           ) : todayClasses.length === 0 ? (
             <EmptyStateContainer>
               <EmptyStateIcon source={dashboardClassesIcon} resizeMode="contain" />
@@ -1114,8 +1168,8 @@ function HomeContent() {
               setShowAttendanceSignatureModal(false);
               setSelectedClassItem(null);
             }}
-            onConfirm={(signature: string, amount?: number, memo?: string) => {
-              handleAttendancePresentSubmit(signature, amount, memo);
+            onConfirm={async (signature: string, amount?: number, memo?: string) => {
+              await handleAttendancePresentSubmit(signature, amount, memo);
               setShowAttendanceSignatureModal(false);
               setSelectedClassItem(null);
             }}
@@ -1177,6 +1231,16 @@ function HomeContent() {
           studentName={selectedClassItem.student.name}
         />
       )}
+
+      {/* 최초 접속 이용권 생성 무료구독 연장 이벤트 팝업 */}
+      <FirstTimeContractBonusModal
+        visible={showFirstTimeBonusModal}
+        onClose={() => setShowFirstTimeBonusModal(false)}
+        onExtend={() => {
+          // 최초 접속 팝업 경로: isFirstTimeBonus: true로 90일 적용 경로임을 표시
+          navigation.navigate('Settings', { showSubscriptionIntro: true, isFirstTimeBonus: true });
+        }}
+      />
     </>
   );
 }
@@ -1807,4 +1871,79 @@ const AllSchedulesCardArrow = styled.Text`
   color: #1d42d8;
   margin-left: 16px;
   font-weight: 700;
+`;
+
+const SkeletonContainer = styled.View`
+  gap: 12px;
+`;
+
+const SkeletonClassCard = styled.View`
+  background-color: #ffffff;
+  border-radius: 12px;
+  padding: 16px;
+  border-width: 1px;
+  border-color: #f0f0f0;
+`;
+
+const SkeletonClassCardRow1 = styled.View`
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 8px;
+`;
+
+const SkeletonClassCardName = styled.View`
+  width: 100px;
+  height: 18px;
+  background-color: #e3e3e8;
+  border-radius: 4px;
+`;
+
+const SkeletonClassCardAmount = styled.View`
+  width: 80px;
+  height: 18px;
+  background-color: #e3e3e8;
+  border-radius: 4px;
+`;
+
+const SkeletonClassCardRow2 = styled.View`
+  width: 150px;
+  height: 14px;
+  background-color: #ececf1;
+  border-radius: 4px;
+  margin-bottom: 8px;
+`;
+
+const SkeletonClassCardRow3 = styled.View`
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+`;
+
+const SkeletonClassCardRemaining = styled.View`
+  width: 120px;
+  height: 14px;
+  background-color: #ececf1;
+  border-radius: 4px;
+`;
+
+const SkeletonClassCardTime = styled.View`
+  width: 60px;
+  height: 14px;
+  background-color: #ececf1;
+  border-radius: 4px;
+`;
+
+const SkeletonClassCardButtons = styled.View`
+  flex-direction: row;
+  gap: 8px;
+  justify-content: flex-end;
+`;
+
+const SkeletonButton = styled.View`
+  width: 60px;
+  height: 32px;
+  background-color: #ececf1;
+  border-radius: 6px;
 `;

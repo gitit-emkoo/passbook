@@ -160,13 +160,17 @@ const IconGrid = styled.View`
   justify-content: space-between;
 `;
 
-const IconItem = styled.TouchableOpacity<{ $selected: boolean }>`
+interface IconItemProps {
+  $selected: boolean;
+}
+
+const IconItem = styled.TouchableOpacity<IconItemProps>`
   width: 30%;
   aspect-ratio: 1;
   border-width: 2px;
-  border-color: ${(props) => (props.$selected ? '#ff6b00' : '#e0e0e0')};
+  border-color: ${(props: IconItemProps) => (props.$selected ? '#ff6b00' : '#e0e0e0')};
   border-radius: 12px;
-  background-color: ${(props) => (props.$selected ? '#fff2e5' : '#ffffff')};
+  background-color: ${(props: IconItemProps) => (props.$selected ? '#fff2e5' : '#ffffff')};
   align-items: center;
   justify-content: center;
   padding: 12px;
@@ -177,10 +181,14 @@ const IconEmoji = styled.Text`
   margin-bottom: 8px;
 `;
 
-const IconLabel = styled.Text<{ $selected: boolean }>`
+interface IconLabelProps {
+  $selected: boolean;
+}
+
+const IconLabel = styled.Text<IconLabelProps>`
   font-size: 12px;
-  font-weight: ${(props) => (props.$selected ? 600 : 400)};
-  color: ${(props) => (props.$selected ? '#ff6b00' : '#666666')};
+  font-weight: ${(props: IconLabelProps) => (props.$selected ? 600 : 400)};
+  color: ${(props: IconLabelProps) => (props.$selected ? '#ff6b00' : '#666666')};
 `;
 
 const ButtonContainer = styled.View`
@@ -189,13 +197,17 @@ const ButtonContainer = styled.View`
   gap: 12px;
 `;
 
-const CancelButton = styled.TouchableOpacity<{ disabled?: boolean }>`
+interface CancelButtonProps {
+  disabled?: boolean;
+}
+
+const CancelButton = styled.TouchableOpacity<CancelButtonProps>`
   flex: 1;
   background-color: #f0f0f0;
   padding: 16px;
   border-radius: 12px;
   align-items: center;
-  opacity: ${(props) => (props.disabled ? 0.5 : 1)};
+  opacity: ${(props: CancelButtonProps) => (props.disabled ? 0.5 : 1)};
 `;
 
 const CancelButtonText = styled.Text`
@@ -204,13 +216,17 @@ const CancelButtonText = styled.Text`
   color: #666666;
 `;
 
-const ConfirmButton = styled.TouchableOpacity<{ disabled?: boolean }>`
+interface ConfirmButtonProps {
+  disabled?: boolean;
+}
+
+const ConfirmButton = styled.TouchableOpacity<ConfirmButtonProps>`
   flex: 1;
   background-color: #ff6b00;
   padding: 16px;
   border-radius: 12px;
   align-items: center;
-  opacity: ${(props) => (props.disabled ? 0.5 : 1)};
+  opacity: ${(props: ConfirmButtonProps) => (props.disabled ? 0.5 : 1)};
 `;
 
 const ConfirmButtonText = styled.Text`

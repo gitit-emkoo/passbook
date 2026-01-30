@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1558283926",
+    "project_id": "kimssam-app",
+    "storage_bucket": "kimssam-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1558283926:android:2a115c85013eec64a064b7",
+        "android_client_info": {
+          "package_name": "com.kimssam.kwcc"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAGAbaXYafZdHB1nzS9jWFK_xrN9qlueYU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

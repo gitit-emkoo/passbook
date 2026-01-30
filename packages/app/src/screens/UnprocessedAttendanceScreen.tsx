@@ -204,7 +204,7 @@ function UnprocessedAttendanceContent() {
     return (
       <Container>
         <CenteredContainer>
-          <ActivityIndicator size="large" color="#ff6b00" />
+          <ActivityIndicator size="large" color="#1d42d8" />
           <CenteredText>미처리 출결을 불러오는 중...</CenteredText>
         </CenteredContainer>
       </Container>
@@ -268,8 +268,8 @@ function UnprocessedAttendanceContent() {
             setShowAttendanceSignatureModal(false);
             setSelectedItem(null);
           }}
-          onConfirm={(signature: string, amount?: number, memo?: string) => {
-            handleAttendancePresentSubmit(signature, amount, memo);
+          onConfirm={async (signature: string, amount?: number, memo?: string) => {
+            await handleAttendancePresentSubmit(signature, amount, memo);
             setShowAttendanceSignatureModal(false);
             setSelectedItem(null);
           }}

@@ -52,6 +52,11 @@ export class InvoicesService {
     const invoices = [];
 
     for (const rawContract of contracts) {
+      // student가 null이면 건너뛰기
+      if (!rawContract.student) {
+        continue;
+      }
+
       const contract = this.normalizeContract(rawContract);
       
       // 일시납부 계약은 월단위 로직에서 제외
@@ -1176,6 +1181,35 @@ export class InvoicesService {
   }
 
   /**
+   * 입금 확인 처리
+   */
+  async markInvoiceAsPaid(userId: number, invoiceId: number) {
+    const invoice = await this.prisma.invoice.findFirst({
+      where: {
+        id: invoiceId,
+        user_id: userId,
+      },
+    });
+
+    if (!invoice) {
+      throw new NotFoundException('Invoice를 찾을 수 없습니다.');
+    }
+
+    // 이미 입금 완료된 경우 그대로 반환
+    if (invoice.payment_status === 'paid') {
+      return invoice;
+    }
+
+    return this.prisma.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        payment_status: 'paid',
+        paid_at: new Date(),
+      },
+    });
+  }
+
+  /**
    * 청구서를 오늘청구로 이동 (조기 청구)
    */
   async moveToTodayBilling(userId: number, invoiceId: number) {
@@ -1350,7 +1384,7 @@ export class InvoicesService {
           if (recipientPhone) {
             const apiBaseUrl = this.configService.get<string>('API_BASE_URL') || '';
             const invoiceLink = `${apiBaseUrl}/api/v1/invoices/${invoice.id}/view`;
-            const message = `[Passbook] 청구서가 발행되었습니다.\n확인 링크: ${invoiceLink}`;
+            const message = `[Passbook] 청구서\n${invoiceLink}`;
             
             const smsResult = await this.smsService.sendSms({
               to: recipientPhone,
@@ -2293,7 +2327,7 @@ export class InvoicesService {
       <div class="info-section">
         <div class="info-section-title">청구정보</div>
         <div class="info-row">
-          <div class="info-label">수강생명</div>
+          <div class="info-label">고객명</div>
           <div class="info-value">${invoice.student.name}</div>
         </div>
         <div class="info-row">

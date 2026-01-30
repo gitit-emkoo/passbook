@@ -262,7 +262,7 @@ export default function NotificationsScreen() {
 
       {loading ? (
         <Loader>
-          <ActivityIndicator color="#B22222" />
+          <ActivityIndicator color="#1d42d8" />
           <LoaderText>알림을 불러오는 중...</LoaderText>
         </Loader>
       ) : filteredItems.length === 0 ? (
@@ -279,7 +279,7 @@ export default function NotificationsScreen() {
           keyExtractor={(item) => String(item.id)}
           renderItem={renderItem}
           contentContainerStyle={{ paddingBottom: 40 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#B22222" />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#1d42d8" />}
         />
       )}
     </Container>

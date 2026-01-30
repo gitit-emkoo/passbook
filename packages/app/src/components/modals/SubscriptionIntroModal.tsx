@@ -78,7 +78,7 @@ export default function SubscriptionIntroModal({
           </ModalMainText>
           
           <ModalSubText>
-            ※혜택 기간 종료 이후에도 고객 수 5명까지 무료 플랜으로도 동일하게 관리할 수 있어요.
+            ※혜택 기간 종료 이후에도 고객 수 3명까지 무료 플랜으로도 동일하게 관리할 수 있어요.
           </ModalSubText>
 
           <Button variant="primary" onPress={onClose}>

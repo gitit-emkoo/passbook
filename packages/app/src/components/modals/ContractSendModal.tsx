@@ -180,16 +180,21 @@ const ChannelList = styled.View`
   gap: 10px;
 `;
 
-const ChannelButton = styled.TouchableOpacity<{ $selected?: boolean }>`
+interface ChannelButtonProps {
+  $selected?: boolean;
+  disabled?: boolean;
+}
+
+const ChannelButton = styled.TouchableOpacity<ChannelButtonProps>`
   border-width: 1px;
-  border-color: ${(p) => (p.$selected ? '#ff6b00' : '#e0e0e0')};
+  border-color: ${(p: ChannelButtonProps) => (p.$selected ? '#ff6b00' : '#e0e0e0')};
   border-radius: 12px;
   padding: 14px 16px;
   flex-direction: row;
   justify-content: space-between;
   align-items: center;
-  opacity: ${(p) => (p.disabled ? 0.5 : 1)};
-  background-color: ${(p) => (p.$selected ? '#fff2e5' : '#ffffff')};
+  opacity: ${(p: ChannelButtonProps) => (p.disabled ? 0.5 : 1)};
+  background-color: ${(p: ChannelButtonProps) => (p.$selected ? '#fff2e5' : '#ffffff')};
 `;
 
 const ChannelLabel = styled.Text`
@@ -203,12 +208,16 @@ const ChannelBadge = styled.Text`
   color: #ff6b00;
 `;
 
-const SendButton = styled.TouchableOpacity<{ disabled?: boolean }>`
+interface SendButtonProps {
+  disabled?: boolean;
+}
+
+const SendButton = styled.TouchableOpacity<SendButtonProps>`
   background-color: #ff6b00;
   padding: 16px;
   border-radius: 12px;
   align-items: center;
-  opacity: ${(props) => (props.disabled ? 0.5 : 1)};
+  opacity: ${(props: SendButtonProps) => (props.disabled ? 0.5 : 1)};
 `;
 
 const SendButtonText = styled.Text`

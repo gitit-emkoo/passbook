@@ -310,6 +310,9 @@ export class ContractsService {
         status: true,
         occurred_at: true,
       },
+      orderBy: {
+        occurred_at: 'desc', // 최신 로그 우선
+      },
     });
 
     // contract_id를 키로 하는 Map 생성
@@ -777,9 +780,19 @@ export class ContractsService {
           contract.student?.phone;
         
         if (recipientPhone) {
-          const apiBaseUrl = this.configService.get<string>('API_BASE_URL') || '';
+          const apiBaseUrl = this.configService.get<string>('API_BASE_URL');
+          
+          // API_BASE_URL 필수 검증
+          if (!apiBaseUrl || apiBaseUrl.trim() === '') {
+            const errorMsg = '[Contracts] API_BASE_URL is not configured. Cannot send SMS with incomplete URL.';
+            this.logger.error(errorMsg);
+            throw new Error(errorMsg);
+          }
+          
           const contractLink = `${apiBaseUrl}/api/v1/contracts/${id}/view`;
-          const message = `[Passbook] 이용권 계약서가 발행되었습니다.\n확인 링크: ${contractLink}`;
+          const message = `[Passbook] 계약서\n${contractLink}`;
+          
+          this.logger.log(`[Contracts] Sending SMS with link: ${contractLink}`);
           
           const smsResult = await this.smsService.sendSms({
             to: recipientPhone,
@@ -1334,10 +1347,11 @@ export class ContractsService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: contract.user_id },
-      select: { name: true, org_code: true },
+      select: { name: true, org_code: true, phone: true },
     });
 
     const businessName = user?.org_code || '김쌤';
+    const businessPhone = user?.phone || '';
 
     const DAY_LABELS: { [key: string]: string } = {
       SUN: '일',
@@ -1430,8 +1444,43 @@ export class ContractsService {
       margin: 0 auto;
       background-color: #ffffff;
       border-radius: 16px;
-      padding: 20px;
+      padding: 0;
       box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+      overflow: hidden;
+    }
+    .header {
+      background-color: #0f1b4d;
+      color: #ffffff;
+      padding: 14px 20px;
+      text-align: center;
+    }
+    .header-slogan {
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.9);
+      margin-bottom: 6px;
+      font-weight: 400;
+    }
+    .header-title {
+      font-size: 28px;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 2px;
+      letter-spacing: -0.5px;
+    }
+    .header-subtitle {
+      font-size: 16px;
+      font-weight: 700;
+      color: rgba(255, 255, 255, 0.95);
+      margin-top: 2px;
+    }
+    .footer-note {
+      font-size: 12px;
+      color: #ffffff;
+      text-align: center;
+      margin: 24px -20px 0;
+      padding: 16px 24px 24px;
+      background-color: #0f1b4d;
+      line-height: 1.6;
     }
     .section {
       margin-bottom: 20px;
@@ -1502,10 +1551,43 @@ export class ContractsService {
       font-size: 14px;
       color: #333333;
     }
+    .primary-blue {
+      color: #1d42d8;
+    }
+    .section-divider {
+      height: 1px;
+      background-color: #e0e0e0;
+      margin: 24px 0;
+    }
   </style>
 </head>
 <body>
   <div class="container">
+    <div class="header">
+      <div class="header-slogan">샵과 고객 모두 만족하는 투명한 이용권 관리</div>
+      <div class="header-title">Pass Book</div>
+      <div class="header-subtitle">이용권 계약서</div>
+    </div>
+    
+    <div style="padding: 20px;">
+    <div class="section">
+      <div class="section-title">이용권 발행처</div>
+      
+      <div class="info-row">
+        <div class="info-label">상호</div>
+        <div class="info-value">${businessName}</div>
+      </div>
+      
+      ${businessPhone ? `
+      <div class="info-row">
+        <div class="info-label">연락처</div>
+        <div class="info-value">${businessPhone}</div>
+      </div>
+      ` : ''}
+    </div>
+
+    <div class="section-divider"></div>
+
     <div class="section">
       <div class="section-title">이용권 내용</div>
       
@@ -1514,12 +1596,30 @@ export class ContractsService {
         <div class="info-value">${contract.student.name}</div>
       </div>
       
-      ${contract.student.phone ? `
+      ${(() => {
+        const studentPhone = contract.student.phone || '';
+        const recipientTargets = Array.isArray(contract.recipient_targets) ? contract.recipient_targets : [];
+        const smsPhone = recipientTargets.length > 0 ? recipientTargets[0] : '';
+        
+        if (studentPhone || smsPhone) {
+          let phoneDisplay = '';
+          if (studentPhone && smsPhone) {
+            phoneDisplay = `${studentPhone} <span class="primary-blue">(${smsPhone})</span>`;
+          } else if (studentPhone) {
+            phoneDisplay = studentPhone;
+          } else if (smsPhone) {
+            phoneDisplay = `<span class="primary-blue">(${smsPhone})</span>`;
+          }
+          
+          return `
       <div class="info-row">
-        <div class="info-label">연락처</div>
-        <div class="info-value">${contract.student.phone}</div>
+        <div class="info-label">연락처 <span class="primary-blue">(SMS수신 연락처)</span></div>
+        <div class="info-value">${phoneDisplay}</div>
       </div>
-      ` : ''}
+      `;
+        }
+        return '';
+      })()}
 
       <div class="divider"></div>
 
@@ -1614,8 +1714,13 @@ export class ContractsService {
         </div>
         `).join('')}
       </div>
-    </div>
+      </div>
     ` : ''}
+    </div>
+    
+    <div class="footer-note">
+      본 안내는 패스 북 시스템에서 자동 발송 되었습니다.
+    </div>
   </div>
 </body>
 </html>

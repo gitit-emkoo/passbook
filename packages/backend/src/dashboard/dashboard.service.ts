@@ -443,6 +443,11 @@ export class DashboardService {
     }> = [];
 
     for (const contract of contracts) {
+      // student가 null이면 건너뛰기
+      if (!contract.student) {
+        continue;
+      }
+
       const snapshot = (contract.policy_snapshot ?? {}) as Record<string, unknown>;
       const totalSessions = typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
       const endedAt = contract.ended_at ? new Date(contract.ended_at) : null;
@@ -535,15 +540,17 @@ export class DashboardService {
       take: limit,
     });
 
-    return contracts.map((contract) => ({
-      id: contract.id,
-      studentId: contract.student.id,
-      studentName: contract.student.name,
-      contractId: contract.id,
-      subject: contract.subject,
-      status: contract.status,
-      createdAt: contract.created_at.toISOString(),
-    }));
+    return contracts
+      .filter((contract) => contract.student !== null)
+      .map((contract) => ({
+        id: contract.id,
+        studentId: contract.student!.id,
+        studentName: contract.student!.name,
+        contractId: contract.id,
+        subject: contract.subject,
+        status: contract.status,
+        createdAt: contract.created_at.toISOString(),
+      }));
   }
 
   private async checkAndCreateNotifications(userId: number, year: number, month: number) {

@@ -348,7 +348,13 @@ export type MainTabsParamList = {
   Students: undefined;
   ContractAdd: undefined; // 플로팅 버튼용 빈 화면
   Settlement: undefined;
-  Settings: undefined;
+  // Settings 탭은 선택적으로 파라미터를 받을 수 있음
+  Settings:
+    | {
+        showSubscriptionIntro?: boolean;
+        isFirstTimeBonus?: boolean;
+      }
+    | undefined;
 };
 
 export type MainTabsNavigationProp = BottomTabNavigationProp<MainTabsParamList>;
@@ -369,10 +375,10 @@ function MainTabs() {
     
     const info = await getSubscriptionInfo(contractCount);
     
-    // 구독이 없으면 안내 모달 표시
+    // 구독이 없으면 안내 모달 표시 (일반 경로: 60일 적용)
     if (info.status === 'none') {
-      // Settings 화면으로 이동하고 모달 표시 플래그 전달
-      navigation.navigate('Settings', { showSubscriptionIntro: true });
+      // Settings 화면으로 이동하고 모달 표시 플래그 전달 (isFirstTimeBonus: false)
+      navigation.navigate('Settings', { showSubscriptionIntro: true, isFirstTimeBonus: false });
       return;
     }
     

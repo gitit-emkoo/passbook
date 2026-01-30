@@ -1,7 +1,8 @@
-import { Injectable, BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, BadRequestException, UnauthorizedException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { SmsService } from '../sms/sms.service';
 import { randomUUID } from 'crypto';
 
 interface VerificationCode {
@@ -18,6 +19,7 @@ interface TemporaryToken {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   private verificationCodes: Map<string, VerificationCode> = new Map();
   private temporaryTokens: Map<string, TemporaryToken> = new Map();
 
@@ -25,6 +27,7 @@ export class AuthService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private smsService: SmsService,
   ) {}
 
   /**
@@ -37,8 +40,19 @@ export class AuthService {
       throw new BadRequestException('올바른 전화번호 형식이 아닙니다.');
     }
 
-    // 6자리 랜덤 코드 생성
-    const code = this.generateVerificationCode();
+    // Google Play 리뷰어용 테스트 전화번호 확인
+    const testPhone = this.configService.get<string>('GOOGLE_PLAY_TEST_PHONE');
+    const testCode = this.configService.get<string>('GOOGLE_PLAY_TEST_CODE') || '000000';
+    
+    let code: string;
+    if (testPhone && this.normalizePhone(phone) === this.normalizePhone(testPhone)) {
+      // 테스트 전화번호인 경우 고정 인증번호 사용
+      code = testCode;
+      this.logger.log(`[AuthService] Test phone detected, using test code: ${code}`);
+    } else {
+      // 일반 사용자: 6자리 랜덤 코드 생성
+      code = this.generateVerificationCode();
+    }
 
     // 코드 저장 (5분 유효)
     const expiresAt = new Date();
@@ -50,15 +64,23 @@ export class AuthService {
       expiresAt,
     });
 
-    // TODO: 실제 SMS 전송 서비스 연동
-    // 현재는 개발 환경에서만 콘솔에 출력
-    const isDevelopment = this.configService.get<string>('NODE_ENV') === 'development';
-    if (isDevelopment) {
-      console.log(`[개발] 인증번호 전송 - 전화번호: ${phone}, 코드: ${code}`);
-    }
+    // SMS 전송 (테스트 전화번호가 아닌 경우에만)
+    if (!testPhone || this.normalizePhone(phone) !== this.normalizePhone(testPhone)) {
+      try {
+        const smsResult = await this.smsService.sendSms({
+          to: phone,
+          message: `[패스북] 로그인 인증번호 ${code}\n고객과의 약속 Passbook\n타인에게 공유하지 마세요.`,
+        });
 
-    // TODO: 실제 SMS 전송 (예: AWS SNS, 알리고, 카카오톡 등)
-    // await this.sendSMS(phone, `김쌤 인증번호: ${code}`);
+        if (!smsResult.success) {
+          this.logger.error(`SMS 전송 실패: ${smsResult.error}`);
+        }
+      } catch (error) {
+        this.logger.error(`SMS 전송 중 예외 발생: ${error?.message || error}`);
+      }
+    } else {
+      this.logger.log(`[AuthService] Test phone SMS skipped for: ${phone}`);
+    }
 
     return {
       message: '인증번호가 전송되었습니다.',
@@ -79,24 +101,45 @@ export class AuthService {
       throw new BadRequestException('올바른 전화번호 형식이 아닙니다.');
     }
 
+    // Google Play 리뷰어용 테스트 전화번호 확인
+    const testPhone = this.configService.get<string>('GOOGLE_PLAY_TEST_PHONE');
+    const testCode = this.configService.get<string>('GOOGLE_PLAY_TEST_CODE') || '000000';
+    const isTestPhone = testPhone && this.normalizePhone(phone) === this.normalizePhone(testPhone);
+
     // 코드 확인
     const storedCode = this.verificationCodes.get(phone);
 
-    if (!storedCode) {
-      throw new UnauthorizedException('인증번호를 요청해주세요.');
-    }
+    // 테스트 전화번호인 경우 특별 처리
+    if (isTestPhone) {
+      // 테스트 전화번호는 특정 인증번호(기본값: 000000)로 항상 통과
+      if (code === testCode) {
+        this.logger.log(`[AuthService] Test phone verification passed: ${phone}`);
+        // 코드가 저장되어 있지 않아도 테스트 전화번호는 통과
+        if (storedCode) {
+          this.verificationCodes.delete(phone);
+        }
+      } else {
+        // 테스트 전화번호지만 잘못된 코드인 경우
+        throw new UnauthorizedException('인증번호가 일치하지 않습니다.');
+      }
+    } else {
+      // 일반 사용자: 정상적인 검증 프로세스
+      if (!storedCode) {
+        throw new UnauthorizedException('인증번호를 요청해주세요.');
+      }
 
-    if (storedCode.code !== code) {
-      throw new UnauthorizedException('인증번호가 일치하지 않습니다.');
-    }
+      if (storedCode.code !== code) {
+        throw new UnauthorizedException('인증번호가 일치하지 않습니다.');
+      }
 
-    if (new Date() > storedCode.expiresAt) {
+      if (new Date() > storedCode.expiresAt) {
+        this.verificationCodes.delete(phone);
+        throw new UnauthorizedException('인증번호가 만료되었습니다. 다시 요청해주세요.');
+      }
+
+      // 코드 사용 완료 후 삭제
       this.verificationCodes.delete(phone);
-      throw new UnauthorizedException('인증번호가 만료되었습니다. 다시 요청해주세요.');
     }
-
-    // 코드 사용 완료 후 삭제
-    this.verificationCodes.delete(phone);
 
     // 전화번호 정규화 (하이픈 제거하여 저장된 형식과 일치시키기)
     const normalizedPhone = this.normalizePhone(phone);

@@ -17,17 +17,41 @@ const apiClient = axios.create({
 const applyBaseUrl = () => {
   const { apiBaseUrl } = useAuthStore.getState();
   apiClient.defaults.baseURL = apiBaseUrl || env.API_URL;
+  
+  // 개발 모드에서 API URL 확인 로그
+  if (__DEV__) {
+    console.log('[API Client] Base URL 설정:', {
+      env_API_URL: env.API_URL,
+      store_apiBaseUrl: apiBaseUrl,
+      final_baseURL: apiClient.defaults.baseURL,
+    });
+  }
 };
 
 applyBaseUrl();
 useAuthStore.subscribe((state) => {
-  apiClient.defaults.baseURL = state.apiBaseUrl || env.API_URL;
+  const newBaseURL = state.apiBaseUrl || env.API_URL;
+  apiClient.defaults.baseURL = newBaseURL;
+  
+  if (__DEV__) {
+    console.log('[API Client] Base URL 변경됨:', newBaseURL);
+  }
 });
 
 apiClient.interceptors.request.use((config) => {
   const { apiBaseUrl, accessToken } = useAuthStore.getState();
   const finalBaseURL = apiBaseUrl || env.API_URL;
   config.baseURL = finalBaseURL;
+  
+  // 첫 번째 요청 시에만 전체 URL 로그 출력
+  if (__DEV__ && !config.__logged) {
+    console.log('[API Client] 첫 API 요청:', {
+      baseURL: finalBaseURL,
+      fullURL: `${finalBaseURL}${config.url}`,
+      method: config.method?.toUpperCase(),
+    });
+    config.__logged = true;
+  }
 
   // 이미 Authorization 헤더가 설정되어 있으면 (예: temporaryToken) 덮어쓰지 않음
   if (config.headers?.Authorization) {

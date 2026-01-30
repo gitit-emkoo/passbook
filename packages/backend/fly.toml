@@ -1,0 +1,6 @@
+app = "kimssam-backend"
+
+primary_region = "nrt"
+
+[env]
+  NODE_ENV = "production"

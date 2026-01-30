@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Headers, UnauthorizedException } from '@nestjs/common';
+import { Controller, Post, Body, Headers, UnauthorizedException, Logger } from '@nestjs/common';
 import { IsString, Matches, Length, IsOptional, IsObject } from 'class-validator';
 import { AuthService } from './auth.service';
 
@@ -38,6 +38,8 @@ class CompleteSignupDto {
 
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(private readonly authService: AuthService) {}
 
   @Post('request-code')

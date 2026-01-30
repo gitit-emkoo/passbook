@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ActivityIndicator } from 'react-native';
-import { useRoute, RouteProp, useNavigation } from '@react-navigation/native';
+import { NavigationProp, RouteProp, useRoute, useNavigation } from '@react-navigation/native';
 import styled from 'styled-components/native';
 import { noticesApi, Notice } from '../api/notices';
 
@@ -12,15 +12,14 @@ const formatDate = (dateString: string): string => {
   return `${year}년 ${month}월 ${day}일`;
 };
 
-type NoticeDetailRouteParams = {
-  NoticeDetail: {
-    noticeId: number;
-  };
+type NoticeStackParamList = {
+  NoticesList: undefined;
+  NoticeDetail: { noticeId: number };
 };
 
 export default function NoticeDetailScreen() {
-  const route = useRoute<RouteProp<NoticeDetailRouteParams, 'NoticeDetail'>>();
-  const navigation = useNavigation();
+  const route = useRoute<RouteProp<NoticeStackParamList, 'NoticeDetail'>>();
+  const navigation = useNavigation<NavigationProp<NoticeStackParamList, 'NoticeDetail'>>();
   const { noticeId } = route.params;
   const [notice, setNotice] = useState<Notice | null>(null);
   const [loading, setLoading] = useState(true);
@@ -55,7 +54,7 @@ export default function NoticeDetailScreen() {
     return (
       <Container>
         <CenteredContainer>
-          <ActivityIndicator size="large" color="#ff6b00" />
+          <ActivityIndicator size="large" color="#1d42d8" />
           <CenteredText>공지사항을 불러오는 중...</CenteredText>
         </CenteredContainer>
       </Container>

@@ -208,13 +208,17 @@ const ButtonContainer = styled.View`
   gap: 12px;
 `;
 
-const CancelButton = styled.TouchableOpacity<{ disabled?: boolean }>`
+interface CancelButtonProps {
+  disabled?: boolean;
+}
+
+const CancelButton = styled.TouchableOpacity<CancelButtonProps>`
   flex: 1;
   background-color: #f0f0f0;
   padding: 16px;
   border-radius: 12px;
   align-items: center;
-  opacity: ${(props) => (props.disabled ? 0.5 : 1)};
+  opacity: ${(props: CancelButtonProps) => (props.disabled ? 0.5 : 1)};
 `;
 
 const CancelButtonText = styled.Text`
@@ -223,13 +227,17 @@ const CancelButtonText = styled.Text`
   color: #666666;
 `;
 
-const ConfirmButton = styled.TouchableOpacity<{ disabled?: boolean }>`
+interface ConfirmButtonProps {
+  disabled?: boolean;
+}
+
+const ConfirmButton = styled.TouchableOpacity<ConfirmButtonProps>`
   flex: 1;
   background-color: #1d42d8;
   padding: 16px;
   border-radius: 12px;
   align-items: center;
-  opacity: ${(props) => (props.disabled ? 0.5 : 1)};
+  opacity: ${(props: ConfirmButtonProps) => (props.disabled ? 0.5 : 1)};
 `;
 
 const ConfirmButtonText = styled.Text`

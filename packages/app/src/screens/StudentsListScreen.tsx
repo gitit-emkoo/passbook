@@ -454,47 +454,61 @@ function StudentsListContent() {
           <RowWithFooter>
             <FooterLeft>
             {student.this_month_status_summary ? (
-              <CardRow3>{student.this_month_status_summary}</CardRow3>
+              <CardRow3WithButton>
+                <CardRow3>{student.this_month_status_summary}</CardRow3>
+                {contract && !meta.isExpired ? (
+                  <CardScheduleButton
+                    onPress={(e) => {
+                      e?.stopPropagation?.();
+                      handleSchedulePress(card);
+                    }}
+                  >
+                    <CardScheduleButtonText>
+                      일정 관리 <CardScheduleButtonArrow>{'>'}</CardScheduleButtonArrow>
+                    </CardScheduleButtonText>
+                  </CardScheduleButton>
+                ) : null}
+              </CardRow3WithButton>
               ) : null}
               {meta.contractType === 'sessions' && typeof meta.remainingSessions === 'number' && typeof meta.totalSessions === 'number' ? (
-                <ExtendNote>
-                  <ExtendNoteTotal>총{meta.totalSessions}회</ExtendNoteTotal>
-                  {' / '}
-                  <ExtendNoteRemaining>잔여{meta.remainingSessions}회</ExtendNoteRemaining>
-                </ExtendNote>
+                <ExtendNoteRow>
+                  <ExtendNote>
+                    <ExtendNoteTotal>총{meta.totalSessions}회</ExtendNoteTotal>
+                    {' / '}
+                    <ExtendNoteRemaining>잔여{meta.remainingSessions}회</ExtendNoteRemaining>
+                  </ExtendNote>
+                  {meta.extendEligible ? (
+                    <ExtendActionButton onPress={(e) => {
+                      e?.stopPropagation?.();
+                      handleExtendPress(card);
+                    }}>
+                      <ExtendActionButtonText>연장하기</ExtendActionButtonText>
+                    </ExtendActionButton>
+                  ) : null}
+                </ExtendNoteRow>
               ) : meta.contractType === 'amount' && typeof meta.remainingAmount === 'number' && typeof meta.totalAmount === 'number' ? (
-                <ExtendNote>
-                  <ExtendNoteLabel>총</ExtendNoteLabel>
-                  <ExtendNoteTotal>{meta.totalAmount.toLocaleString()}원</ExtendNoteTotal>
-                  <ExtendNoteLabel> / </ExtendNoteLabel>
-                  <ExtendNoteLabel>잔여</ExtendNoteLabel>
-                  <ExtendNoteRemaining>{meta.remainingAmount.toLocaleString()}원</ExtendNoteRemaining>
-                </ExtendNote>
+                <ExtendNoteRow>
+                  <ExtendNote>
+                    <ExtendNoteLabel>총</ExtendNoteLabel>
+                    <ExtendNoteTotal>{meta.totalAmount.toLocaleString()}원</ExtendNoteTotal>
+                    <ExtendNoteLabel> / </ExtendNoteLabel>
+                    <ExtendNoteLabel>잔여</ExtendNoteLabel>
+                    <ExtendNoteRemaining>{meta.remainingAmount.toLocaleString()}원</ExtendNoteRemaining>
+                  </ExtendNote>
+                  {meta.extendEligible ? (
+                    <ExtendActionButton onPress={(e) => {
+                      e?.stopPropagation?.();
+                      handleExtendPress(card);
+                    }}>
+                      <ExtendActionButtonText>연장하기</ExtendActionButtonText>
+                    </ExtendActionButton>
+                  ) : null}
+                </ExtendNoteRow>
               ) : meta.extendEligible && meta.extendReason ? (
                 <ExtendNote>{meta.extendReason}</ExtendNote>
               ) : null}
             </FooterLeft>
-            <ButtonGroup>
-              {contract && !meta.isExpired ? (
-                <CardScheduleButton
-                  onPress={(e) => {
-                    e?.stopPropagation?.();
-                    handleSchedulePress(card);
-                  }}
-                >
-                  <CardScheduleButtonText>
-                    일정 관리 <CardScheduleButtonArrow>{'>'}</CardScheduleButtonArrow>
-                  </CardScheduleButtonText>
-                </CardScheduleButton>
-              ) : null}
-              {meta.extendEligible ? (
-                <ExtendActionButton onPress={(e) => {
-                  e?.stopPropagation?.();
-                  handleExtendPress(card);
-                }}>
-                  <ExtendActionButtonText>연장하기</ExtendActionButtonText>
-                </ExtendActionButton>
-              ) : null}
+            <RightButtonContainer>
               {meta.isExpired ? (
                 <DeleteButton onPress={(e) => {
                   e?.stopPropagation?.();
@@ -503,7 +517,7 @@ function StudentsListContent() {
                   <DeleteButtonText>삭제</DeleteButtonText>
                 </DeleteButton>
               ) : null}
-            </ButtonGroup>
+            </RightButtonContainer>
           </RowWithFooter>
         </Card>
       );
@@ -640,9 +654,9 @@ function StudentsListContent() {
     
     const info = await getSubscriptionInfo(contractCount);
     
-    // 구독이 없으면 안내 모달 표시
+    // 구독이 없으면 안내 모달 표시 (일반 경로: 60일 적용)
     if (info.status === 'none') {
-      (mainTabsNavigation as any).navigate('Settings', { showSubscriptionIntro: true });
+      (mainTabsNavigation as any).navigate('Settings', { showSubscriptionIntro: true, isFirstTimeBonus: false });
       return;
     }
     
@@ -960,6 +974,13 @@ const CardRow3 = styled.Text`
   color: #888;
 `;
 
+const CardRow3WithButton = styled.View`
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+`;
+
 const RowWithFooter = styled.View`
   flex-direction: row;
   justify-content: space-between;
@@ -974,10 +995,36 @@ const FooterLeft = styled.View`
   justify-content: flex-start;
 `;
 
+const ExtendNoteRow = styled.View`
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+`;
+
+const ExtendButtonWrapper = styled.View`
+  flex-direction: row;
+  justify-content: flex-end;
+  margin-top: 8px;
+`;
+
+const RightButtonContainer = styled.View`
+  flex-direction: column;
+  gap: 8px;
+  margin-left: 8px;
+  align-items: flex-end;
+`;
+
 const ButtonGroup = styled.View`
   flex-direction: row;
   gap: 8px;
   margin-left: 8px;
+  align-items: flex-start;
+`;
+
+const ScheduleButtonContainer = styled.View`
+  flex-direction: column;
+  gap: 8px;
 `;
 
 

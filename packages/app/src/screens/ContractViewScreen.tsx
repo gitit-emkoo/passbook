@@ -146,7 +146,7 @@ function ContractViewContent() {
   if (loading) {
     return (
       <LoadingContainer>
-        <ActivityIndicator size="large" color="#ff6b00" />
+        <ActivityIndicator size="large" color="#1d42d8" />
       </LoadingContainer>
     );
   }
@@ -154,7 +154,7 @@ function ContractViewContent() {
   if (error || !html) {
     return (
       <LoadingContainer>
-        <ActivityIndicator size="large" color="#ff6b00" />
+        <ActivityIndicator size="large" color="#1d42d8" />
       </LoadingContainer>
     );
   }

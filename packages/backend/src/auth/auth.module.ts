@@ -7,19 +7,26 @@ import { AuthController } from './auth.controller';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtStrategy } from './jwt-strategy/jwt.strategy';
 import { JwtAuthGuard } from './jwt-auth/jwt-auth.guard';
+import { SmsModule } from '../sms/sms.module';
 
 @Module({
   imports: [
     PassportModule,
+    SmsModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET') || 'kimssam-secret-key-change-in-production',
+      useFactory: async (configService: ConfigService) => {
+        const jwtSecret = configService.get<string>('JWT_SECRET') || 'kimssam-secret-key-change-in-production';
+        const jwtExpiresIn = configService.get<string>('JWT_EXPIRES_IN') || '30d';
+        
+        return {
+          secret: jwtSecret,
         signOptions: {
-          // number of seconds (30 days)
-          expiresIn: Number(configService.get<string>('JWT_EXPIRES_IN')) || 60 * 60 * 24 * 30,
+            // JWT 만료 시간 (예: "30d", "7d", "1h" 등 문자열 형식 지원)
+            expiresIn: jwtExpiresIn,
         },
-      }),
+        } as any; // NestJS JWT는 문자열을 지원하지만 타입 정의가 엄격함
+      },
       inject: [ConfigService],
     }),
   ],
