@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Body, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Delete, Body, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/jwt-auth/jwt-auth.guard';
@@ -24,6 +24,13 @@ export class UsersController {
   async updateSettings(@Req() req: Request, @Body() body: { settings: Record<string, unknown> }) {
     const user = req.user as any;
     return this.usersService.updateSettings(user.id ?? user.sub, body.settings);
+  }
+
+  @Delete('me')
+  async deleteMe(@Req() req: Request) {
+    const user = req.user as any;
+    await this.usersService.deleteMe(user.id ?? user.sub);
+    return { message: '회원 탈퇴가 완료되었습니다.' };
   }
 }
 
