@@ -42,8 +42,8 @@ const STUB_NOTIFICATIONS: NotificationItem[] = [
   {
     id: 3,
     category: 'attendance',
-    title: '장기 미출석 알림',
-    message: '박소정 수강생이 3주 이상 미출석 상태입니다.',
+    title: '장기 미사용 알림',
+    message: '박소정 수강생이 3주 이상 미사용 상태입니다.',
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 26).toISOString(),
     read: true,
     target: { screen: 'Students' },

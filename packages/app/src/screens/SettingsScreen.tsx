@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useEffect, useMemo } from 'react';
+import React, { useCallback, useState, useEffect, useMemo, useRef } from 'react';
 import { ActivityIndicator, Alert, ScrollView, Switch, TextInput } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import styled from 'styled-components/native';
@@ -19,6 +19,7 @@ function SettingsContent() {
   const navigation = useNavigation();
   const route = useRoute();
   const [loading, setLoading] = useState(false);
+  const paramsProcessedRef = useRef(false);
 
   // 기본 정보
   const [userName, setUserName] = useState('');
@@ -157,6 +158,32 @@ function SettingsContent() {
     }
   }, []);
 
+  // 네비게이션 파라미터 처리 (한 번만 실행)
+  useEffect(() => {
+    const params = route.params as
+      | {
+          showSubscriptionIntro?: boolean;
+          isFirstTimeBonus?: boolean;
+        }
+      | undefined;
+    
+    // 파라미터가 있고 아직 처리하지 않았을 때만 실행
+    if (params?.showSubscriptionIntro && !paramsProcessedRef.current) {
+      paramsProcessedRef.current = true;
+      setSubscriptionIntroModalVisible(true);
+      // isFirstTimeBonus 파라미터로 최초 접속 팝업 경로인지 구분
+      setIsFirstTimeBonusPath(params.isFirstTimeBonus === true);
+      // 파라미터 제거 (다음 진입을 위해 ref는 유지)
+      navigation.setParams(undefined as never);
+    }
+    
+    // 파라미터가 없으면 ref 초기화 (다음 진입을 위해)
+    if (!params?.showSubscriptionIntro) {
+      paramsProcessedRef.current = false;
+    }
+  }, [route.params, navigation]);
+
+  // 화면 포커스 시 데이터 로드 (파라미터와 분리)
   useFocusEffect(
     useCallback(() => {
       // accessToken이 있을 때만 설정 로드
@@ -166,22 +193,7 @@ function SettingsContent() {
       }
       loadSettings();
       loadSubscriptionInfo();
-      
-      // 네비게이션 파라미터 확인 (구독 안내 모달 표시)
-      const params = route.params as
-        | {
-            showSubscriptionIntro?: boolean;
-            isFirstTimeBonus?: boolean;
-          }
-        | undefined;
-      if (params?.showSubscriptionIntro) {
-        setSubscriptionIntroModalVisible(true);
-        // isFirstTimeBonus 파라미터로 최초 접속 팝업 경로인지 구분
-        setIsFirstTimeBonusPath(params.isFirstTimeBonus === true);
-        // 파라미터 제거
-        navigation.setParams(undefined as never);
-      }
-    }, [loadSettings, loadSubscriptionInfo, route.params, navigation]),
+    }, [loadSettings, loadSubscriptionInfo]),
   );
 
   const handleProfileEditSave = useCallback(() => {
@@ -307,11 +319,11 @@ function SettingsContent() {
           <SubscriptionButtonSection>
             {subscriptionInfo?.status === 'none' ? (
               <SubscriptionActivateButton onPress={handleActivateSubscription}>
-                <SubscriptionActivateButtonText>2개월 무료 체험 시작</SubscriptionActivateButtonText>
+                <SubscriptionActivateButtonText>2개월 무료 사용 시작</SubscriptionActivateButtonText>
               </SubscriptionActivateButton>
             ) : (
               <SubscriptionActiveButton disabled>
-                <SubscriptionActiveButtonText>구독 중</SubscriptionActiveButtonText>
+                <SubscriptionActiveButtonText>무료 사용 중</SubscriptionActiveButtonText>
               </SubscriptionActiveButton>
             )}
           </SubscriptionButtonSection>
@@ -364,6 +376,13 @@ function SettingsContent() {
           <SettingsItem onPress={handleNoticePress}>
             <SettingsItemLeft>
               <SettingsItemTitle>공지사항</SettingsItemTitle>
+            </SettingsItemLeft>
+            <ChevronIcon>›</ChevronIcon>
+          </SettingsItem>
+
+          <SettingsItem onPress={() => (navigation as any).navigate('Inquiry')}>
+            <SettingsItemLeft>
+              <SettingsItemTitle>문의하기</SettingsItemTitle>
             </SettingsItemLeft>
             <ChevronIcon>›</ChevronIcon>
           </SettingsItem>

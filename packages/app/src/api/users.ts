@@ -35,5 +35,13 @@ export const usersApi = {
     const response = await apiClient.patch('/api/v1/users/me/settings', { settings });
     return response.data;
   },
+
+  /**
+   * 회원 탈퇴
+   */
+  deleteAccount: async () => {
+    const response = await apiClient.delete('/api/v1/users/me');
+    return response.data;
+  },
 };
 

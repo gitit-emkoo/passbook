@@ -26,6 +26,52 @@ export async function apiFetch<T>(
   });
 
   if (!response.ok) {
+    // 401 에러 시 자동 로그아웃
+    if (response.status === 401) {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('adminToken');
+        window.location.href = '/login';
+      }
+    }
+    
+    const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+    throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * 이미지 파일 업로드
+ */
+export async function uploadImage(
+  file: File,
+  type: 'notice' | 'popup',
+): Promise<{ imageUrl: string }> {
+  const token = typeof window !== 'undefined' ? window.localStorage.getItem('adminToken') : null;
+
+  const formData = new FormData();
+  formData.append('image', file);
+
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/storage/upload/${type}`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('adminToken');
+        window.location.href = '/login';
+      }
+    }
+    
     const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
     throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
   }

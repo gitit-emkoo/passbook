@@ -15,7 +15,7 @@ const ModalContent = styled.View`
   border-radius: 12px;
   padding: 20px;
   width: 90%;
-  max-height: 85%;
+  max-height: 95%;
 `;
 
 const ModalTitle = styled.Text`
@@ -65,11 +65,11 @@ const Button = styled.TouchableOpacity<{ variant?: 'primary' | 'secondary' }>`
   border-radius: 6px;
   align-items: center;
   margin-right: 8px;
-  background-color: ${(props) => (props.variant === 'primary' ? '#007AFF' : '#e0e0e0')};
+  background-color: ${(props: { variant?: 'primary' | 'secondary' }) => (props.variant === 'primary' ? '#007AFF' : '#e0e0e0')};
 `;
 
 const ButtonText = styled.Text<{ variant?: 'primary' | 'secondary' }>`
-  color: ${(props) => (props.variant === 'primary' ? '#fff' : '#000')};
+  color: ${(props: { variant?: 'primary' | 'secondary' }) => (props.variant === 'primary' ? '#fff' : '#000')};
   font-size: 16px;
   font-weight: bold;
 `;
@@ -231,24 +231,42 @@ export default function AttendanceAbsenceModal({
                 </>
               )}
 
-              {/* 금액권 소멸 시 차감 금액 입력 필드 */}
-              {isAmountBased && status === 'vanish' && (
+              {/* 소멸 시 차감 정보 표시 */}
+              {status === 'vanish' && (
                 <>
-                  <InputLabel>차감 금액 (선택사항)</InputLabel>
-                  <TextInput
-                    placeholder={remainingAmount !== undefined ? `최대 ${remainingAmount.toLocaleString()}원` : '차감할 금액을 입력하세요'}
-                    value={amount}
-                    onChangeText={(text) => {
-                      // 숫자와 쉼표만 허용
-                      const numericText = text.replace(/[^0-9,]/g, '');
-                      setAmount(numericText);
-                    }}
-                    keyboardType="numeric"
-                  />
-                  {remainingAmount !== undefined && (
-                    <InputLabel style={{ fontSize: 12, color: '#999', marginTop: -12, marginBottom: 16 }}>
-                      잔여 금액: {remainingAmount.toLocaleString()}원
-                    </InputLabel>
+                  {isAmountBased ? (
+                    <>
+                      {/* 금액권 소멸 시 차감 금액 입력 필드 */}
+                      <InputLabel>차감 금액 (선택사항)</InputLabel>
+                      <TextInput
+                        placeholder={remainingAmount !== undefined ? `최대 ${remainingAmount.toLocaleString()}원` : '차감할 금액을 입력하세요'}
+                        value={amount}
+                        onChangeText={(text: string) => {
+                          // 숫자와 쉼표만 허용
+                          const numericText = text.replace(/[^0-9,]/g, '');
+                          setAmount(numericText);
+                        }}
+                        keyboardType="numeric"
+                      />
+                      {remainingAmount !== undefined && (
+                        <InputLabel style={{ fontSize: 12, color: '#999', marginTop: -12, marginBottom: 16 }}>
+                          잔여 금액: {remainingAmount.toLocaleString()}원
+                        </InputLabel>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {/* 회차권 소멸 시 1회 자동 차감 표시 */}
+                      <InputLabel>차감 횟수</InputLabel>
+                      <TextInput
+                        value="1회"
+                        editable={false}
+                        style={{ backgroundColor: '#f5f5f5', color: '#666' }}
+                      />
+                      <InputLabel style={{ fontSize: 12, color: '#999', marginTop: -12, marginBottom: 16 }}>
+                        회차권 소멸 시 1회 자동 차감됩니다
+                      </InputLabel>
+                    </>
                   )}
                 </>
               )}
@@ -261,16 +279,15 @@ export default function AttendanceAbsenceModal({
                 multiline
                 numberOfLines={3}
               />
-
-              <ButtonRow>
-                <Button variant="secondary" onPress={handleClose}>
-                  <ButtonText variant="secondary">취소</ButtonText>
-                </Button>
-                <ButtonLast variant="primary" onPress={handleConfirm}>
-                  <ButtonText variant="primary">확인</ButtonText>
-                </ButtonLast>
-              </ButtonRow>
             </ScrollView>
+            <ButtonRow style={{ marginTop: 16 }}>
+              <Button variant="secondary" onPress={handleClose}>
+                <ButtonText variant="secondary">취소</ButtonText>
+              </Button>
+              <ButtonLast variant="primary" onPress={handleConfirm}>
+                <ButtonText variant="primary">확인</ButtonText>
+              </ButtonLast>
+            </ButtonRow>
           </ModalContent>
         </KeyboardAvoidingView>
       </ModalOverlay>

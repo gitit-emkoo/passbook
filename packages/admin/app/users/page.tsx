@@ -1,13 +1,9 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import Link from "next/link";
 import {
   LayoutRoot,
-  Sidebar,
-  SidebarHeader,
-  SidebarNav,
-  SidebarNavItem,
+  AdminSidebar,
   Content,
   ContentHeader,
   ContentTitle,
@@ -15,6 +11,7 @@ import {
 } from "../../components/layout";
 import styled from "styled-components";
 import { apiFetch } from "../../lib/api-client";
+import PageDescription from "../../components/PageDescription";
 
 interface UserRow {
   id: number;
@@ -33,10 +30,8 @@ export default function UsersPage() {
     try {
       setLoading(true);
       setError(null);
-      // TODO: 백엔드에 유저 목록 API가 필요함
-      // const data = await apiFetch<UserRow[]>("/api/v1/admin/users");
-      // setRows(data);
-      setRows([]);
+      const data = await apiFetch<UserRow[]>("/api/v1/admin/users");
+      setRows(data);
     } catch (e: any) {
       console.error(e);
       setError(e?.message ?? "유저 목록을 불러오지 못했습니다.");
@@ -51,28 +46,24 @@ export default function UsersPage() {
 
   return (
     <LayoutRoot>
-      <Sidebar>
-        <SidebarHeader>Passbook Admin</SidebarHeader>
-        <SidebarNav>
-          <SidebarNavItem $active>
-            <Link href="/users">유저 관리</Link>
-          </SidebarNavItem>
-          <SidebarNavItem>
-            <Link href="/notices">공지사항 관리</Link>
-          </SidebarNavItem>
-          <SidebarNavItem>
-            <Link href="/popups">팝업 관리</Link>
-          </SidebarNavItem>
-          <SidebarNavItem>
-            <Link href="/inquiries">문의사항 관리</Link>
-          </SidebarNavItem>
-        </SidebarNav>
-      </Sidebar>
+      <AdminSidebar activePage="users" />
       <Content>
         <ContentHeader>
           <ContentTitle>유저 관리</ContentTitle>
         </ContentHeader>
         <ContentBody>
+          <PageDescription
+            title="유저 관리 페이지"
+            description="앱에 가입한 모든 사용자 목록을 확인할 수 있습니다. 사용자의 기본 정보와 가입일을 조회할 수 있습니다."
+            features={[
+              "전체 사용자 목록 조회",
+              "사용자 ID, 전화번호, 이름, 상호명, 가입일 확인",
+            ]}
+            usage={[
+              "페이지 접속 시 자동으로 전체 사용자 목록이 표시됩니다.",
+              "테이블에서 각 사용자의 정보를 확인할 수 있습니다.",
+            ]}
+          />
           {loading && <InfoText>목록을 불러오는 중입니다...</InfoText>}
           {error && <ErrorText>{error}</ErrorText>}
 

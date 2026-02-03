@@ -51,6 +51,7 @@ export default ({ config }) => ({
       },
       API_URL: process.env.API_URL || 'http://localhost:3000',
       API_KEY: process.env.API_KEY || '',
+      PUBLIC_URL: process.env.PUBLIC_URL || 'https://passbook.today',
     },
   },
 });

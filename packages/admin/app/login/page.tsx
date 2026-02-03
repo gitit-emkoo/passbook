@@ -1,21 +1,33 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import styled from "styled-components";
 import { apiFetch } from "../../lib/api-client";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [phone, setPhone] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 이미 로그인된 경우 리다이렉트
+  useEffect(() => {
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("adminToken") : null;
+    if (token) {
+      router.replace("/notices");
+    }
+  }, [router]);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!phone.trim() || !password.trim()) {
-      setError("전화번호와 비밀번호를 입력해주세요.");
+    if (!username.trim()) {
+      setError("아이디를 입력해주세요.");
+      return;
+    }
+    if (!password.trim()) {
+      setError("비밀번호를 입력해주세요.");
       return;
     }
 
@@ -23,18 +35,19 @@ export default function LoginPage() {
       setLoading(true);
       setError(null);
       
-      // TODO: 백엔드에 관리자 로그인 API가 필요함
-      // const response = await apiFetch<{ token: string }>("/api/v1/admin/auth/login", {
-      //   method: "POST",
-      //   body: { phone: phone.trim(), password },
-      // });
+      const response = await apiFetch<{ accessToken: string; user: any }>("/api/v1/admin/auth/login", {
+        method: "POST",
+        body: { 
+          username: username.trim(),
+          password: password.trim(),
+        },
+      });
       
-      // 임시: 개발용 토큰 저장 (실제로는 API 응답에서 받아야 함)
-      // localStorage.setItem("adminToken", response.token);
+      // 토큰 저장
+      localStorage.setItem("adminToken", response.accessToken);
       
-      // 임시로 공지사항 페이지로 이동 (실제 인증 구현 필요)
-      alert("관리자 로그인 API가 아직 구현되지 않았습니다.");
-      // router.replace("/notices");
+      // 공지사항 페이지로 이동
+      router.replace("/notices");
     } catch (e: any) {
       console.error(e);
       setError(e?.message ?? "로그인에 실패했습니다.");
@@ -53,13 +66,14 @@ export default function LoginPage() {
           {error && <ErrorText>{error}</ErrorText>}
           
           <FormRow>
-            <Label>전화번호</Label>
+            <Label>아이디</Label>
             <Input
               type="text"
-              placeholder="010-1234-5678"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              placeholder="아이디를 입력하세요"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               disabled={loading}
+              autoComplete="username"
             />
           </FormRow>
           
@@ -71,6 +85,7 @@ export default function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={loading}
+              autoComplete="current-password"
             />
           </FormRow>
           

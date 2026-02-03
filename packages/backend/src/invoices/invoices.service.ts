@@ -1184,6 +1184,7 @@ export class InvoicesService {
    * 입금 확인 처리
    */
   async markInvoiceAsPaid(userId: number, invoiceId: number) {
+    // 먼저 Invoice 존재 여부 확인
     const invoice = await this.prisma.invoice.findFirst({
       where: {
         id: invoiceId,
@@ -1195,18 +1196,18 @@ export class InvoicesService {
       throw new NotFoundException('Invoice를 찾을 수 없습니다.');
     }
 
-    // 이미 입금 완료된 경우 그대로 반환
-    if (invoice.payment_status === 'paid') {
-      return invoice;
-    }
+    // 현재 payment_status 값 확인 (스키마에 Boolean @default(false)로 정의됨)
+    const currentPaymentStatus = invoice.payment_status ?? false;
 
-    return this.prisma.invoice.update({
+    // 입금 확인 상태 토글
+    const updated = await this.prisma.invoice.update({
       where: { id: invoiceId },
       data: {
-        payment_status: 'paid',
-        paid_at: new Date(),
+        payment_status: !currentPaymentStatus,
       },
     });
+
+    return updated;
   }
 
   /**
@@ -1382,8 +1383,14 @@ export class InvoicesService {
         try {
           const recipientPhone = recipientTargets?.[0] || invoice.student?.phone;
           if (recipientPhone) {
-            const apiBaseUrl = this.configService.get<string>('API_BASE_URL') || '';
-            const invoiceLink = `${apiBaseUrl}/api/v1/invoices/${invoice.id}/view`;
+            const publicUrlFromEnv = this.configService.get<string>('PUBLIC_URL');
+            const apiBaseUrl = this.configService.get<string>('API_BASE_URL');
+            const publicUrl = publicUrlFromEnv || apiBaseUrl || 'https://passbook.today';
+            
+            // 디버깅: 환경변수 값 확인
+            this.logger.log(`[Invoices] PUBLIC_URL env: ${publicUrlFromEnv || 'NOT SET'}, API_BASE_URL: ${apiBaseUrl || 'NOT SET'}, Using: ${publicUrl}`);
+            
+            const invoiceLink = `${publicUrl}/api/v1/invoices/${invoice.id}/view`;
             const message = `[Passbook] 청구서\n${invoiceLink}`;
             
             const smsResult = await this.smsService.sendSms({
@@ -2093,6 +2100,11 @@ export class InvoicesService {
       } else {
         billingMonthText = `${invoice.year}년 ${invoice.month}월(${invoice.month}월분)`;
       }
+    }
+
+    // 연장 청구서 여부 확인 (invoice_number > 1)
+    if (invoice.invoice_number > 1) {
+      billingMonthText = `${billingMonthText} (연장)`;
     }
 
     // 자동 조정 사유 계산

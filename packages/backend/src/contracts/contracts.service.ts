@@ -780,16 +780,21 @@ export class ContractsService {
           contract.student?.phone;
         
         if (recipientPhone) {
+          const publicUrlFromEnv = this.configService.get<string>('PUBLIC_URL');
           const apiBaseUrl = this.configService.get<string>('API_BASE_URL');
+          const publicUrl = publicUrlFromEnv || apiBaseUrl || 'https://passbook.today';
           
-          // API_BASE_URL 필수 검증
-          if (!apiBaseUrl || apiBaseUrl.trim() === '') {
-            const errorMsg = '[Contracts] API_BASE_URL is not configured. Cannot send SMS with incomplete URL.';
+          // 디버깅: 환경변수 값 확인
+          this.logger.log(`[Contracts] PUBLIC_URL env: ${publicUrlFromEnv || 'NOT SET'}, API_BASE_URL: ${apiBaseUrl || 'NOT SET'}, Using: ${publicUrl}`);
+          
+          // PUBLIC_URL 필수 검증
+          if (!publicUrl || publicUrl.trim() === '') {
+            const errorMsg = '[Contracts] PUBLIC_URL is not configured. Cannot send SMS with incomplete URL.';
             this.logger.error(errorMsg);
             throw new Error(errorMsg);
           }
           
-          const contractLink = `${apiBaseUrl}/api/v1/contracts/${id}/view`;
+          const contractLink = `${publicUrl}/api/v1/contracts/${id}/view`;
           const message = `[Passbook] 계약서\n${contractLink}`;
           
           this.logger.log(`[Contracts] Sending SMS with link: ${contractLink}`);

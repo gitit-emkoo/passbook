@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, RefreshControl, Modal } from 'react-native';
 import styled from 'styled-components/native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import RemixIcon from 'react-native-remix-icon';
 import InvoiceAmountModal from '../components/modals/InvoiceAmountModal';
 import { useInvoicesStore } from '../store/useInvoicesStore';
 import { useAuthStore } from '../store/useStore';
@@ -218,6 +219,15 @@ function SettlementContent() {
         },
       ],
     );
+  }, [fetchSections]);
+
+  const handlePaymentStatus = useCallback(async (invoice: InvoiceSummary) => {
+    try {
+      await invoicesApi.markAsPaid(invoice.id);
+      await fetchSections(true);
+    } catch (error: any) {
+      Alert.alert('오류', error?.response?.data?.message || error?.message || '입금 확인 처리에 실패했습니다.');
+    }
   }, [fetchSections]);
 
   const handleSendInvoice = useCallback(
@@ -669,7 +679,11 @@ function SettlementContent() {
                         <YearCardTitle>{year}년</YearCardTitle>
                       </YearCardHeaderLeft>
                       <YearCardHeaderRight>
-                        <ExpandIcon>{isYearExpanded ? '▴' : '▾'}</ExpandIcon>
+                        <RemixIcon 
+                          name={isYearExpanded ? 'arrow-up-s-line' : 'arrow-down-s-line'} 
+                          size={16} 
+                          color="#666666" 
+                        />
                       </YearCardHeaderRight>
                     </YearCardHeader>
 
@@ -688,28 +702,50 @@ function SettlementContent() {
                                   <MonthlyCardSummary>{formatSummary(settlement)}</MonthlyCardSummary>
                                 </MonthlyCardHeaderLeft>
                                 <MonthlyCardHeaderRight>
-                                  <StatusTag $color={getStatusColor(settlement)}>
-                                    {getStatusLabel(settlement)}
-                                  </StatusTag>
-                                  <ExpandIcon>{isExpanded ? '▴' : '▾'}</ExpandIcon>
+                                  <RemixIcon 
+                                    name={isExpanded ? 'arrow-up-s-line' : 'arrow-down-s-line'} 
+                                    size={16} 
+                                    color="#666666" 
+                                  />
                                 </MonthlyCardHeaderRight>
                               </MonthlyCardHeader>
 
                               {isExpanded && (
                                 <MonthlyCardContent>
-                                  {settlement.invoices.map((invoice) => (
+                                  {settlement.invoices.map((invoice) => {
+                                    // 연장 청구서 여부 확인 (invoice_number > 1)
+                                    const isExtension = (invoice.invoice_number ?? 1) > 1;
+                                    return (
                                     <StudentItem key={invoice.id}>
                                       <StudentItemLeft>
                                         <StudentTexts>
-                                          <StudentName>{invoice.student?.name || '이름 없음'}</StudentName>
+                                          <StudentName>
+                                            {invoice.student?.name || '이름 없음'}
+                                            {isExtension && ' (연장)'}
+                                          </StudentName>
                                           {/* 전송한 청구서는 본문 라벨/기간 생략 */}
                                         </StudentTexts>
                                       </StudentItemLeft>
                                       <StudentItemRight>
                                         <StudentAmount>{invoice.final_amount.toLocaleString()}원</StudentAmount>
+                                        {invoice.payment_status ? (
+                                          <PaymentStatusBadge>
+                                            <PaymentStatusBadgeText>입금완료</PaymentStatusBadgeText>
+                                          </PaymentStatusBadge>
+                                        ) : (
+                                          <PaymentStatusButton
+                                            onPress={() => handlePaymentStatus(invoice)}
+                                            $isPaid={false}
+                                          >
+                                            <PaymentStatusButtonText $isPaid={false}>
+                                              입금확인
+                                            </PaymentStatusButtonText>
+                                          </PaymentStatusButton>
+                                        )}
                                       </StudentItemRight>
                                     </StudentItem>
-                                  ))}
+                                    );
+                                  })}
                                 </MonthlyCardContent>
                               )}
                             </MonthlyCard>
@@ -736,7 +772,7 @@ function SettlementContent() {
           currentAmount={amountTargetInvoice.final_amount}
           baseAmount={amountTargetInvoice.base_amount}
           autoAdjustment={amountTargetInvoice.auto_adjustment}
-          manualAdjustment={amountTargetInvoice.manual_adjustment}
+          manualAdjustment={amountTargetInvoice.manual_adjustment ?? 0}
           autoAdjustmentDetail={getAutoAdjustmentDetail(amountTargetInvoice)}
         />
       ) : null}
@@ -811,7 +847,7 @@ const SkeletonLine = styled.View<{ width: string }>`
   border-radius: 6px;
   background-color: #e1e4ea;
   margin-bottom: 10px;
-  width: ${(props) => props.width};
+  width: ${(props: { width: string }) => props.width};
 `;
 
 const EmptyContainer = styled.View`
@@ -992,8 +1028,8 @@ const MonthlyCardHeaderRight = styled.View`
 const StatusTag = styled.Text<{ $color: string }>`
   padding: 4px 12px;
   border-radius: 12px;
-  background-color: ${(props) => props.$color}20;
-  color: ${(props) => props.$color};
+  background-color: ${(props: { $color: string }) => props.$color}20;
+  color: ${(props: { $color: string }) => props.$color};
   font-size: 12px;
   font-weight: 600;
 `;
@@ -1057,7 +1093,7 @@ const SelectedCount = styled.Text`
 
 const SelectCheckbox = styled.TouchableOpacity<{ disabled?: boolean }>`
   padding-top: 2px;
-  opacity: ${(props) => (props.disabled ? 0.5 : 1)};
+  opacity: ${(props: { disabled?: boolean }) => (props.disabled ? 0.5 : 1)};
 `;
 
 const CheckboxBox = styled.View<{ $checked: boolean; $disabled?: boolean }>`
@@ -1065,8 +1101,8 @@ const CheckboxBox = styled.View<{ $checked: boolean; $disabled?: boolean }>`
   height: 20px;
   border-radius: 4px;
   border-width: 1px;
-  border-color: ${(props) => (props.$checked ? '#1d42d8' : '#cccccc')};
-  background-color: ${(props) =>
+  border-color: ${(props: { $checked: boolean; $disabled?: boolean }) => (props.$checked ? '#1d42d8' : '#cccccc')};
+  background-color: ${(props: { $checked: boolean; $disabled?: boolean }) =>
     props.$disabled ? '#f0f0f0' : props.$checked ? '#eef2ff' : '#ffffff'};
   align-items: center;
   justify-content: center;
@@ -1100,13 +1136,13 @@ const BadgeContainer = styled.View`
 
 const Badge = styled.View<{ billingType?: boolean; absencePolicy?: boolean }>`
   padding: 4px 8px;
-  background-color: ${(props) => (props.billingType ? '#e8f2ff' : '#f0f8f0')};
+  background-color: ${(props: { billingType?: boolean; absencePolicy?: boolean }) => (props.billingType ? '#e8f2ff' : '#f0f8f0')};
   border-radius: 12px;
 `;
 
 const BadgeText = styled.Text<{ absencePolicy?: boolean }>`
   font-size: 11px;
-  color: ${(props) => (props.absencePolicy ? '#34c759' : '#246bfd')};
+  color: ${(props: { absencePolicy?: boolean }) => (props.absencePolicy ? '#34c759' : '#246bfd')};
   font-weight: 600;
 `;
 
@@ -1174,7 +1210,7 @@ const SendInvoiceButton = styled.TouchableOpacity<{ disabled?: boolean }>`
   margin-top: 16px;
   padding: 14px;
   border-radius: 10px;
-  background-color: ${(props) => (props.disabled ? '#c7d2fe' : '#1d42d8')};
+  background-color: ${(props: { disabled?: boolean }) => (props.disabled ? '#c7d2fe' : '#1d42d8')};
   align-items: center;
 `;
 
@@ -1182,6 +1218,35 @@ const SendInvoiceButtonText = styled.Text`
   color: #ffffff;
   font-size: 16px;
   font-weight: 600;
+`;
+
+const PaymentStatusButton = styled.TouchableOpacity<{ $isPaid: boolean }>`
+  margin-top: 8px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background-color: ${(props: { $isPaid: boolean }) => (props.$isPaid ? '#e8f5e9' : '#fff3e0')};
+  border-width: 1px;
+  border-color: ${(props: { $isPaid: boolean }) => (props.$isPaid ? '#4caf50' : '#ff9800')};
+`;
+
+const PaymentStatusButtonText = styled.Text<{ $isPaid: boolean }>`
+  font-size: 12px;
+  font-weight: 600;
+  color: ${(props: { $isPaid: boolean }) => (props.$isPaid ? '#2e7d32' : '#ff6b00')};
+`;
+
+const PaymentStatusBadge = styled.View`
+  margin-top: 8px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background-color: #e8f2ff;
+  align-self: flex-end;
+`;
+
+const PaymentStatusBadgeText = styled.Text`
+  font-size: 12px;
+  font-weight: 600;
+  color: #1d42d8;
 `;
 
 const ModalOverlay = styled.TouchableOpacity`

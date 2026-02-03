@@ -86,7 +86,7 @@ export default function AuthSplashScreen() {
 
 const Container = styled.View`
   flex: 1;
-  background-color: #0f1b4d;
+  background-color: #ffffff;
   justify-content: center;
   align-items: center;
 `;

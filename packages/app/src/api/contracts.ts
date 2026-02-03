@@ -58,8 +58,9 @@ export const contractsApi = {
     }
   },
   getViewLink: (id: number): string => {
-    const baseURL = apiClient.defaults.baseURL || '';
-    return `${baseURL}/api/v1/contracts/${id}/view`;
+    const { env } = require('../config/env');
+    const publicURL = env.PUBLIC_URL || 'https://passbook.today';
+    return `${publicURL}/api/v1/contracts/${id}/view`;
   },
   extend: async (id: number, data: { added_sessions?: number; extension_amount?: number; extended_end_date?: string }) => {
     const response = await apiClient.patch(`/api/v1/contracts/${id}/extend`, data);

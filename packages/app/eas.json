@@ -9,7 +9,8 @@
       "distribution": "internal",
       "env": {
         "EXPO_KOTLIN_VERSION": "1.9.25",
-        "API_URL": "https://kimssam-backend.fly.dev"
+        "API_URL": "https://kimssam-backend.fly.dev",
+        "PUBLIC_URL": "https://passbook.today"
       },
       "android": {
         "buildType": "apk",
@@ -24,7 +25,8 @@
       "distribution": "internal",
       "env": {
         "EXPO_KOTLIN_VERSION": "1.9.25",
-        "API_URL": "https://kimssam-backend.fly.dev"
+        "API_URL": "https://kimssam-backend.fly.dev",
+        "PUBLIC_URL": "https://passbook.today"
       },
       "android": {
         "buildType": "apk"
@@ -35,7 +37,8 @@
       "distribution": "internal",
       "env": {
         "EXPO_KOTLIN_VERSION": "1.9.25",
-        "API_URL": "https://kimssam-backend.fly.dev"
+        "API_URL": "https://kimssam-backend.fly.dev",
+        "PUBLIC_URL": "https://passbook.today"
       },
       "android": {
         "buildType": "apk"
@@ -44,7 +47,8 @@
     "production": {
       "env": {
         "EXPO_KOTLIN_VERSION": "1.9.25",
-        "API_URL": "https://kimssam-backend.fly.dev"
+        "API_URL": "https://kimssam-backend.fly.dev",
+        "PUBLIC_URL": "https://passbook.today"
       },
       "android": {
         "buildType": "apk"

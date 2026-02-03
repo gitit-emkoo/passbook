@@ -1,5 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CreateNoticeDto } from './dto/create-notice.dto';
+import { UpdateNoticeDto } from './dto/update-notice.dto';
 
 @Injectable()
 export class NoticesService {
@@ -24,6 +26,7 @@ export class NoticesService {
         id: true,
         title: true,
         content: true,
+        image_url: true,
         is_important: true,
         created_at: true,
         updated_at: true,
@@ -52,6 +55,66 @@ export class NoticesService {
     }
 
     return notice;
+  }
+
+  /**
+   * 관리자용 전체 공지사항 목록 조회
+   */
+  async adminFindAll() {
+    return this.prisma.notice.findMany({
+      orderBy: {
+        created_at: 'desc',
+      },
+    });
+  }
+
+  /**
+   * 관리자용 공지사항 생성
+   */
+  async adminCreate(dto: CreateNoticeDto) {
+    const { title, content, image_url, is_important } = dto;
+
+    return this.prisma.notice.create({
+      data: {
+        title,
+        content,
+        image_url: image_url || null,
+        is_important: is_important ?? false,
+      },
+    });
+  }
+
+  /**
+   * 관리자용 공지사항 수정
+   */
+  async adminUpdate(id: number, dto: UpdateNoticeDto) {
+    const existing = await this.prisma.notice.findUnique({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException('공지사항을 찾을 수 없습니다.');
+    }
+
+    return this.prisma.notice.update({
+      where: { id },
+      data: {
+        title: dto.title ?? existing.title,
+        content: dto.content ?? existing.content,
+        image_url: dto.image_url !== undefined ? dto.image_url : existing.image_url,
+        is_important: dto.is_important ?? existing.is_important,
+      },
+    });
+  }
+
+  /**
+   * 관리자용 공지사항 삭제
+   */
+  async adminDelete(id: number) {
+    const existing = await this.prisma.notice.findUnique({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException('공지사항을 찾을 수 없습니다.');
+    }
+
+    await this.prisma.notice.delete({ where: { id } });
+    return { success: true };
   }
 }
 

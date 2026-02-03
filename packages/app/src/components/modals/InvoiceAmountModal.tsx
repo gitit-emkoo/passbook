@@ -52,11 +52,11 @@ const SignRow = styled.View`
 const SignToggle = styled.TouchableOpacity<{ $active?: boolean }>`
   padding: 6px 10px;
   border-radius: 8px;
-  background-color: ${(p) => (p.$active ? '#ff6b00' : '#f0f0f0')};
+  background-color: ${(props: { $active?: boolean }) => (props.$active ? '#ff6b00' : '#f0f0f0')};
 `;
 
 const SignToggleText = styled.Text<{ $active?: boolean }>`
-  color: ${(p) => (p.$active ? '#ffffff' : '#333333')};
+  color: ${(props: { $active?: boolean }) => (props.$active ? '#ffffff' : '#333333')};
   font-size: 14px;
   font-weight: 700;
 `;
@@ -102,12 +102,12 @@ const ButtonRow = styled.View`
 const ModalButton = styled.TouchableOpacity<{ primary?: boolean }>`
   padding: 12px 20px;
   border-radius: 8px;
-  background-color: ${(props) => (props.primary ? '#ff6b00' : '#f0f0f0')};
+  background-color: ${(props: { primary?: boolean }) => (props.primary ? '#ff6b00' : '#f0f0f0')};
   margin-horizontal: 5px;
 `;
 
 const ModalButtonText = styled.Text<{ primary?: boolean }>`
-  color: ${(props) => (props.primary ? '#fff' : '#333')};
+  color: ${(props: { primary?: boolean }) => (props.primary ? '#fff' : '#333')};
   font-size: 16px;
   font-weight: bold;
 `;
@@ -120,7 +120,7 @@ interface InvoiceAmountModalProps {
   currentAmount: number;
   baseAmount: number;
   autoAdjustment: number;
-  manualAdjustment: number;
+  manualAdjustment: number | null;
   autoAdjustmentDetail?: string | null;
 }
 
@@ -138,10 +138,10 @@ export default function InvoiceAmountModal({
   manualAdjustment,
   autoAdjustmentDetail,
 }: InvoiceAmountModalProps) {
-  const initialSign = manualAdjustment < 0 ? -1 : 1;
+  const initialSign = (manualAdjustment ?? 0) < 0 ? -1 : 1;
   const [sign, setSign] = useState<number>(initialSign);
   const [manualAdjustmentInput, setManualAdjustmentInput] = useState(
-    Math.abs(manualAdjustment).toString(),
+    Math.abs(manualAdjustment ?? 0).toString(),
   );
   const [manualReason, setManualReason] = useState('');
 
@@ -204,7 +204,7 @@ export default function InvoiceAmountModal({
         </SignRow>
         <StyledTextInput
           value={manualAdjustmentInput}
-          onChangeText={(t) => setManualAdjustmentInput(t.replace(/[^0-9]/g, ''))}
+          onChangeText={(text: string) => setManualAdjustmentInput(text.replace(/[^0-9]/g, ''))}
           placeholder="예: 5000 (숫자만)"
           keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'number-pad'}
         />

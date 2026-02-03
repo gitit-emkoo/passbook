@@ -3,10 +3,11 @@ import { ActivityIndicator, Alert, ScrollView, Image } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import styled from 'styled-components/native';
 import { attendanceApi } from '../api/attendance';
+import { contractsApi } from '../api/contracts';
 import AttendanceAbsenceModal from '../components/modals/AttendanceAbsenceModal';
 import AttendanceSignatureModal from '../components/modals/AttendanceSignatureModal';
-import AttendanceConfirmModal from '../components/modals/AttendanceConfirmModal';
 import { useStudentsStore } from '../store/useStudentsStore';
+import { MainAppStackNavigationProp } from '../navigation/AppNavigator';
 
 const emptyStateIcon = require('../../assets/p3.png');
 
@@ -14,6 +15,7 @@ interface UnprocessedItem {
   contract_id: number;
   student_id: number;
   student_name: string;
+  student_phone?: string; // 전화번호
   subject: string;
   day_of_week: string[];
   time: string | null;
@@ -24,14 +26,13 @@ interface UnprocessedItem {
 }
 
 function UnprocessedAttendanceContent() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<MainAppStackNavigationProp>();
   const fetchStudentDetail = useStudentsStore((state) => state.fetchStudentDetail);
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<UnprocessedItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<UnprocessedItem | null>(null);
   const [showAttendanceSignatureModal, setShowAttendanceSignatureModal] = useState(false);
   const [showAttendanceAbsenceModal, setShowAttendanceAbsenceModal] = useState(false);
-  const [showAttendanceConfirmModal, setShowAttendanceConfirmModal] = useState(false);
 
   const loadUnprocessed = useCallback(async () => {
     try {
@@ -76,13 +77,8 @@ function UnprocessedAttendanceContent() {
 
   const handlePresent = useCallback((item: UnprocessedItem) => {
     setSelectedItem(item);
-    // 금액권인 경우 AttendanceSignatureModal을 열어서 금액 입력 받기
-    if (item.is_amount_based) {
-      setShowAttendanceSignatureModal(true);
-    } else {
-      // 횟수권인 경우 AttendanceConfirmModal 사용
-      setShowAttendanceConfirmModal(true);
-    }
+    // 홈화면과 동일하게 AttendanceSignatureModal 사용 (금액권/회차권 모두)
+    setShowAttendanceSignatureModal(true);
   }, []);
 
   const handleAbsence = useCallback((item: UnprocessedItem) => {
@@ -98,7 +94,7 @@ function UnprocessedAttendanceContent() {
         const occurredAt = new Date(selectedItem.missed_date);
         occurredAt.setHours(12, 0, 0, 0); // 정오로 설정
 
-        await attendanceApi.create({
+        const result = await attendanceApi.create({
           student_id: selectedItem.student_id,
           contract_id: selectedItem.contract_id,
           occurred_at: occurredAt.toISOString(),
@@ -108,7 +104,23 @@ function UnprocessedAttendanceContent() {
           memo_public: memo, // 서비스 내용
         });
 
-        Alert.alert('완료', '이용권 사용처리가 완료되었습니다.');
+        // 사용처리 완료 안내 미리보기 화면으로 이동
+        if (result?.id) {
+          const studentPhone = selectedItem.student_phone;
+          (navigation as any).navigate('MainTabs', {
+            screen: 'Home',
+            params: {
+              screen: 'AttendanceView',
+              params: {
+                attendanceLogId: result.id,
+                studentPhone: studentPhone || undefined,
+              },
+            },
+          });
+        } else {
+          Alert.alert('완료', '이용권 사용처리가 완료되었습니다.');
+        }
+
         await loadUnprocessed();
         // 해당 수강생의 상세 정보도 새로고침 (출결 기록 반영)
         if (selectedItem?.student_id) {
@@ -122,7 +134,7 @@ function UnprocessedAttendanceContent() {
         Alert.alert('오류', error?.message || '출석 기록에 실패했습니다.');
       }
     },
-    [selectedItem, loadUnprocessed, fetchStudentDetail],
+    [selectedItem, loadUnprocessed, fetchStudentDetail, navigation],
   );
 
   const handleAttendanceAbsenceSubmit = useCallback(
@@ -135,22 +147,68 @@ function UnprocessedAttendanceContent() {
       if (!selectedItem) return;
 
       try {
+        // 대체일 지정이고 reservation_id가 있으면 예약 변경 처리
+        if (data.status === 'substitute' && data.substitute_at && selectedItem.reservation_id) {
+          const substituteDate = new Date(data.substitute_at);
+          const toIsoDate = (d: Date) => {
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+          };
+
+          // 시간은 기존 예약 시간 유지
+          const reservedTime = selectedItem.time;
+
+          await contractsApi.updateReservation(selectedItem.contract_id, selectedItem.reservation_id, {
+            reserved_date: toIsoDate(substituteDate),
+            reserved_time: reservedTime,
+          });
+
+          Alert.alert('완료', '예약이 변경되었습니다.');
+          await loadUnprocessed();
+          // 해당 수강생의 상세 정보도 강제로 새로고침 (고객 상세 화면 캘린더 반영)
+          if (selectedItem?.student_id) {
+            await fetchStudentDetail(selectedItem.student_id, { force: true }).catch(() => {
+              // 에러는 무시 (수강생 상세 화면이 열려있지 않을 수 있음)
+            });
+          }
+          setSelectedItem(null);
+          return;
+        }
+
+        // 노쇼 처리 또는 reservation_id가 없는 경우 출결 기록 생성
         const occurredAt = new Date(selectedItem.missed_date);
         occurredAt.setHours(12, 0, 0, 0);
 
-        await attendanceApi.create({
+        const result = await attendanceApi.create({
           student_id: selectedItem.student_id,
           contract_id: selectedItem.contract_id,
           occurred_at: occurredAt.toISOString(),
           status: data.status,
           substitute_at: data.substitute_at,
           memo_public: data.reason,
-          reservation_id: selectedItem.reservation_id, // 예약 ID 전달
           // 금액권 소멸 시 차감 금액 (입력하지 않으면 undefined)
           amount: data.amount ?? undefined,
-        });
+        } as any);
 
-        Alert.alert('완료', `${data.status === 'vanish' ? '소멸' : '대체'}이 기록되었습니다.`);
+        // 소멸도 사용처리와 동일하게 미리보기/발송 플로우로 이동
+        if (data.status === 'vanish' && result?.id) {
+          const studentPhone = selectedItem.student_phone;
+          (navigation as any).navigate('MainTabs', {
+            screen: 'Home',
+            params: {
+              screen: 'AttendanceView',
+              params: {
+                attendanceLogId: result.id,
+                studentPhone: studentPhone || undefined,
+              },
+            },
+          });
+        } else {
+          Alert.alert('완료', `${data.status === 'vanish' ? '소멸' : '대체'}이 기록되었습니다.`);
+        }
+
         await loadUnprocessed();
         // 해당 수강생의 상세 정보도 새로고침 (출결 기록 반영)
         if (selectedItem?.student_id) {
@@ -186,7 +244,7 @@ function UnprocessedAttendanceContent() {
         Alert.alert('알림', errorMessage);
       }
     },
-    [selectedItem, loadUnprocessed, fetchStudentDetail],
+    [selectedItem, loadUnprocessed, fetchStudentDetail, navigation],
   );
 
   const groupedItems = useMemo(() => {
@@ -248,10 +306,10 @@ function UnprocessedAttendanceContent() {
                   </ItemInfo>
                   <ButtonRow>
                     <ActionButton onPress={() => handlePresent(item)} variant="primary">
-                      <ActionButtonText variant="primary">출석</ActionButtonText>
+                      <ActionButtonText variant="primary">사용처리</ActionButtonText>
                     </ActionButton>
                     <ActionButton onPress={() => handleAbsence(item)} variant="secondary">
-                      <ActionButtonText variant="secondary">결석/대체</ActionButtonText>
+                      <ActionButtonText variant="secondary">노쇼처리</ActionButtonText>
                     </ActionButton>
                   </ButtonRow>
                 </ItemCard>
@@ -260,8 +318,8 @@ function UnprocessedAttendanceContent() {
           ))}
       </ScrollView>
 
-      {/* 출석 서명 모달 (금액권용) */}
-      {selectedItem && selectedItem.is_amount_based && (
+      {/* 출석 서명 모달 (금액권/회차권 모두, 홈화면과 동일) */}
+      {selectedItem && (
         <AttendanceSignatureModal
           visible={showAttendanceSignatureModal}
           onClose={() => {
@@ -274,25 +332,9 @@ function UnprocessedAttendanceContent() {
             setSelectedItem(null);
           }}
           studentName={selectedItem.student_name}
-          contractType="amount"
+          contractType={selectedItem.is_amount_based ? 'amount' : 'sessions'}
           remainingAmount={selectedItem.remaining_amount}
-        />
-      )}
-
-      {/* 출석 확인 모달 */}
-      {selectedItem && (
-        <AttendanceConfirmModal
-          visible={showAttendanceConfirmModal}
-          onClose={() => {
-            setShowAttendanceConfirmModal(false);
-            setSelectedItem(null);
-          }}
-          onConfirm={() => {
-            handleAttendancePresentSubmit();
-            setShowAttendanceConfirmModal(false);
-            setSelectedItem(null);
-          }}
-          studentName={selectedItem.student_name}
+          requireSignature={false} // 미처리내역에서는 서명 없음
         />
       )}
 
@@ -310,6 +352,8 @@ function UnprocessedAttendanceContent() {
             setSelectedItem(null);
           }}
           studentName={selectedItem.student_name}
+          isAmountBased={selectedItem.is_amount_based ?? false}
+          remainingAmount={selectedItem.remaining_amount}
         />
       )}
     </Container>
@@ -422,13 +466,13 @@ const ActionButton = styled.TouchableOpacity<{ variant: 'primary' | 'secondary' 
   padding: 12px;
   border-radius: 8px;
   align-items: center;
-  background-color: ${(props) => (props.variant === 'primary' ? '#1d42d8' : '#c7d2fe')};
+  background-color: ${(props: { variant: 'primary' | 'secondary' }) => (props.variant === 'primary' ? '#1d42d8' : '#c7d2fe')};
 `;
 
 const ActionButtonText = styled.Text<{ variant: 'primary' | 'secondary' }>`
   font-size: 14px;
   font-weight: 600;
-  color: ${(props) => (props.variant === 'primary' ? '#ffffff' : '#1d42d8')};
+  color: ${(props: { variant: 'primary' | 'secondary' }) => (props.variant === 'primary' ? '#ffffff' : '#1d42d8')};
 `;
 
 export default function UnprocessedAttendanceScreen() {

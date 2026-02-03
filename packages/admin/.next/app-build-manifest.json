@@ -15,15 +15,20 @@
       "static/chunks/main-app.js",
       "static/chunks/app/notices/page.js"
     ],
-    "/popups/page": [
+    "/users/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/popups/page.js"
+      "static/chunks/app/users/page.js"
     ],
     "/inquiries/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/inquiries/page.js"
+    ],
+    "/popups/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/popups/page.js"
     ]
   }
 }

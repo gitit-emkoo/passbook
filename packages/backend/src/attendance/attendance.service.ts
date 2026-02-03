@@ -665,16 +665,21 @@ export class AttendanceService {
         attendanceLog.student?.phone;
       
       if (recipientPhone) {
+        const publicUrlFromEnv = this.configService.get<string>('PUBLIC_URL');
         const apiBaseUrl = this.configService.get<string>('API_BASE_URL');
+        const publicUrl = publicUrlFromEnv || apiBaseUrl || 'https://passbook.today';
         
-        // API_BASE_URL 필수 검증
-        if (!apiBaseUrl || apiBaseUrl.trim() === '') {
-          const errorMsg = '[Attendance] API_BASE_URL is not configured. Cannot send SMS with incomplete URL.';
+        // 디버깅: 환경변수 값 확인
+        this.logger.log(`[Attendance] PUBLIC_URL env: ${publicUrlFromEnv || 'NOT SET'}, API_BASE_URL: ${apiBaseUrl || 'NOT SET'}, Using: ${publicUrl}`);
+        
+        // PUBLIC_URL 필수 검증
+        if (!publicUrl || publicUrl.trim() === '') {
+          const errorMsg = '[Attendance] PUBLIC_URL is not configured. Cannot send SMS with incomplete URL.';
           this.logger.error(errorMsg);
           throw new Error(errorMsg);
         }
         
-        const attendanceLink = `${apiBaseUrl}/api/v1/attendance/${id}/view`;
+        const attendanceLink = `${publicUrl}/api/v1/attendance/${id}/view`;
         const message = `[Passbook] 사용 처리\n${attendanceLink}`;
         
         this.logger.log(`[Attendance] Sending SMS with link: ${attendanceLink}`);

@@ -18,6 +18,16 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
+    // 관리자 토큰인 경우 (isAdmin: true, sub: 'admin')
+    if (payload.isAdmin && payload.sub === 'admin') {
+      return {
+        id: 'admin',
+        username: payload.username,
+        isAdmin: true,
+      };
+    }
+
+    // 일반 사용자 토큰인 경우 DB에서 사용자 조회
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
     });

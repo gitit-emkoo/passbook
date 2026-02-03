@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useRoute, RouteProp } from '@react-navigation/native';
-import { ActivityIndicator, Alert, Linking, Platform, Clipboard } from 'react-native';
+import { ActivityIndicator, Alert } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { StudentsStackParamList } from '../navigation/AppNavigator';
 import { contractsApi } from '../api/contracts';
@@ -92,49 +92,29 @@ function ContractViewContent() {
       return;
     }
 
-    const recipientPhone =
-      contractMeta.recipient_targets?.[0] ??
-      contractMeta.student?.phone ??
-      contractMeta.student?.guardian_phone;
-
-    if (!recipientPhone) {
-      Alert.alert('오류', '수신자 번호가 없습니다.');
-      return;
-    }
-
     try {
       setSending(true);
-      const contractLink = contractsApi.getViewLink(contractId);
-      const message = `계약서 확인 링크: ${contractLink}`;
-      const smsUrl = Platform.select({
-        ios: `sms:${recipientPhone}&body=${encodeURIComponent(message)}`,
-        android: `sms:${recipientPhone}?body=${encodeURIComponent(message)}`,
-      });
-
-      if (smsUrl && (await Linking.canOpenURL(smsUrl))) {
-        await Linking.openURL(smsUrl);
-        // 계약서 상태를 'sent'로 업데이트
-        await contractsApi.updateStatus(contractId, 'sent');
-        // 계약서 메타 정보 업데이트
-        setContractMeta((prev: any) =>
-          prev
-            ? {
-                ...prev,
-                status: 'sent',
-              }
-            : prev,
-        );
-        // 대시보드 및 청구서 섹션 새로고침
-        await Promise.all([
-          fetchDashboard({ force: true }),
-          fetchInvoicesCurrent({ historyMonths: 3, force: true }),
-          fetchInvoicesSections(true),
-        ]);
-        Alert.alert('완료', '계약서가 전송되었습니다.');
-      } else {
-        await Clipboard.setString(contractLink);
-        Alert.alert('완료', '계약서 링크가 클립보드에 복사되었습니다.');
-      }
+      // 백엔드에서 솔라피를 통해 SMS 발송 (updateStatus 내부에서 처리)
+      await contractsApi.updateStatus(contractId, 'sent');
+      
+      // 계약서 메타 정보 업데이트
+      setContractMeta((prev: any) =>
+        prev
+          ? {
+              ...prev,
+              status: 'sent',
+            }
+          : prev,
+      );
+      
+      // 대시보드 및 청구서 섹션 새로고침
+      await Promise.all([
+        fetchDashboard({ force: true }),
+        fetchInvoicesCurrent({ historyMonths: 3, force: true }),
+        fetchInvoicesSections(true),
+      ]);
+      
+      Alert.alert('완료', '계약서가 전송되었습니다.');
     } catch (err: any) {
       console.error('[ContractView] send error', err);
       Alert.alert('오류', err?.message || '계약서 전송에 실패했습니다.');

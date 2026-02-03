@@ -20,15 +20,18 @@ import { HomeStackNavigationProp, MainTabsNavigationProp, MainAppStackNavigation
 import { contractsApi } from '../api/contracts';
 import { attendanceApi } from '../api/attendance';
 import { usersApi } from '../api/users';
+import { popupsApi, Popup } from '../api/popups';
 import AttendanceConfirmModal from '../components/modals/AttendanceConfirmModal';
 import AttendanceSignatureModal from '../components/modals/AttendanceSignatureModal';
 import AttendanceAbsenceModal from '../components/modals/AttendanceAbsenceModal';
 import AttendanceDeleteModal from '../components/modals/AttendanceDeleteModal';
 import ReservationChangeModal from '../components/modals/ReservationChangeModal';
 import FirstTimeContractBonusModal from '../components/modals/FirstTimeContractBonusModal';
+import RemotePopupModal from '../components/modals/RemotePopupModal';
 import styled from 'styled-components/native';
 import { RecentContract } from '../types/dashboard';
 import { hasSeenFirstTimePopup, markFirstTimePopupAsShown } from '../utils/subscription';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // 아이콘 이미지
 const notificationBellIcon = require('../../assets/bell.png');
@@ -100,6 +103,11 @@ function HomeContent() {
   const [unprocessedCount, setUnprocessedCount] = useState<number>(0);
   const [showFirstTimeBonusModal, setShowFirstTimeBonusModal] = useState(false);
   const firstTimePopupCheckedRef = useRef(false);
+  const [pressedCard, setPressedCard] = useState<string | null>(null);
+  // 원격 팝업 상태
+  const [currentPopup, setCurrentPopup] = useState<Popup | null>(null);
+  const [showRemotePopup, setShowRemotePopup] = useState(false);
+  const remotePopupCheckedRef = useRef(false);
 
   const user = useAuthStore((state) => state.user);
   const apiBaseUrl = useAuthStore((state) => state.apiBaseUrl);
@@ -156,6 +164,45 @@ function HomeContent() {
     };
     
     checkFirstTimePopup();
+  }, [isPersistReady]);
+
+  // 원격 팝업 체크 (관리자 페이지에서 생성한 팝업)
+  React.useEffect(() => {
+    if (!isPersistReady || remotePopupCheckedRef.current) return;
+
+    const checkRemotePopup = async () => {
+      remotePopupCheckedRef.current = true;
+
+      try {
+        const activePopups = await popupsApi.findActive();
+        
+        if (activePopups.length > 0) {
+          // 이미지가 있는 팝업만 필터링
+          const popupsWithImage = activePopups.filter(popup => popup.image_url);
+          
+          if (popupsWithImage.length > 0) {
+            // 가장 최근 팝업을 표시
+            const latestPopup = popupsWithImage[0];
+            
+            // 오늘 날짜 키 생성 (YYYY-MM-DD 형식)
+            const today = new Date().toISOString().split('T')[0];
+            const dontShowTodayKey = `popup_dont_show_today_${latestPopup.id}_${today}`;
+            
+            // 오늘 하루 열지 않기 체크
+            const dontShowToday = await AsyncStorage.getItem(dontShowTodayKey);
+            
+            if (!dontShowToday) {
+              setCurrentPopup(latestPopup);
+              setShowRemotePopup(true);
+            }
+          }
+        }
+      } catch (error: any) {
+        console.error('[Home] error loading remote popup', error?.message);
+      }
+    };
+
+    checkRemotePopup();
   }, [isPersistReady]);
 
   // persist 준비 완료 감지 및 오늘 수업 로드
@@ -769,7 +816,13 @@ function HomeContent() {
           {/* 대시보드 요약 카드 */}
           <DashboardCardSection>
           <DashboardCardGrid>
-            <DashboardCard onPress={handleStudentsShortcut} activeOpacity={0.9}>
+            <DashboardCard 
+              onPress={handleStudentsShortcut} 
+              activeOpacity={1.0}
+              onPressIn={() => setPressedCard('students')}
+              onPressOut={() => setPressedCard(null)}
+              $pressed={pressedCard === 'students'}
+            >
               <DashboardCardRow>
                 <DashboardIconColumn>
                   <DashboardIconWrapper>
@@ -785,7 +838,13 @@ function HomeContent() {
               </DashboardCardRow>
             </DashboardCard>
 
-            <DashboardCard onPress={handleScrollToToday} activeOpacity={0.9}>
+            <DashboardCard 
+              onPress={handleScrollToToday} 
+              activeOpacity={1.0}
+              onPressIn={() => setPressedCard('today')}
+              onPressOut={() => setPressedCard(null)}
+              $pressed={pressedCard === 'today'}
+            >
               <DashboardCardRow>
                 <DashboardIconColumn>
                   <DashboardIconWrapper>
@@ -799,7 +858,13 @@ function HomeContent() {
               </DashboardCardRow>
             </DashboardCard>
 
-            <DashboardCard onPress={handleUnprocessedShortcut} activeOpacity={0.9}>
+            <DashboardCard 
+              onPress={handleUnprocessedShortcut} 
+              activeOpacity={1.0}
+              onPressIn={() => setPressedCard('unprocessed')}
+              onPressOut={() => setPressedCard(null)}
+              $pressed={pressedCard === 'unprocessed'}
+            >
               <DashboardCardRow>
                 <DashboardIconColumn>
                   <DashboardIconWrapper>
@@ -813,7 +878,13 @@ function HomeContent() {
               </DashboardCardRow>
             </DashboardCard>
 
-            <DashboardCard onPress={handleSettlementPress} activeOpacity={0.9}>
+            <DashboardCard 
+              onPress={handleSettlementPress} 
+              activeOpacity={1.0}
+              onPressIn={() => setPressedCard('settlement')}
+              onPressOut={() => setPressedCard(null)}
+              $pressed={pressedCard === 'settlement'}
+            >
               <DashboardCardRow>
                 <DashboardIconColumn>
                   <DashboardIconWrapper>
@@ -1187,13 +1258,14 @@ function HomeContent() {
       {/* 노쇼/대체일 지정 모달 */}
       {selectedClassItem && (() => {
         // 계약 타입 판단
+        // 뷰티앱: 금액권과 횟수권 모두 선불 횟수 계약 로직 사용
         const snapshot = selectedClassItem.policy_snapshot || {};
         const totalSessions = typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
-        // 횟수권: totalSessions > 0 && !ended_at
-        // 금액권: ended_at이 있음 (유효기간이 있음)
-        const contractType = totalSessions > 0 && !selectedClassItem.ended_at ? 'sessions' : 'amount';
+        // 횟수권: totalSessions > 0 (ended_at은 표시용/예약 범위 체크용일 뿐, 판별에 사용하지 않음)
+        // 금액권: totalSessions === 0 (ended_at은 표시용/예약 범위 체크용일 뿐, 판별에 사용하지 않음)
+        const contractType = totalSessions > 0 ? 'sessions' : 'amount';
         const isAmountBased = contractType === 'amount';
-        const remainingAmount = isAmountBased && selectedClassItem.ended_at ? (() => {
+        const remainingAmount = isAmountBased ? (() => {
           const totalAmount = selectedClassItem.monthly_amount ?? 0;
           const amountUsed = selectedClassItem.amount_used ?? 0;
           return Math.max(totalAmount - amountUsed, 0);
@@ -1241,6 +1313,27 @@ function HomeContent() {
           navigation.navigate('Settings', { showSubscriptionIntro: true, isFirstTimeBonus: true });
         }}
       />
+
+      {/* 관리자 페이지에서 생성한 원격 팝업 */}
+      <RemotePopupModal
+        visible={showRemotePopup}
+        popup={currentPopup}
+        onClose={() => {
+          setShowRemotePopup(false);
+          setCurrentPopup(null);
+        }}
+        onDontShowToday={async () => {
+          if (currentPopup) {
+            // 오늘 날짜 키 생성 (YYYY-MM-DD 형식)
+            const today = new Date().toISOString().split('T')[0];
+            const dontShowTodayKey = `popup_dont_show_today_${currentPopup.id}_${today}`;
+            // 오늘 하루 열지 않기로 표시
+            await AsyncStorage.setItem(dontShowTodayKey, 'true');
+          }
+          setShowRemotePopup(false);
+          setCurrentPopup(null);
+        }}
+      />
     </>
   );
 }
@@ -1263,7 +1356,7 @@ const Container = styled.View`
 `;
 
 const LoadingContainer = styled.View`
-  padding: 20px;
+  flex: 1;
   align-items: center;
   justify-content: center;
 `;
@@ -1455,15 +1548,15 @@ const ClassCard = styled.View`
   margin-left: 0;
   margin-right: 0;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   width: 100%;
 `;
 
 const ClassInfo = styled.View`
-  flex: 1;
   gap: 8px;
   padding-right: 60px;
   margin-bottom: 4px;
+  width: 100%;
 `;
 
 // 1줄: 이름 + 뱃지 + 금액
@@ -1778,16 +1871,13 @@ const DashboardCardGrid = styled.View`
   gap: 12px;
 `;
 
-const DashboardCard = styled.TouchableOpacity`
+const DashboardCard = styled.TouchableOpacity<{ $pressed?: boolean }>`
   width: 48%;
   background-color: #ffffff;
   border-radius: 16px;
   padding: 16px;
-  shadow-color: rgba(29, 66, 216, 0.15);
-  shadow-opacity: 0.15;
-  shadow-radius: 8px;
-  shadow-offset: 0px 4px;
-  elevation: 2;
+  border-width: ${(props: { $pressed?: boolean }) => (props.$pressed ? '3px' : '0px')};
+  border-color: #bae6fd;
 `;
 
 const DashboardIconWrapper = styled.View`

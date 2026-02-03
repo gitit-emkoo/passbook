@@ -13,7 +13,10 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { UsersModule } from './users/users.module';
 import { NoticesModule } from './notices/notices.module';
+import { PopupsModule } from './popups/popups.module';
 import { SmsModule } from './sms/sms.module';
+import { StorageModule } from './storage/storage.module';
+import { InquiriesModule } from './inquiries/inquiries.module';
 
 @Module({
   imports: [
@@ -32,7 +35,10 @@ import { SmsModule } from './sms/sms.module';
     DashboardModule,
     UsersModule,
     NoticesModule,
+    PopupsModule,
     SmsModule,
+    StorageModule,
+    InquiriesModule,
   ],
   controllers: [AppController],
   providers: [AppService, PrismaService],

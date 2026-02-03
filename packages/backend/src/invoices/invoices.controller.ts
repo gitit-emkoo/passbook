@@ -133,6 +133,16 @@ export class InvoicesController {
   }
 
   /**
+   * 입금 확인 처리
+   */
+  @Patch(':id/payment-status')
+  @UseGuards(JwtAuthGuard)
+  async markAsPaid(@Req() req: Request, @Param('id', ParseIntPipe) id: number) {
+    const user = req.user as any;
+    return this.invoicesService.markInvoiceAsPaid(user.id ?? user.sub, id);
+  }
+
+  /**
    * 청구서 HTML 조회 (공개 엔드포인트)
    */
   @Get(':id/view')

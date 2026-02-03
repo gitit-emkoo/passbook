@@ -1,13 +1,15 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Platform, Clipboard } from 'react-native';
+import { ActivityIndicator, Alert } from 'react-native';
 import styled from 'styled-components/native';
 import Modal from 'react-native-modal';
 import { useFocusEffect, useNavigation, useRoute, CommonActions } from '@react-navigation/native';
+import RemixIcon from 'react-native-remix-icon';
 import { useStudentsStore } from '../store/useStudentsStore';
 import { useContractsStore } from '../store/useContractsStore';
 import { contractsApi } from '../api/contracts';
 import { studentsApi } from '../api/students';
 import { attendanceApi } from '../api/attendance';
+import { invoicesApi } from '../api/invoices';
 import ExtendContractModal from '../components/modals/ExtendContractModal';
 import { StudentsStackNavigationProp, StudentsStackParamList } from '../navigation/AppNavigator';
 import type { RouteProp } from '@react-navigation/native';
@@ -204,22 +206,10 @@ function StudentDetailContent() {
       }
 
       try {
+        // 백엔드에서 솔라피를 통해 SMS 발송
         await attendanceApi.markSmsSent(attendanceLogId);
-
-        const attendanceLink = attendanceApi.getViewLink(attendanceLogId);
-        const message = `이용권 사용 처리 완료 안내: ${attendanceLink}`;
-        const smsUrl = Platform.select({
-          ios: `sms:${studentPhone}&body=${encodeURIComponent(message)}`,
-          android: `sms:${studentPhone}?body=${encodeURIComponent(message)}`,
-        });
-
-        if (smsUrl && (await Linking.canOpenURL(smsUrl))) {
-          await Linking.openURL(smsUrl);
-          Alert.alert('완료', '사용처리 완료 안내가 전송되었습니다.');
-        } else {
-          await Clipboard.setString(attendanceLink);
-          Alert.alert('완료', '링크가 클립보드에 복사되었습니다.');
-        }
+        
+        Alert.alert('완료', '사용처리 완료 안내가 전송되었습니다.');
 
         // 전송 후 상세 정보 새로고침
         await fetchStudentDetail(studentId, { force: true });
@@ -381,7 +371,7 @@ const guardianLine = useMemo(() => {
   }, []);
 
   const attendanceSectionTitle = useMemo(() => {
-    return '관리 기록';
+    return '사용 기록';
   }, []);
 
   // 연장 가능 여부 계산 (뷰티앱: 오직 선불 횟수 계약 로직만 사용)
@@ -930,7 +920,7 @@ const guardianLine = useMemo(() => {
         <HeaderCard>
           <HeaderTexts>
             <StudentNameContainer>
-              <StudentNameIcon source={z11Icon} resizeMode="contain" />
+              <RemixIcon name="ticket-line" size={20} color="#111" />
               <StudentName>{detail.name}</StudentName>
             </StudentNameContainer>
             <HeaderMeta>
@@ -959,7 +949,7 @@ const guardianLine = useMemo(() => {
           {primaryContract ? (
             <>
               <ScheduleSectionContent>
-                <ScheduleIcon source={changeIcon} resizeMode="contain" />
+                <RemixIcon name="calendar-2-line" size={20} color="#111" />
                 <ScheduleInfoText>
                   고객 관리 일정을 등록하고 변경할 수 있어요.
                 </ScheduleInfoText>
@@ -1109,7 +1099,7 @@ const guardianLine = useMemo(() => {
               <SectionTitle>{attendanceSectionTitle}</SectionTitle>
               {availableMonths.length > 0 && (
                 <MonthPickerButton onPress={() => setShowMonthPicker(true)}>
-                  <MonthPickerText>▼</MonthPickerText>
+                  <RemixIcon name="calendar-check-line" size={18} color="#666" />
                 </MonthPickerButton>
               )}
             </SectionHeaderLeft>
@@ -1279,10 +1269,10 @@ const guardianLine = useMemo(() => {
           )}
         </SectionCard>
 
-        {/* 정산서 전송내역 섹션 */}
+        {/* 청구서 전송내역 섹션 */}
         <SectionCardLast>
           <SectionHeader>
-            <SectionTitle>정산서 전송내역</SectionTitle>
+            <SectionTitle>청구서 전송내역</SectionTitle>
           </SectionHeader>
           {sentInvoices.length === 0 ? (
             <EmptyDescription>전송된 정산서가 없습니다.</EmptyDescription>
@@ -1324,11 +1314,22 @@ const guardianLine = useMemo(() => {
                   periodText = `${invoice.year}년${invoice.month}월(${invoice.month}월분)`;
                 }
                 
+                // 연장 청구서 여부 확인 (invoice_number > 1)
+                const isExtension = ((invoice as any).invoice_number ?? 1) > 1;
+                if (isExtension) {
+                  periodText = `${periodText} (연장)`;
+                }
+                
                 return (
                 <InvoiceItem key={invoice.id}>
                   <InvoiceInfo>
                     <InvoicePeriod>{periodText}</InvoicePeriod>
                     <InvoiceAmount>{(invoice.final_amount ?? 0).toLocaleString()}원</InvoiceAmount>
+                    {invoice.payment_status && (
+                      <PaymentStatusBadge>
+                        <PaymentStatusBadgeText>입금완료</PaymentStatusBadgeText>
+                      </PaymentStatusBadge>
+                    )}
                   </InvoiceInfo>
                   {(invoice as any).auto_adjustment !== undefined && (invoice as any).auto_adjustment !== 0 && (
                     <InvoiceAdjustment>
@@ -1377,7 +1378,7 @@ const guardianLine = useMemo(() => {
       >
         <MonthPickerModalContainer>
           <MonthPickerModalHeader>
-            <MonthPickerModalTitle>출결 기록 월 선택</MonthPickerModalTitle>
+            <MonthPickerModalTitle>사용 기록 월 선택</MonthPickerModalTitle>
             <MonthPickerCloseButton onPress={() => setShowMonthPicker(false)}>
               <MonthPickerCloseText>닫기</MonthPickerCloseText>
             </MonthPickerCloseButton>
@@ -1981,7 +1982,7 @@ const formatAttendanceDateTime = (iso: string) => {
 
 const formatAttendanceStatus = (status: string) => {
   const map: Record<string, string> = {
-    present: '출석',
+    present: '사용',
     absent: '결석',
     substitute: '대체수업',
     vanish: '소멸',
@@ -2135,9 +2136,8 @@ const SectionTitle = styled.Text`
 `;
 
 const MonthPickerButton = styled.TouchableOpacity`
-  padding: 4px 8px;
   border-radius: 6px;
-  background-color: #f0f0f0;
+  background-color: transparent;
 `;
 
 const MonthPickerText = styled.Text`
@@ -2316,6 +2316,20 @@ const InvoiceDate = styled.Text`
   font-size: 12px;
   color: #8e8e93;
   margin-top: 4px;
+`;
+
+const PaymentStatusBadge = styled.View`
+  margin-top: 8px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background-color: #e8f2ff;
+  align-self: flex-start;
+`;
+
+const PaymentStatusBadgeText = styled.Text`
+  font-size: 12px;
+  font-weight: 600;
+  color: #1d42d8;
 `;
 
 const CenteredContainer = styled.View`

@@ -24,6 +24,7 @@ import NotificationsScreen from '../screens/NotificationsScreen';
 import NoticesListScreen from '../screens/NoticesListScreen';
 import NoticeDetailScreen from '../screens/NoticeDetailScreen';
 import TermsScreen from '../screens/TermsScreen';
+import InquiryScreen from '../screens/InquiryScreen';
 import UnprocessedAttendanceScreen from '../screens/UnprocessedAttendanceScreen';
 import AttendanceViewScreen from '../screens/AttendanceViewScreen';
 import StatisticsScreen from '../screens/StatisticsScreen';
@@ -266,6 +267,7 @@ export type MainAppStackParamList = {
   NoticesList: undefined;
   NoticeDetail: { noticeId: number };
   Terms: { type: 'terms' | 'privacy' };
+   Inquiry: undefined;
   UnprocessedAttendance: undefined;
   Statistics: undefined;
   RevenueStatistics: undefined;
@@ -308,6 +310,11 @@ function MainAppStack() {
         options={({ route }) => ({
           title: (route.params as { type?: 'terms' | 'privacy' })?.type === 'terms' ? '서비스 이용약관' : '개인정보처리방침',
         })}
+      />
+      <Stack.Screen
+        name="Inquiry"
+        component={InquiryScreen}
+        options={{ title: '문의하기' }}
       />
       <Stack.Screen
         name="UnprocessedAttendance"

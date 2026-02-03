@@ -59,14 +59,22 @@ export const invoicesApi = {
    * 청구서 링크 생성
    */
   getViewLink: (id: number): string => {
-    const baseURL = apiClient.defaults.baseURL || '';
-    return `${baseURL}/api/v1/invoices/${id}/view`;
+    const { env } = require('../config/env');
+    const publicURL = env.PUBLIC_URL || 'https://passbook.today';
+    return `${publicURL}/api/v1/invoices/${id}/view`;
   },
   /**
    * 청구서를 오늘청구로 이동 (조기 청구)
    */
   moveToTodayBilling: async (id: number) => {
     const response = await apiClient.patch(`/api/v1/invoices/${id}/move-to-today-billing`);
+    return response.data;
+  },
+  /**
+   * 입금 확인 처리
+   */
+  markAsPaid: async (id: number) => {
+    const response = await apiClient.patch(`/api/v1/invoices/${id}/payment-status`);
     return response.data;
   },
 };

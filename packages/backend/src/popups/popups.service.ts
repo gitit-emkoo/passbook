@@ -10,8 +10,8 @@ export class PopupsService {
   /**
    * 앱에서 사용할 활성 팝업 목록 조회
    * - is_active = true
-   * - (starts_at가 없거나, 현재 시각 이후)
-   * - (ends_at가 없거나, 현재 시각 이전)
+   * - starts_at이 null이거나 현재 시각 이전 (시작 시간 체크)
+   * - ends_at이 null이거나 현재 시각 이후 (종료 시간 체크)
    */
   async findActiveNow() {
     const now = new Date();
@@ -19,8 +19,20 @@ export class PopupsService {
     return this.prisma.popup.findMany({
       where: {
         is_active: true,
-        OR: [{ starts_at: null }, { starts_at: { lte: now } }],
-        AND: [{ ends_at: null }, { ends_at: { gte: now } }],
+        AND: [
+          {
+            OR: [
+              { starts_at: null },
+              { starts_at: { lte: now } },
+            ],
+          },
+          {
+            OR: [
+              { ends_at: null },
+              { ends_at: { gte: now } },
+            ],
+          },
+        ],
       },
       orderBy: {
         created_at: 'desc',
@@ -43,12 +55,14 @@ export class PopupsService {
    * 관리자용 팝업 생성
    */
   async adminCreate(dto: CreatePopupDto) {
-    const { title, content, is_active, starts_at, ends_at } = dto;
+    const { title, content, image_url, link_url, is_active, starts_at, ends_at } = dto;
 
     return this.prisma.popup.create({
       data: {
         title,
-        content,
+        content: content || '', // content는 빈 문자열로 기본값 설정
+        image_url: image_url || null,
+        link_url: link_url || null,
         is_active: is_active ?? true,
         starts_at: starts_at ? new Date(starts_at) : null,
         ends_at: ends_at ? new Date(ends_at) : null,
@@ -70,6 +84,8 @@ export class PopupsService {
       data: {
         title: dto.title ?? existing.title,
         content: dto.content ?? existing.content,
+        image_url: dto.image_url !== undefined ? dto.image_url : existing.image_url,
+        link_url: dto.link_url !== undefined ? dto.link_url : existing.link_url,
         is_active: dto.is_active ?? existing.is_active,
         starts_at:
           dto.starts_at !== undefined

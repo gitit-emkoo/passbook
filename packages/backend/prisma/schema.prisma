@@ -1,8 +1,5 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
@@ -11,9 +8,250 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ============================================
-// ENUM Types
-// ============================================
+model User {
+  id                 Int                 @id @default(autoincrement())
+  phone              String              @unique
+  name               String?
+  org_code           String?
+  settings           Json?
+  created_at         DateTime            @default(now())
+  updated_at         DateTime            @updatedAt
+  attendance_logs    AttendanceLog[]
+  contracts          Contract[]
+  inquiries          Inquiry[]
+  invoices           Invoice[]
+  notices            Notice[]
+  notifications      Notification[]
+  scheduleExceptions ScheduleException[]
+  students           Student[]
+
+  @@map("users")
+}
+
+model Student {
+  id                 Int                 @id @default(autoincrement())
+  user_id            Int
+  name               String
+  phone              String
+  guardian_name      String?
+  guardian_phone     String?
+  memo               String?
+  is_active          Boolean             @default(true)
+  created_at         DateTime            @default(now())
+  updated_at         DateTime            @updatedAt
+  attendance_logs    AttendanceLog[]
+  contracts          Contract[]
+  invoices           Invoice[]
+  scheduleExceptions ScheduleException[]
+  user               User                @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("students")
+}
+
+model Contract {
+  id                            Int                 @id @default(autoincrement())
+  user_id                       Int
+  student_id                    Int
+  subject                       String
+  day_of_week                   Json
+  time                          String?
+  billing_type                  BillingType
+  absence_policy                AbsencePolicy
+  monthly_amount                Int
+  recipient_policy              String
+  recipient_targets             Json
+  policy_snapshot               Json
+  planned_count_override        Int?
+  attendance_requires_signature Boolean             @default(false)
+  teacher_signature             String?
+  student_signature             String?
+  started_at                    DateTime?
+  ended_at                      DateTime?
+  billing_day                   Int?
+  payment_schedule              String?
+  status                        ContractStatus
+  created_at                    DateTime            @default(now())
+  updated_at                    DateTime            @updatedAt
+  attendance_logs               AttendanceLog[]
+  student                       Student             @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  user                          User                @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  invoices                      Invoice[]
+  reservations                  Reservation[]
+  scheduleExceptions            ScheduleException[]
+
+  @@map("contracts")
+}
+
+model AttendanceLog {
+  id            Int              @id @default(autoincrement())
+  user_id       Int
+  student_id    Int
+  contract_id   Int
+  occurred_at   DateTime
+  status        AttendanceStatus
+  substitute_at DateTime?
+  memo_public   String?
+  memo_internal String?
+  amount        Int?
+  sms_sent      Boolean          @default(false)
+  recorded_at   DateTime         @default(now())
+  recorded_by   Int
+  modified_at   DateTime?
+  modified_by   Int?
+  change_reason String?
+  voided        Boolean          @default(false)
+  void_reason   String?
+  contract      Contract         @relation(fields: [contract_id], references: [id], onDelete: Cascade)
+  student       Student          @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  user          User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([student_id])
+  @@index([contract_id])
+  @@index([occurred_at])
+  @@map("attendance_logs")
+}
+
+model ScheduleException {
+  id            Int      @id @default(autoincrement())
+  user_id       Int
+  student_id    Int
+  contract_id   Int
+  original_date DateTime
+  new_date      DateTime
+  reason        String?
+  created_at    DateTime @default(now())
+  contract      Contract @relation(fields: [contract_id], references: [id], onDelete: Cascade)
+  student       Student  @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  user          User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([contract_id, original_date])
+  @@index([student_id])
+  @@index([contract_id])
+  @@index([original_date])
+  @@index([new_date])
+  @@map("schedule_exceptions")
+}
+
+model Reservation {
+  id            Int      @id @default(autoincrement())
+  contract_id   Int
+  reserved_date DateTime
+  reserved_time String?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+  contract      Contract @relation(fields: [contract_id], references: [id], onDelete: Cascade)
+
+  @@unique([contract_id, reserved_date])
+  @@index([contract_id])
+  @@index([reserved_date])
+  @@map("reservations")
+}
+
+model Invoice {
+  id                     Int               @id @default(autoincrement())
+  user_id                Int
+  student_id             Int
+  contract_id            Int
+  year                   Int
+  month                  Int
+  invoice_number         Int               @default(1)
+  base_amount            Int
+  auto_adjustment        Int               @default(0)
+  manual_adjustment      Int               @default(0)
+  manual_reason          String?
+  final_amount           Int
+  planned_count          Int?
+  period_start           DateTime?
+  period_end             DateTime?
+  force_to_today_billing Boolean           @default(false)
+  send_status            InvoiceSendStatus @default(not_sent)
+  send_to                Json?
+  send_history           Json?
+  account_snapshot       Json?
+  created_at             DateTime          @default(now())
+  updated_at             DateTime          @updatedAt
+  payment_status         Boolean           @default(false)
+  contract               Contract          @relation(fields: [contract_id], references: [id], onDelete: Cascade)
+  student                Student           @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  user                   User              @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([student_id, contract_id, year, month, invoice_number])
+  @@index([student_id])
+  @@index([contract_id])
+  @@index([year, month])
+  @@map("invoices")
+}
+
+model Notification {
+  id           Int       @id @default(autoincrement())
+  user_id      Int
+  type         String
+  title        String
+  body         String
+  target_route String
+  is_read      Boolean   @default(false)
+  push_sent    Boolean   @default(false)
+  push_sent_at DateTime?
+  created_at   DateTime  @default(now())
+  user         User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([is_read])
+  @@map("notifications")
+}
+
+model Notice {
+  id           Int      @id @default(autoincrement())
+  title        String
+  content      String
+  is_important Boolean  @default(false)
+  user_id      Int?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+  image_url    String?
+  user         User?    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([is_important])
+  @@index([created_at])
+  @@map("notices")
+}
+
+model Inquiry {
+  id          Int           @id @default(autoincrement())
+  user_id     Int
+  title       String?
+  content     String
+  status      InquiryStatus @default(pending)
+  created_at  DateTime      @default(now())
+  updated_at  DateTime      @updatedAt
+  answered_at DateTime?
+  answer      String?
+  user        User          @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([status])
+  @@index([created_at])
+  @@map("inquiries")
+}
+
+model Popup {
+  id         Int       @id @default(autoincrement())
+  title      String
+  content    String
+  is_active  Boolean   @default(true)
+  starts_at  DateTime?
+  ends_at    DateTime?
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  image_url  String?
+  link_url   String?
+
+  @@index([is_active])
+  @@index([starts_at])
+  @@index([ends_at])
+  @@map("popups")
+}
 
 enum AttendanceStatus {
   present
@@ -45,221 +283,7 @@ enum ContractStatus {
   sent
 }
 
-// ============================================
-// Models
-// ============================================
-
-model User {
-  id        Int      @id @default(autoincrement())
-  phone     String   @unique
-  name      String?
-  org_code  String?
-  settings  Json?    // 계약서 기본값 설정 (계좌정보, 결제방식, 결석처리, 전송대상 등)
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  students          Student[]
-  contracts         Contract[]
-  attendance_logs   AttendanceLog[]
-  invoices          Invoice[]
-  notifications     Notification[]
-  notices           Notice[]
-  scheduleExceptions ScheduleException[]
-
-  @@map("users")
-}
-
-model Student {
-  id            Int      @id @default(autoincrement())
-  user_id       Int
-  name          String
-  phone         String
-  guardian_name String?
-  guardian_phone String?
-  memo          String?  // 고객 메모
-  is_active     Boolean  @default(true)
-  created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt
-
-  user               User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  contracts          Contract[]
-  attendance_logs    AttendanceLog[]
-  invoices           Invoice[]
-  scheduleExceptions ScheduleException[]
-
-  @@map("students")
-}
-
-model Contract {
-  id                    Int      @id @default(autoincrement())
-  user_id               Int
-  student_id            Int
-  subject               String
-  day_of_week           Json     // ["TUE", "THU"] 형식
-  time                  String?  // "16:00" 형식 (HH:MM), 선택 필드
-  billing_type          BillingType
-  absence_policy        AbsencePolicy
-  monthly_amount        Int
-  recipient_policy      String   // student_only | guardian_only | both | custom
-  recipient_targets     Json     // 실제 보낼 번호들
-  policy_snapshot       Json     // 생성 시점 규정 고정 저장
-  planned_count_override Int?    // 월별 횟수 강제 지정 (nullable)
-  attendance_requires_signature Boolean @default(false) // 출석 시 서명 필수 여부
-  teacher_signature     String?
-  student_signature     String?
-  started_at            DateTime? // 계약 시작일 (nullable)
-  ended_at              DateTime? // 계약 종료일 (nullable, 무기한 계약 가능)
-  billing_day           Int?     // 청구일 (1-31, 계약 시작일의 일자)
-  payment_schedule      String?   // 납부 방식: 'monthly' (월납) | 'lump_sum' (일시납), nullable (기본값: 월납)
-  status                ContractStatus
-  created_at            DateTime @default(now())
-  updated_at            DateTime @updatedAt
-
-  user               User               @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  student            Student            @relation(fields: [student_id], references: [id], onDelete: Cascade)
-  attendance_logs    AttendanceLog[]
-  invoices           Invoice[]
-  scheduleExceptions ScheduleException[]
-  reservations       Reservation[]
-
-  @@map("contracts")
-}
-
-model AttendanceLog {
-  id             Int      @id @default(autoincrement())
-  user_id        Int
-  student_id     Int
-  contract_id    Int
-  occurred_at    DateTime
-  status         AttendanceStatus
-  substitute_at  DateTime?
-  memo_public    String?
-  memo_internal  String?
-  amount         Int?     // 차감 금액 (금액권인 경우)
-  sms_sent       Boolean  @default(false) // 사용처리 완료 알림 SMS 전송 여부
-  recorded_at    DateTime @default(now())
-  recorded_by    Int      // user_id
-  modified_at    DateTime?
-  modified_by    Int?
-  change_reason  String?
-  voided         Boolean  @default(false)
-  void_reason    String?
-
-  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  student    Student  @relation(fields: [student_id], references: [id], onDelete: Cascade)
-  contract   Contract @relation(fields: [contract_id], references: [id], onDelete: Cascade)
-
-  @@index([student_id])
-  @@index([contract_id])
-  @@index([occurred_at])
-  @@map("attendance_logs")
-}
-
-model ScheduleException {
-  id            Int      @id @default(autoincrement())
-  user_id       Int
-  student_id    Int
-  contract_id   Int
-  original_date DateTime
-  new_date      DateTime
-  reason        String?
-  created_at    DateTime @default(now())
-
-  user     User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  student  Student  @relation(fields: [student_id], references: [id], onDelete: Cascade)
-  contract Contract @relation(fields: [contract_id], references: [id], onDelete: Cascade)
-
-  @@index([student_id])
-  @@index([contract_id])
-  @@index([original_date])
-  @@index([new_date])
-  @@unique([contract_id, original_date])
-  @@map("schedule_exceptions")
-}
-
-model Reservation {
-  id            Int      @id @default(autoincrement())
-  contract_id   Int
-  reserved_date DateTime
-  reserved_time String?
-  created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt
-
-  contract Contract @relation(fields: [contract_id], references: [id], onDelete: Cascade)
-
-  @@index([contract_id])
-  @@index([reserved_date])
-  @@unique([contract_id, reserved_date])
-  @@map("reservations")
-}
-
-model Invoice {
-  id                Int      @id @default(autoincrement())
-  user_id           Int
-  student_id        Int
-  contract_id       Int
-  year              Int
-  month             Int
-  invoice_number    Int      @default(1) // 같은 달에 여러 청구서 구분 (1=첫 계약, 2=연장1, 3=연장2...)
-  base_amount       Int
-  auto_adjustment   Int      @default(0)
-  manual_adjustment Int      @default(0)
-  manual_reason     String?
-  final_amount      Int
-  planned_count      Int?
-  period_start       DateTime? // 청구 기간 시작일
-  period_end         DateTime? // 청구 기간 종료일
-  force_to_today_billing Boolean @default(false) // 수동으로 오늘청구로 이동 (조기 청구)
-  send_status       InvoiceSendStatus @default(not_sent)
-  send_to           Json?
-  send_history      Json?
-  account_snapshot  Json?
-  created_at        DateTime @default(now())
-  updated_at        DateTime @updatedAt
-
-  user      User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  student  Student   @relation(fields: [student_id], references: [id], onDelete: Cascade)
-  contract Contract  @relation(fields: [contract_id], references: [id], onDelete: Cascade)
-
-  @@unique([student_id, contract_id, year, month, invoice_number])
-  @@index([student_id])
-  @@index([contract_id])
-  @@index([year, month])
-  @@map("invoices")
-}
-
-model Notification {
-  id          Int      @id @default(autoincrement())
-  user_id     Int
-  type        String
-  title       String
-  body        String
-  target_route String
-  is_read     Boolean  @default(false)
-  push_sent   Boolean  @default(false)
-  push_sent_at DateTime?
-  created_at  DateTime @default(now())
-
-  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
-
-  @@index([user_id])
-  @@index([is_read])
-  @@map("notifications")
-}
-
-model Notice {
-  id          Int      @id @default(autoincrement())
-  title       String
-  content     String   @db.Text
-  is_important Boolean @default(false)
-  user_id     Int?     // null이면 전체 공지, 값이 있으면 특정 사용자 공지
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
-
-  user User? @relation(fields: [user_id], references: [id], onDelete: Cascade)
-
-  @@index([user_id])
-  @@index([is_important])
-  @@index([created_at])
-  @@map("notices")
+enum InquiryStatus {
+  pending
+  answered
 }

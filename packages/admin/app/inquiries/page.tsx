@@ -1,13 +1,9 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import Link from "next/link";
 import {
   LayoutRoot,
-  Sidebar,
-  SidebarHeader,
-  SidebarNav,
-  SidebarNavItem,
+  AdminSidebar,
   Content,
   ContentHeader,
   ContentTitle,
@@ -15,6 +11,7 @@ import {
 } from "../../components/layout";
 import styled from "styled-components";
 import { apiFetch } from "../../lib/api-client";
+import PageDescription from "../../components/PageDescription";
 
 type InquiryStatus = "pending" | "answered";
 
@@ -133,28 +130,30 @@ export default function InquiriesPage() {
 
   return (
     <LayoutRoot>
-      <Sidebar>
-        <SidebarHeader>Passbook Admin</SidebarHeader>
-        <SidebarNav>
-          <SidebarNavItem>
-            <Link href="/users">유저 관리</Link>
-          </SidebarNavItem>
-          <SidebarNavItem>
-            <Link href="/notices">공지사항 관리</Link>
-          </SidebarNavItem>
-          <SidebarNavItem>
-            <Link href="/popups">팝업 관리</Link>
-          </SidebarNavItem>
-          <SidebarNavItem $active>
-            <Link href="/inquiries">문의사항 관리</Link>
-          </SidebarNavItem>
-        </SidebarNav>
-      </Sidebar>
+      <AdminSidebar activePage="inquiries" />
       <Content>
         <ContentHeader>
           <ContentTitle>문의사항 관리</ContentTitle>
         </ContentHeader>
         <ContentBody>
+          <PageDescription
+            title="문의사항 관리 페이지"
+            description="앱 사용자들이 제출한 문의사항을 확인하고 답변할 수 있습니다. 문의사항은 접수 상태와 답변 완료 상태로 구분되며, 검색 기능을 통해 빠르게 찾을 수 있습니다."
+            features={[
+              "전체 문의사항 목록 조회",
+              "상태별 필터링 (전체/접수/답변 완료)",
+              "사용자, 제목, 내용으로 검색",
+              "문의사항 답변 작성 및 저장",
+              "카드 형태로 문의 내용과 답변을 한눈에 확인",
+            ]}
+            usage={[
+              "상태 필터: '전체', '접수', '답변 완료' 버튼으로 문의사항을 필터링할 수 있습니다.",
+              "검색: 검색창에 사용자명, 상호명, 전화번호, 제목, 내용을 입력하여 문의사항을 찾을 수 있습니다.",
+              "문의 확인: 문의 카드를 클릭하면 전체 내용과 사용자 정보가 펼쳐집니다.",
+              "답변 작성: 펼쳐진 카드 하단의 답변 입력란에 답변을 작성하고 '답변 저장' 버튼을 클릭합니다.",
+              "새로고침: '새로고침' 버튼을 클릭하면 최신 문의사항 목록을 다시 불러옵니다.",
+            ]}
+          />
           <Toolbar>
             <FilterGroup>
               <FilterLabel>상태</FilterLabel>
@@ -198,96 +197,83 @@ export default function InquiriesPage() {
 
           {error && <ErrorText>{error}</ErrorText>}
 
-          <Table>
-            <thead>
-              <tr>
-                <ThNarrow>상태</ThNarrow>
-                <ThWide>사용자</ThWide>
-                <ThWide>제목</ThWide>
-                <ThContent>문의 내용</ThContent>
-                <ThNarrow>관리자 답변</ThNarrow>
-                <ThWide>접수일</ThWide>
-                <ThWide>답변일</ThWide>
-              </tr>
-            </thead>
-            <tbody>
-              {!loading && filtered.length === 0 && (
-                <tr>
-                  <Td colSpan={7}>
-                    {searchQuery ? "검색 결과가 없습니다." : "표시할 문의가 없습니다."}
-                  </Td>
-                </tr>
-              )}
-              {filtered.map((row) => {
-                const hasAnswer = !!row.answer;
-                const isExpanded = expandedIds.has(row.id);
-                return (
-                  <React.Fragment key={row.id}>
-                    <tr>
-                      <TdNarrow>
-                        <StatusBadge $status={row.status}>
-                          {row.status === "answered" ? "답변 완료" : "접수"}
-                        </StatusBadge>
-                      </TdNarrow>
-                      <TdWide>
-                        <div>
-                          <div>{row.user?.org_code ?? "-"}</div>
-                          <SmallText>
-                            {row.user?.name ?? "-"} / {row.user?.phone ?? "-"}
-                          </SmallText>
-                        </div>
-                      </TdWide>
-                      <TdWide>
-                        <TitleText>{row.title ?? "제목 없음"}</TitleText>
-                      </TdWide>
-                      <TdContent>
-                        <ContentText>{row.content}</ContentText>
-                      </TdContent>
-                      <TdNarrow>
-                        <AnswerToggleButton onClick={() => toggleExpand(row.id)}>
-                          {hasAnswer ? "수정" : "답변 작성"}
-                        </AnswerToggleButton>
-                      </TdNarrow>
-                      <TdWide>{new Date(row.created_at).toLocaleString("ko-KR")}</TdWide>
-                      <TdWide>
-                        {row.answered_at
-                          ? new Date(row.answered_at).toLocaleString("ko-KR")
-                          : "-"}
-                      </TdWide>
-                    </tr>
-                    {isExpanded && (
-                      <tr>
-                        <TdExpanded colSpan={7}>
-                          <ExpandedAnswerBox>
-                            <Label>답변 내용</Label>
-                            <AnswerTextarea
-                              value={answerDrafts[row.id] ?? row.answer ?? ""}
-                              onChange={(e) =>
-                                handleAnswerChange(row.id, e.target.value)
-                              }
-                              rows={6}
-                              placeholder="관리자 답변을 입력해 주세요."
-                            />
-                            <AnswerActions>
-                              <SecondaryButton onClick={() => toggleExpand(row.id)}>
-                                취소
-                              </SecondaryButton>
-                              <SaveButton
-                                onClick={() => void handleSaveAnswer(row.id)}
-                                disabled={savingId === row.id}
-                              >
-                                {savingId === row.id ? "저장 중..." : "답변 저장"}
-                              </SaveButton>
-                            </AnswerActions>
-                          </ExpandedAnswerBox>
-                        </TdExpanded>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </Table>
+          {!loading && filtered.length === 0 && (
+            <EmptyState>
+              {searchQuery ? "검색 결과가 없습니다." : "표시할 문의가 없습니다."}
+            </EmptyState>
+          )}
+
+          <InquiryList>
+            {filtered.map((row) => {
+              const hasAnswer = !!row.answer;
+              const isExpanded = expandedIds.has(row.id);
+              return (
+                <InquiryCard key={row.id} $expanded={isExpanded}>
+                  <InquiryCardHeader onClick={() => toggleExpand(row.id)}>
+                    <InquiryHeaderLeft>
+                      <StatusBadge $status={row.status}>
+                        {row.status === "answered" ? "답변 완료" : "접수"}
+                      </StatusBadge>
+                      <InquiryInfo>
+                        <InquiryTitle>{row.title ?? "제목 없음"}</InquiryTitle>
+                        <InquiryMeta>
+                          <UserInfo>
+                            {row.user?.org_code ?? "-"} | {row.user?.name ?? "-"} | {row.user?.phone ?? "-"}
+                          </UserInfo>
+                          <DateInfo>
+                            접수: {new Date(row.created_at).toLocaleString("ko-KR")}
+                            {row.answered_at && (
+                              <> | 답변: {new Date(row.answered_at).toLocaleString("ko-KR")}</>
+                            )}
+                          </DateInfo>
+                        </InquiryMeta>
+                      </InquiryInfo>
+                    </InquiryHeaderLeft>
+                    <InquiryHeaderRight>
+                      <ExpandIcon $expanded={isExpanded}>▼</ExpandIcon>
+                    </InquiryHeaderRight>
+                  </InquiryCardHeader>
+
+                  {isExpanded && (
+                    <InquiryCardBody>
+                      <InquiryContentSection>
+                        <SectionTitle>문의 내용</SectionTitle>
+                        <InquiryContentFull>{row.content}</InquiryContentFull>
+                      </InquiryContentSection>
+
+                      {hasAnswer && (
+                        <AnswerSection>
+                          <SectionTitle>관리자 답변</SectionTitle>
+                          <AnswerText>{row.answer}</AnswerText>
+                        </AnswerSection>
+                      )}
+
+                      <AnswerFormSection>
+                        <SectionTitle>{hasAnswer ? "답변 수정" : "답변 작성"}</SectionTitle>
+                        <AnswerTextarea
+                          value={answerDrafts[row.id] ?? row.answer ?? ""}
+                          onChange={(e) => handleAnswerChange(row.id, e.target.value)}
+                          rows={8}
+                          placeholder="관리자 답변을 입력해 주세요."
+                        />
+                        <AnswerActions>
+                          <SecondaryButton onClick={() => toggleExpand(row.id)}>
+                            취소
+                          </SecondaryButton>
+                          <SaveButton
+                            onClick={() => void handleSaveAnswer(row.id)}
+                            disabled={savingId === row.id}
+                          >
+                            {savingId === row.id ? "저장 중..." : "답변 저장"}
+                          </SaveButton>
+                        </AnswerActions>
+                      </AnswerFormSection>
+                    </InquiryCardBody>
+                  )}
+                </InquiryCard>
+              );
+            })}
+          </InquiryList>
         </ContentBody>
       </Content>
     </LayoutRoot>
@@ -393,54 +379,148 @@ const ErrorText = styled.p`
   margin-bottom: 8px;
 `;
 
-const Table = styled.table`
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
+const EmptyState = styled.div`
+  text-align: center;
+  padding: 60px 20px;
+  color: #9ca3af;
+  font-size: 14px;
 `;
 
-const Th = styled.th`
-  text-align: left;
-  padding: 8px 6px;
-  border-bottom: 1px solid #e5e7eb;
+const InquiryList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+`;
+
+const InquiryCard = styled.div<{ $expanded?: boolean }>`
+  background-color: #ffffff;
+  border: 1px solid ${({ $expanded }) => ($expanded ? "#1d4ed8" : "#e5e7eb")};
+  border-radius: 8px;
+  overflow: hidden;
+  transition: all 0.2s;
+  box-shadow: ${({ $expanded }) =>
+    $expanded ? "0 4px 12px rgba(29, 78, 216, 0.15)" : "0 1px 3px rgba(0, 0, 0, 0.1)"};
+
+  &:hover {
+    border-color: #1d4ed8;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
+`;
+
+const InquiryCardHeader = styled.div`
+  padding: 16px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  cursor: pointer;
+  transition: background-color 0.2s;
+
+  &:hover {
+    background-color: #f9fafb;
+  }
+`;
+
+const InquiryHeaderLeft = styled.div`
+  display: flex;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+`;
+
+const InquiryInfo = styled.div`
+  flex: 1;
+  min-width: 0;
+`;
+
+const InquiryTitle = styled.div`
+  font-size: 15px;
   font-weight: 600;
-  color: #4b5563;
+  color: #111827;
+  margin-bottom: 8px;
+  word-break: break-word;
 `;
 
-const ThNarrow = styled(Th)`
-  width: 80px;
+const InquiryMeta = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #6b7280;
 `;
 
-const ThWide = styled(Th)`
-  width: 200px;
+const UserInfo = styled.div`
+  font-weight: 500;
 `;
 
-const ThContent = styled(Th)`
-  width: 300px;
+const DateInfo = styled.div`
+  font-size: 11px;
 `;
 
-const Td = styled.td`
-  padding: 8px 6px;
-  border-bottom: 1px solid #f3f4f6;
-  vertical-align: top;
+const InquiryHeaderRight = styled.div`
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: 12px;
 `;
 
-const TdNarrow = styled(Td)`
-  width: 80px;
+const ExpandIcon = styled.span<{ $expanded?: boolean }>`
+  font-size: 12px;
+  color: #6b7280;
+  transition: transform 0.2s;
+  transform: ${({ $expanded }) => ($expanded ? "rotate(180deg)" : "rotate(0deg)")};
 `;
 
-const TdWide = styled(Td)`
-  width: 200px;
+const InquiryCardBody = styled.div`
+  padding: 20px;
+  border-top: 1px solid #e5e7eb;
+  background-color: #fafafa;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 `;
 
-const TdContent = styled(Td)`
-  width: 300px;
-`;
-
-const TdExpanded = styled(Td)`
-  background-color: #fcfcfc;
+const InquiryContentSection = styled.div`
+  background-color: #ffffff;
   padding: 16px;
-  border-bottom: 1px solid #e5e7eb;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+`;
+
+const AnswerSection = styled.div`
+  background-color: #eff6ff;
+  padding: 16px;
+  border-radius: 6px;
+  border: 1px solid #bfdbfe;
+`;
+
+const AnswerFormSection = styled.div`
+  background-color: #ffffff;
+  padding: 16px;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+`;
+
+const SectionTitle = styled.div`
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 12px;
+`;
+
+const InquiryContentFull = styled.div`
+  font-size: 14px;
+  color: #111827;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+`;
+
+const AnswerText = styled.div`
+  font-size: 14px;
+  color: #1e40af;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
 `;
 
 const StatusBadge = styled.span<{ $status: InquiryStatus }>`
@@ -453,63 +533,6 @@ const StatusBadge = styled.span<{ $status: InquiryStatus }>`
     $status === "answered" ? "rgba(34,197,94,0.12)" : "rgba(59,130,246,0.12)"};
   color: ${({ $status }) =>
     $status === "answered" ? "#16a34a" : "#2563eb"};
-`;
-
-const SmallText = styled.div`
-  font-size: 12px;
-  color: #4b5563;
-`;
-
-const TitleText = styled.div`
-  font-size: 13px;
-  font-weight: 600;
-  color: #111827;
-  word-break: break-word;
-  line-height: 1.5;
-`;
-
-const ContentText = styled.div`
-  font-size: 13px;
-  color: #4b5563;
-  word-break: break-word;
-  line-height: 1.5;
-  max-height: 80px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
-`;
-
-const AnswerToggleButton = styled.button`
-  padding: 6px 12px;
-  border-radius: 6px;
-  border: 1px solid #1d4ed8;
-  background-color: #ffffff;
-  color: #1d4ed8;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-
-  &:hover {
-    background-color: #f9fafb;
-    border-color: #d1d5db;
-  }
-`;
-
-const ExpandedAnswerBox = styled.div`
-  background-color: #fefefe;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  padding: 12px;
-  margin-top: 8px;
-`;
-
-const Label = styled.div`
-  font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 4px;
 `;
 
 const AnswerTextarea = styled.textarea`

@@ -10,6 +10,14 @@ export class UpdatePopupDto {
   content?: string;
 
   @IsOptional()
+  @IsString()
+  image_url?: string;
+
+  @IsOptional()
+  @IsString()
+  link_url?: string;
+
+  @IsOptional()
   @IsBoolean()
   is_active?: boolean;
 

@@ -1,25 +1,24 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import Link from "next/link";
 import {
   LayoutRoot,
-  Sidebar,
-  SidebarHeader,
-  SidebarNav,
-  SidebarNavItem,
+  AdminSidebar,
   Content,
   ContentHeader,
   ContentTitle,
   ContentBody,
 } from "../../components/layout";
 import styled from "styled-components";
-import { apiFetch } from "../../lib/api-client";
+import { apiFetch, uploadImage } from "../../lib/api-client";
+import PageDescription from "../../components/PageDescription";
 
 interface PopupRow {
   id: number;
   title: string;
   content: string;
+  image_url: string | null;
+  link_url: string | null;
   is_active: boolean;
   starts_at: string | null;
   ends_at: string | null;
@@ -33,11 +32,13 @@ export default function PopupsPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [linkUrl, setLinkUrl] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const load = async () => {
     try {
@@ -58,8 +59,12 @@ export default function PopupsPage() {
   }, []);
 
   const handleCreate = async () => {
-    if (!title.trim() || !content.trim()) {
-      alert("제목과 내용을 모두 입력해 주세요.");
+    if (!title.trim()) {
+      alert("제목을 입력해 주세요.");
+      return;
+    }
+    if (!imageUrl) {
+      alert("이미지를 업로드해 주세요.");
       return;
     }
     try {
@@ -68,14 +73,17 @@ export default function PopupsPage() {
         method: "POST",
         body: {
           title: title.trim(),
-          content: content.trim(),
+          content: "", // 내용은 빈 문자열로 전송 (DB 호환성)
+          image_url: imageUrl,
+          link_url: linkUrl.trim() || undefined,
           is_active: isActive,
           starts_at: startsAt || undefined,
           ends_at: endsAt || undefined,
         },
       });
       setTitle("");
-      setContent("");
+      setImageUrl(null);
+      setLinkUrl("");
       setIsActive(true);
       setStartsAt("");
       setEndsAt("");
@@ -121,48 +129,108 @@ export default function PopupsPage() {
     }
   };
 
+  const handleImageUpload = async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      alert('이미지 파일만 업로드 가능합니다.');
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      alert('파일 크기는 10MB를 초과할 수 없습니다.');
+      return;
+    }
+
+    try {
+      setUploading(true);
+      const result = await uploadImage(file, 'popup');
+      setImageUrl(result.imageUrl);
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.message ?? '이미지 업로드에 실패했습니다.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <LayoutRoot>
-      <Sidebar>
-        <SidebarHeader>Passbook Admin</SidebarHeader>
-        <SidebarNav>
-          <SidebarNavItem>
-            <Link href="/users">유저 관리</Link>
-          </SidebarNavItem>
-          <SidebarNavItem>
-            <Link href="/notices">공지사항 관리</Link>
-          </SidebarNavItem>
-          <SidebarNavItem $active>
-            <Link href="/popups">팝업 관리</Link>
-          </SidebarNavItem>
-          <SidebarNavItem>
-            <Link href="/inquiries">문의사항 관리</Link>
-          </SidebarNavItem>
-        </SidebarNav>
-      </Sidebar>
+      <AdminSidebar activePage="popups" />
       <Content>
         <ContentHeader>
           <ContentTitle>팝업 관리</ContentTitle>
         </ContentHeader>
         <ContentBody>
+          <PageDescription
+            title="팝업 관리 페이지"
+            description="앱 실행 시 화면 하단에 표시되는 바텀시트 팝업을 생성하고 관리할 수 있습니다. 팝업은 앱 홈 화면 하단에서 자동으로 표시되며, 사용자가 '오늘은 그만 보기'를 선택할 수 있습니다. 이미지에 링크를 설정하면 사용자가 이미지를 클릭했을 때 해당 링크로 이동합니다."
+            features={[
+              "팝업 작성, 수정, 삭제",
+              "이미지 첨부 필수 (최적 사이즈: 400×400px JPG, 품질 85%, 예상 용량 80-150KB)",
+              "딥링크 URL 설정 (이미지 클릭 시 이동할 링크)",
+              "활성/비활성 상태 관리",
+              "시작일/종료일 설정으로 기간별 표시 제어",
+            ]}
+            usage={[
+              "새 팝업 작성: 제목(관리용)을 입력하고 이미지를 업로드한 후 '팝업 등록' 버튼을 클릭합니다. 제목은 관리 목적으로만 사용되며 앱에는 표시되지 않습니다.",
+              "이미지 업로드: 400×400px JPG 형식 권장 (품질 85%, 1:1 정사각형). 파일 크기는 150KB 이하가 최적이며, 최대 300KB까지 가능합니다. 팝업은 바텀시트 형태로 화면 높이의 28%를 차지하며, 이미지만 표시됩니다.",
+              "딥링크 설정: 링크 URL을 입력하면 사용자가 팝업 이미지를 클릭했을 때 해당 링크로 이동합니다. 웹 URL (https://) 또는 앱 딥링크 (myapp://) 형식을 사용할 수 있습니다.",
+              "활성 상태: '활성' 토글로 팝업의 표시 여부를 제어할 수 있습니다. 비활성 상태면 앱에 표시되지 않습니다.",
+              "기간 설정: 시작일과 종료일을 설정하면 해당 기간에만 팝업이 표시됩니다. 설정하지 않으면 무기한 표시됩니다.",
+              "팝업 삭제: '삭제' 버튼을 클릭하면 해당 팝업이 영구적으로 삭제됩니다.",
+            ]}
+          />
           <FormSection>
             <SectionTitle>새 팝업 작성</SectionTitle>
             <FormRow>
-              <Label>제목</Label>
+              <Label>제목 (관리용)</Label>
               <TextInput
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="예) 이벤트 안내"
               />
+              <HelperText>
+                제목은 관리 목적으로만 사용되며, 앱에는 표시되지 않습니다.
+              </HelperText>
             </FormRow>
             <FormRow>
-              <Label>내용</Label>
-              <TextArea
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder="팝업 내용을 입력해 주세요."
-                rows={4}
+              <Label>이미지 (필수)</Label>
+              <ImageUploadSection>
+                <FileInput
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      handleImageUpload(file);
+                    }
+                  }}
+                  disabled={uploading || saving}
+                />
+                {imageUrl && (
+                  <ImagePreview>
+                    <ImagePreviewImg src={imageUrl} alt="미리보기" />
+                    <RemoveImageButton
+                      onClick={() => setImageUrl(null)}
+                      type="button"
+                    >
+                      ✕
+                    </RemoveImageButton>
+                  </ImagePreview>
+                )}
+                {uploading && <UploadStatus>업로드 중...</UploadStatus>}
+              </ImageUploadSection>
+            </FormRow>
+            <FormRow>
+              <Label>링크 URL (선택)</Label>
+              <TextInput
+                type="url"
+                value={linkUrl}
+                onChange={(e) => setLinkUrl(e.target.value)}
+                placeholder="https://example.com 또는 앱 딥링크 (예: myapp://page/123)"
               />
+              <HelperText>
+                이미지 클릭 시 이동할 링크를 입력하세요. 웹 URL 또는 앱 딥링크를 사용할 수 있습니다.
+              </HelperText>
             </FormRow>
             <FormRow>
               <label>
@@ -207,7 +275,6 @@ export default function PopupsPage() {
                 <tr>
                   <Th>상태</Th>
                   <Th>제목</Th>
-                  <Th>내용</Th>
                   <Th>시작일시</Th>
                   <Th>종료일시</Th>
                   <Th>작성일</Th>
@@ -217,7 +284,7 @@ export default function PopupsPage() {
               <tbody>
                 {!loading && rows.length === 0 && (
                   <tr>
-                    <Td colSpan={7}>등록된 팝업이 없습니다.</Td>
+                    <Td colSpan={6}>등록된 팝업이 없습니다.</Td>
                   </tr>
                 )}
                 {rows.map((p) => (
@@ -228,9 +295,6 @@ export default function PopupsPage() {
                       </StatusBadge>
                     </Td>
                     <Td>{p.title}</Td>
-                    <Td>
-                      <SmallText>{p.content}</SmallText>
-                    </Td>
                     <Td>{formatDateTime(p.starts_at)}</Td>
                     <Td>{formatDateTime(p.ends_at)}</Td>
                     <Td>{new Date(p.created_at).toLocaleString("ko-KR")}</Td>
@@ -395,5 +459,73 @@ const SmallText = styled.div`
 const Actions = styled.div`
   display: flex;
   gap: 4px;
+`;
+
+const ImageUploadSection = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+`;
+
+const FileInput = styled.input`
+  padding: 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+`;
+
+const ImagePreview = styled.div`
+  position: relative;
+  display: inline-block;
+  max-width: 300px;
+`;
+
+const ImagePreviewImg = styled.img`
+  width: 100%;
+  max-height: 200px;
+  object-fit: contain;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+`;
+
+const RemoveImageButton = styled.button`
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: none;
+  background-color: #ef4444;
+  color: #ffffff;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+
+  &:hover {
+    background-color: #dc2626;
+  }
+`;
+
+const UploadStatus = styled.div`
+  font-size: 12px;
+  color: #6b7280;
+  font-style: italic;
+`;
+
+const HelperText = styled.div`
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 4px;
+  line-height: 1.4;
 `;
 

@@ -12,13 +12,13 @@ type TermsRouteParams = {
 // 서비스 이용약관 텍스트
 const TERMS_OF_SERVICE = `서비스 이용약관
 
-2025.04.30일자 이후 적용
+2026.02.02일자 이후 적용
 
 제1조 (목적)
-이 약관은 케이더블유씨씨 주식회사(이하 "회사")가 제공하는 레슨 관리 서비스(이하 "서비스")의 이용과 관련하여 회사와 이용자 간의 권리, 의무 및 책임사항을 규정함을 목적으로 합니다.
+이 약관은 케이더블유씨씨 주식회사(이하 "회사")가 제공하는 이용권 관리 서비스(이하 "서비스")의 이용과 관련하여 회사와 이용자 간의 권리, 의무 및 책임사항을 규정함을 목적으로 합니다.
 
 제2조 (정의)
-1. "서비스"란 회사가 제공하는 레슨 관리 플랫폼을 의미합니다.
+1. "서비스"란 회사가 제공하는 이용권 관리 플랫폼 "패스북(Passbook)"을 의미합니다.
 2. "이용자"란 이 약관에 따라 서비스를 이용하는 회원 및 비회원을 의미합니다.
 3. "회원"이란 회사에 개인정보를 제공하여 회원등록을 한 자로서, 회사의 정보를 지속적으로 제공받으며 서비스를 계속적으로 이용할 수 있는 자를 의미합니다.
 
@@ -29,10 +29,11 @@ const TERMS_OF_SERVICE = `서비스 이용약관
 
 제4조 (서비스의 제공 및 변경)
 1. 회사는 다음과 같은 서비스를 제공합니다:
-   - 수강생 관리 서비스
-   - 계약서 생성 및 관리 서비스
-   - 출결 관리 서비스
-   - 정산 및 청구서 발송 서비스
+   - 이용권 고객 관리 서비스
+   - 이용권(계약) 발행 및 SMS전송 서비스
+   - 이용권 사용 처리 및 관리 서비스
+   - 이용권 사용 기록 및 스케줄 관리 서비스
+   - 청구서SMS 발송 서비스
    - 기타 회사가 추가 개발하거나 제휴계약 등을 통해 회원에게 제공하는 일체의 서비스
 2. 회사는 서비스의 내용을 변경할 수 있으며, 변경 시에는 사전에 공지합니다.
 
@@ -71,13 +72,13 @@ const TERMS_OF_SERVICE = `서비스 이용약관
 // 개인정보처리방침 텍스트
 const PRIVACY_POLICY = `개인정보 수집 및 이용약관
 
-2025.04.30일자 이후 적용
+2026.02.02일자 이후 적용
 
 제1조 (개인정보의 처리 목적)
 케이더블유씨씨 주식회사는 다음 각 호의 목적으로 개인정보를 처리합니다.
 
 1. 회원 관리: 회원 가입, 로그인, 본인 확인, 회원 탈퇴 등 회원 관리 전반
-2. 서비스 제공: 수강생 관리, 계약서 생성 및 관리, 출결 관리, 정산 및 청구서 발송 등 플랫폼 서비스 제공
+2. 서비스 제공: 이용권 관리, 이용권(계약) 발행 및 SMS전송, 사용처리 관리, 청구서 SMS발송 등 플랫폼 서비스 제공
 3. 고객 상담: 고객 문의 처리, 불만 처리, 분쟁 해결 등 고객 지원
 4. 마케팅: 신규 서비스 안내, 이벤트 안내, 맞춤형 광고 제공 등 마케팅 활동
 5. 통계 분석: 서비스 이용 현황 분석, 사용자 맞춤 서비스 개발 등 통계 분석
@@ -88,11 +89,11 @@ const PRIVACY_POLICY = `개인정보 수집 및 이용약관
 
 필수 정보:
 - 회원: 이름, 전화번호, 상호명
-- 수강생: 이름, 전화번호, 보호자 정보(이름, 전화번호)
-- 계약 정보: 계약 내용, 결제 정보, 출결 기록
+- 이용권 고객: 이름, 전화번호
+- 이용권(계약) 정보: 계약 내용, 결제 안내, 사용 기록, 스케줄 정보
 
 선택 정보:
-- 회원: 업종 아이콘, 계약서 기본 설정
+- 회원: 이용권(계약) 기본 설정
 - 계좌 정보: 은행명, 계좌번호, 예금주명
 
 제3조 (개인정보의 처리 및 보유기간)
@@ -155,11 +156,6 @@ export default function TermsScreen() {
           <ContentText>{content}</ContentText>
         </Content>
       </ScrollView>
-      <ButtonContainer>
-        <ConfirmButton onPress={() => navigation.goBack()}>
-          <ConfirmButtonText>확인</ConfirmButtonText>
-        </ConfirmButton>
-      </ButtonContainer>
     </Container>
   );
 }
@@ -171,7 +167,7 @@ const Container = styled.SafeAreaView`
 
 const Content = styled.View`
   padding: 20px;
-  padding-bottom: 100px;
+  padding-bottom: 40px;
 `;
 
 const Title = styled.Text`
@@ -186,31 +182,5 @@ const ContentText = styled.Text`
   color: #333333;
   line-height: 22px;
   white-space: pre-wrap;
-`;
-
-const ButtonContainer = styled.View`
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding: 16px 20px;
-  padding-bottom: 40px;
-  background-color: #ffffff;
-  border-top-width: 1px;
-  border-top-color: #e0e0e0;
-`;
-
-const ConfirmButton = styled.TouchableOpacity`
-  background-color: #ff6b00;
-  padding: 16px;
-  border-radius: 12px;
-  align-items: center;
-  justify-content: center;
-`;
-
-const ConfirmButtonText = styled.Text`
-  font-size: 16px;
-  font-weight: 600;
-  color: #ffffff;
 `;
 

@@ -10,10 +10,13 @@ export interface InvoiceSummary {
   manual_reason: string | null;
   final_amount: number;
   send_status: string;
+  payment_status?: boolean; // 입금 확인 여부
+  planned_count?: number | null; // 계획된 횟수
   period_start?: string | null;
   period_end?: string | null;
   display_period_start?: string | null; // 전송 시점에 저장된 표시 기간 시작일
   display_period_end?: string | null; // 전송 시점에 저장된 표시 기간 종료일
+  invoice_number?: number; // 청구서 번호 (1=첫 청구서, 2 이상=연장 청구서)
   student?: {
     id: number;
     name: string;

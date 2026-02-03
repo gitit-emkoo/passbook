@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { ActivityIndicator, ScrollView } from 'react-native';
+import React, { useState, useRef, useCallback } from 'react';
+import { ActivityIndicator, ScrollView, LayoutChangeEvent } from 'react-native';
 import styled from 'styled-components/native';
 import { contractsApi } from '../api/contracts';
+import { useFocusEffect } from '@react-navigation/native';
 
 interface Reservation {
   id: number;
@@ -37,7 +38,11 @@ const HeaderTitle = styled.Text`
   color: #111111;
 `;
 
-const Content = styled.ScrollView`
+const Content = styled.ScrollView.attrs(() => ({
+  contentContainerStyle: {
+    paddingBottom: 20,
+  },
+}))`
   flex: 1;
 `;
 
@@ -92,9 +97,9 @@ const TimeText = styled.Text`
 
 const StudentNameText = styled.Text<{ $completed: boolean }>`
   font-size: 15px;
-  color: ${(props) => (props.$completed ? '#999999' : '#111111')};
+  color: ${(props: { $completed: boolean }) => (props.$completed ? '#999999' : '#111111')};
   flex: 1;
-  text-decoration-line: ${(props) => (props.$completed ? 'line-through' : 'none')};
+  text-decoration-line: ${(props: { $completed: boolean }) => (props.$completed ? 'line-through' : 'none')};
   text-decoration-color: #ff0000;
 `;
 
@@ -121,12 +126,10 @@ const LoadingContainer = styled.View`
 export default function AllSchedulesScreen() {
   const [loading, setLoading] = useState(true);
   const [groupedReservations, setGroupedReservations] = useState<GroupedReservation[]>([]);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const hasScrolledToToday = useRef(false);
 
-  useEffect(() => {
-    loadReservations();
-  }, []);
-
-  const loadReservations = async () => {
+  const loadReservations = useCallback(async () => {
     try {
       setLoading(true);
       const data = await contractsApi.getAllReservations();
@@ -148,7 +151,7 @@ export default function AllSchedulesScreen() {
       });
 
       // 날짜별로 정렬하고 시간순으로 정렬
-      const groupedArray: GroupedReservation[] = Object.keys(grouped)
+      let groupedArray: GroupedReservation[] = Object.keys(grouped)
         .sort()
         .map((dateKey) => {
           const reservations = grouped[dateKey];
@@ -172,6 +175,32 @@ export default function AllSchedulesScreen() {
           };
         });
 
+      // 오늘 날짜 섹션이 없으면, 빈 일정이더라도 오늘 날짜 섹션을 추가
+      if (groupedArray.length > 0) {
+        const today = new Date();
+        const todayYear = today.getFullYear();
+        const todayMonth = String(today.getMonth() + 1).padStart(2, '0');
+        const todayDay = String(today.getDate()).padStart(2, '0');
+        const todayKey = `${todayYear}-${todayMonth}-${todayDay}`;
+
+        const hasToday = groupedArray.some((group) => group.date === todayKey);
+
+        if (!hasToday) {
+          const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
+          const weekday = weekdays[today.getDay()];
+          const dateLabel = `${today.getMonth() + 1}월 ${today.getDate()}일 (${weekday})`;
+
+          groupedArray = [
+            ...groupedArray,
+            {
+              date: todayKey,
+              dateLabel,
+              reservations: [],
+            },
+          ].sort((a, b) => a.date.localeCompare(b.date));
+        }
+      }
+
       setGroupedReservations(groupedArray);
     } catch (error) {
       console.error('[AllSchedules] Failed to load reservations:', error);
@@ -179,7 +208,15 @@ export default function AllSchedulesScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  // 화면 포커스 시마다 일정 재로딩 & 오늘 섹션 스크롤 상태 초기화
+  useFocusEffect(
+    useCallback(() => {
+      hasScrolledToToday.current = false;
+      loadReservations();
+    }, [loadReservations]),
+  );
 
   const formatTime = (time: string | null): string => {
     if (!time) return '';
@@ -190,6 +227,13 @@ export default function AllSchedulesScreen() {
     }
     return time;
   };
+
+  // 오늘 날짜 (YYYY-MM-DD)
+  const today = new Date();
+  const todayYear = today.getFullYear();
+  const todayMonth = String(today.getMonth() + 1).padStart(2, '0');
+  const todayDay = String(today.getDate()).padStart(2, '0');
+  const todayKey = `${todayYear}-${todayMonth}-${todayDay}`;
 
   if (loading) {
     return (
@@ -211,21 +255,27 @@ export default function AllSchedulesScreen() {
     );
   }
 
-  // 오늘 날짜 (YYYY-MM-DD)
-  const today = new Date();
-  const todayYear = today.getFullYear();
-  const todayMonth = String(today.getMonth() + 1).padStart(2, '0');
-  const todayDay = String(today.getDate()).padStart(2, '0');
-  const todayKey = `${todayYear}-${todayMonth}-${todayDay}`;
-
   return (
     <Container>
-      <Content>
+      <Content ref={scrollViewRef}>
         {groupedReservations.map((group) => {
           const isToday = group.date === todayKey;
+          const hasReservations = group.reservations.length > 0;
 
           return (
-            <DateSection key={group.date}>
+            <DateSection 
+              key={group.date}
+              onLayout={isToday ? (event: LayoutChangeEvent) => {
+                if (hasScrolledToToday.current) return;
+                hasScrolledToToday.current = true;
+                const { y } = event.nativeEvent.layout;
+                // 오늘 섹션이 화면 최상단에 오도록 스크롤
+                scrollViewRef.current?.scrollTo({
+                  y: Math.max(0, y),
+                  animated: true,
+                });
+              } : undefined}
+            >
               <DateHeader>
                 <DateLabel>{group.dateLabel}</DateLabel>
                 {isToday && (
@@ -234,19 +284,24 @@ export default function AllSchedulesScreen() {
                   </TodayBadge>
                 )}
               </DateHeader>
-              {group.reservations.map((reservation, index) => {
-                const isLast = index === group.reservations.length - 1;
-                const ReservationComponent = isLast ? ReservationItemLast : ReservationItem;
 
-                return (
-                  <ReservationComponent key={reservation.id}>
-                    <TimeText>{formatTime(reservation.reserved_time) || '시간 미정'}</TimeText>
-                    <StudentNameText $completed={reservation.has_attendance}>
-                      {reservation.student_name}
-                    </StudentNameText>
-                  </ReservationComponent>
-                );
-              })}
+              {hasReservations ? (
+                group.reservations.map((reservation, index) => {
+                  const isLast = index === group.reservations.length - 1;
+                  const ReservationComponent = isLast ? ReservationItemLast : ReservationItem;
+
+                  return (
+                    <ReservationComponent key={reservation.id}>
+                      <TimeText>{formatTime(reservation.reserved_time) || '시간 미정'}</TimeText>
+                      <StudentNameText $completed={reservation.has_attendance}>
+                        {reservation.student_name}
+                      </StudentNameText>
+                    </ReservationComponent>
+                  );
+                })
+              ) : isToday ? (
+                <EmptyText>오늘은 이용권 일정이 없습니다.</EmptyText>
+              ) : null}
             </DateSection>
           );
         })}

@@ -4,8 +4,17 @@ export class CreatePopupDto {
   @IsString()
   title: string;
 
+  @IsOptional()
   @IsString()
-  content: string;
+  content?: string;
+
+  @IsOptional()
+  @IsString()
+  image_url?: string;
+
+  @IsOptional()
+  @IsString()
+  link_url?: string;
 
   @IsOptional()
   @IsBoolean()

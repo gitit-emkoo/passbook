@@ -11,5 +11,6 @@ export const getEnvVar = (key: string, defaultValue?: string): string => {
 export const env = {
   API_URL: getEnvVar('API_URL', 'http://localhost:3000'),
   API_KEY: getEnvVar('API_KEY', ''),
+  PUBLIC_URL: getEnvVar('PUBLIC_URL', 'https://passbook.today'),
 };
 

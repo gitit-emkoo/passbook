@@ -60,7 +60,7 @@ const AmountInput = styled.TextInput<{ disabled?: boolean }>`
   margin-bottom: 16px;
   font-size: 14px;
   color: #000;
-  background-color: ${(props) => (props.disabled ? '#f5f5f5' : '#fff')};
+  background-color: ${(props: { disabled?: boolean }) => (props.disabled ? '#f5f5f5' : '#fff')};
 `;
 
 const SignatureContainer = styled.View`
@@ -83,15 +83,15 @@ const Button = styled.TouchableOpacity<{ variant?: 'primary' | 'secondary'; disa
   padding: 12px;
   border-radius: 6px;
   align-items: center;
-  background-color: ${(props) => {
+  background-color: ${(props: { variant?: 'primary' | 'secondary'; disabled?: boolean }) => {
     if (props.disabled) return '#e0e0e0';
     return props.variant === 'primary' ? '#007AFF' : '#e0e0e0';
   }};
-  opacity: ${(props) => (props.disabled ? 0.5 : 1)};
+  opacity: ${(props: { disabled?: boolean }) => (props.disabled ? 0.5 : 1)};
 `;
 
 const ButtonText = styled.Text<{ variant?: 'primary' | 'secondary' }>`
-  color: ${(props) => (props.variant === 'primary' ? '#fff' : '#000')};
+  color: ${(props: { variant?: 'primary' | 'secondary' }) => (props.variant === 'primary' ? '#fff' : '#000')};
   font-size: 16px;
   font-weight: bold;
 `;
@@ -103,6 +103,7 @@ interface AttendanceSignatureModalProps {
   studentName: string;
   contractType: 'sessions' | 'amount'; // 횟수권 또는 금액권
   remainingAmount?: number; // 금액권: 잔여 금액 (잔액 체크용)
+  requireSignature?: boolean; // 서명 필수 여부 (기본값: true, 미처리내역에서는 false)
 }
 
 /**
@@ -115,6 +116,7 @@ export default function AttendanceSignatureModal({
   studentName,
   contractType,
   remainingAmount,
+  requireSignature = true, // 기본값: 서명 필수
 }: AttendanceSignatureModalProps) {
   const signatureRef = useRef<any>(null);
   const [amount, setAmount] = useState<string>('');
@@ -137,7 +139,8 @@ export default function AttendanceSignatureModal({
   };
 
   const handleSignatureOk = useCallback(async (base64: string) => {
-    if (!base64) {
+    // 서명 필수인 경우 서명 확인
+    if (requireSignature && !base64) {
       Alert.alert('알림', '서명을 입력해주세요.');
       return;
     }
@@ -161,11 +164,13 @@ export default function AttendanceSignatureModal({
     
     try {
       // onConfirm 호출 (부모에서 API 호출 수행)
+      // 서명이 없으면 빈 문자열 전달
+      const signatureData = base64 || '';
       if (!isSessions) {
         const amountNum = amount.trim() ? Number(amount.replace(/,/g, '')) : 0;
-        await onConfirm(base64, amountNum, memo.trim() || undefined);
+        await onConfirm(signatureData, amountNum, memo.trim() || undefined);
       } else {
-        await onConfirm(base64, undefined, memo.trim() || undefined);
+        await onConfirm(signatureData, undefined, memo.trim() || undefined);
       }
       // 완료 후 모달 닫기 (부모에서 처리하지만 안전장치)
       setAmount('');
@@ -176,9 +181,14 @@ export default function AttendanceSignatureModal({
       setIsSubmitting(false);
       // 에러는 부모에서 처리하므로 여기서는 로딩만 해제
     }
-  }, [onConfirm, onClose, amount, memo, isSessions, remainingAmount]);
+  }, [onConfirm, onClose, amount, memo, isSessions, remainingAmount, requireSignature]);
 
   const handleConfirm = () => {
+    // 서명이 필수가 아닌 경우 직접 처리
+    if (!requireSignature) {
+      handleSignatureOk('');
+      return;
+    }
     // Signature 컴포넌트의 내장 확인 버튼을 트리거하기 위해 readSignature 호출
     signatureRef.current?.readSignature();
   };
@@ -228,6 +238,12 @@ export default function AttendanceSignatureModal({
                 editable={!isSessions}
                 disabled={isSessions}
               />
+              {/* 잔액 표시 (금액권일 때만) */}
+              {!isSessions && remainingAmount !== undefined && (
+                <InputLabel style={{ fontSize: 12, color: '#999', marginTop: -12, marginBottom: 16 }}>
+                  잔여 금액: {remainingAmount.toLocaleString()}원
+                </InputLabel>
+              )}
 
               {/* 서비스 내용 입력 */}
               <InputLabel>서비스 내용 (선택사항)</InputLabel>
@@ -250,32 +266,38 @@ export default function AttendanceSignatureModal({
                 }}
               />
 
-              <InputLabel>서명</InputLabel>
-              <SignatureContainer>
-                <Signature
-                  ref={signatureRef}
-                  onOK={handleSignatureOk}
-                  descriptionText="서명해주세요"
-                  clearText="지우기"
-                  confirmText="확인"
-                  webStyle={`
-                    .m-signature-pad {
-                      box-shadow: none;
-                      border: none;
-                    }
-                    .m-signature-pad--body {
-                      border: none;
-                    }
-                    .m-signature-pad--body canvas {
-                      border-radius: 8px;
-                    }
-                  `}
-                />
-              </SignatureContainer>
+              {requireSignature && (
+                <>
+                  <InputLabel>서명</InputLabel>
+                  <SignatureContainer>
+                    <Signature
+                      ref={signatureRef}
+                      onOK={handleSignatureOk}
+                      descriptionText="서명해주세요"
+                      clearText="지우기"
+                      confirmText="확인"
+                      webStyle={`
+                        .m-signature-pad {
+                          box-shadow: none;
+                          border: none;
+                        }
+                        .m-signature-pad--body {
+                          border: none;
+                        }
+                        .m-signature-pad--body canvas {
+                          border-radius: 8px;
+                        }
+                      `}
+                    />
+                  </SignatureContainer>
+                </>
+              )}
               <ButtonRow>
-                <Button variant="secondary" onPress={handleClear} disabled={isSubmitting}>
-                  <ButtonText variant="secondary">지우기</ButtonText>
-                </Button>
+                {requireSignature && (
+                  <Button variant="secondary" onPress={handleClear} disabled={isSubmitting}>
+                    <ButtonText variant="secondary">지우기</ButtonText>
+                  </Button>
+                )}
                 <Button variant="secondary" onPress={handleClose} disabled={isSubmitting}>
                   <ButtonText variant="secondary">취소</ButtonText>
                 </Button>

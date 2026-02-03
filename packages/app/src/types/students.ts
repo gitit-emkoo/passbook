@@ -105,10 +105,12 @@ export interface StudentDetail {
     final_amount: number;
     base_amount: number;
     send_status: string;
+    payment_status?: boolean; // 입금 확인 여부
     period_start?: string | null;
     period_end?: string | null;
     display_period_start?: string | null;
     display_period_end?: string | null;
+    invoice_number?: number; // 청구서 번호 (1=첫 청구서, 2 이상=연장 청구서)
     contract: {
       id: number;
       billing_type: string;

@@ -57,10 +57,10 @@ const PageIndicator = styled.View`
 `;
 
 const IndicatorDot = styled.TouchableOpacity<{ $active: boolean }>`
-  width: ${props => props.$active ? '8px' : '6px'};
-  height: ${props => props.$active ? '8px' : '6px'};
-  border-radius: ${props => props.$active ? '4px' : '3px'};
-  background-color: ${props => props.$active ? '#1d42d8' : '#d0d0d0'};
+  width: ${(props: { $active: boolean }) => (props.$active ? '8px' : '6px')};
+  height: ${(props: { $active: boolean }) => (props.$active ? '8px' : '6px')};
+  border-radius: ${(props: { $active: boolean }) => (props.$active ? '4px' : '3px')};
+  background-color: ${(props: { $active: boolean }) => (props.$active ? '#1d42d8' : '#d0d0d0')};
   margin: 0 4px;
 `;
 
@@ -181,7 +181,7 @@ function InvoicePreviewContent() {
         />
       ) : (
         <LoadingContainer>
-          <ActivityIndicator size="large" color="#ff6b00" />
+          <ActivityIndicator size="large" color="#1d42d8" />
         </LoadingContainer>
       )}
     </WebViewContainer>
@@ -190,7 +190,7 @@ function InvoicePreviewContent() {
   if (loading) {
     return (
       <LoadingContainer>
-        <ActivityIndicator size="large" color="#ff6b00" />
+        <ActivityIndicator size="large" color="#1d42d8" />
       </LoadingContainer>
     );
   }
@@ -198,7 +198,7 @@ function InvoicePreviewContent() {
   if (error || htmls.length === 0) {
     return (
       <LoadingContainer>
-        <ActivityIndicator size="large" color="#ff6b00" />
+        <ActivityIndicator size="large" color="#1d42d8" />
       </LoadingContainer>
     );
   }

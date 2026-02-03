@@ -1,13 +1,9 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import Link from "next/link";
 import {
   LayoutRoot,
-  Sidebar,
-  SidebarHeader,
-  SidebarNav,
-  SidebarNavItem,
+  AdminSidebar,
   Content,
   ContentHeader,
   ContentTitle,
@@ -15,6 +11,7 @@ import {
 } from "../../components/layout";
 import styled from "styled-components";
 import { apiFetch } from "../../lib/api-client";
+import PageDescription from "../../components/PageDescription";
 
 type NoticeStatus = "normal" | "important";
 
@@ -22,6 +19,7 @@ interface NoticeRow {
   id: number;
   title: string;
   content: string;
+  image_url: string | null;
   is_important: boolean;
   created_at: string;
   updated_at: string;
@@ -129,30 +127,30 @@ export default function NoticesPage() {
     }
   };
 
+
   return (
     <LayoutRoot>
-      <Sidebar>
-        <SidebarHeader>Passbook Admin</SidebarHeader>
-        <SidebarNav>
-          <SidebarNavItem>
-            <Link href="/users">유저 관리</Link>
-          </SidebarNavItem>
-          <SidebarNavItem $active>
-            <Link href="/notices">공지사항 관리</Link>
-          </SidebarNavItem>
-          <SidebarNavItem>
-            <Link href="/popups">팝업 관리</Link>
-          </SidebarNavItem>
-          <SidebarNavItem>
-            <Link href="/inquiries">문의사항 관리</Link>
-          </SidebarNavItem>
-        </SidebarNav>
-      </Sidebar>
+      <AdminSidebar activePage="notices" />
       <Content>
         <ContentHeader>
           <ContentTitle>공지사항 관리</ContentTitle>
         </ContentHeader>
         <ContentBody>
+          <PageDescription
+            title="공지사항 관리 페이지"
+            description="앱 사용자에게 표시할 공지사항을 작성하고 관리할 수 있습니다. 공지사항은 앱의 공지사항 목록 화면에 표시되며, 중요 공지로 설정하면 상단에 고정됩니다."
+            features={[
+              "공지사항 작성, 수정, 삭제",
+              "중요 공지 설정 (상단 고정)",
+              "공지 내용에 URL 포함 시 자동으로 클릭 가능한 링크로 변환",
+            ]}
+            usage={[
+              "새 공지 작성: 제목과 내용을 입력한 후 '공지 등록' 버튼을 클릭합니다.",
+              "공지 수정: 기존 공지의 '수정' 버튼을 클릭하여 내용을 변경할 수 있습니다.",
+              "공지 삭제: '삭제' 버튼을 클릭하면 해당 공지가 영구적으로 삭제됩니다.",
+              "중요 공지: '중요 공지로 설정' 체크박스를 선택하면 앱에서 상단에 고정 표시됩니다.",
+            ]}
+          />
           <FormSection>
             <SectionTitle>새 공지 작성</SectionTitle>
             <FormRow>

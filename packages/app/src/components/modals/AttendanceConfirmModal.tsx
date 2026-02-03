@@ -19,8 +19,8 @@ export default function AttendanceConfirmModal({
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <ModalOverlay>
         <ModalContent>
-          <ModalTitle>{studentName} 출석 확인</ModalTitle>
-          <ModalMessage>출석을 기록하시겠습니까?</ModalMessage>
+          <ModalTitle>{studentName} 사용 확인</ModalTitle>
+          <ModalMessage>사용을 기록하시겠습니까?</ModalMessage>
           <ButtonRow>
             <Button onPress={onClose} variant="secondary">
               <ButtonText variant="secondary">취소</ButtonText>
@@ -74,11 +74,11 @@ const Button = styled.TouchableOpacity<{ variant?: 'primary' | 'secondary' }>`
   padding: 12px;
   border-radius: 8px;
   align-items: center;
-  background-color: ${(props) => (props.variant === 'primary' ? '#ff6b00' : '#e0e0e0')};
+  background-color: ${(props: { variant?: 'primary' | 'secondary' }) => (props.variant === 'primary' ? '#ff6b00' : '#e0e0e0')};
 `;
 
 const ButtonText = styled.Text<{ variant?: 'primary' | 'secondary' }>`
-  color: ${(props) => (props.variant === 'primary' ? '#fff' : '#000')};
+  color: ${(props: { variant?: 'primary' | 'secondary' }) => (props.variant === 'primary' ? '#fff' : '#000')};
   font-size: 16px;
   font-weight: 600;
 `;

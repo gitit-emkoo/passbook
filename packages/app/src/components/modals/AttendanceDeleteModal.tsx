@@ -74,11 +74,11 @@ const Button = styled.TouchableOpacity<{ variant?: 'primary' | 'secondary' }>`
   padding: 12px;
   border-radius: 8px;
   align-items: center;
-  background-color: ${(props) => (props.variant === 'primary' ? '#ff3b30' : '#e0e0e0')};
+  background-color: ${(props: { variant?: 'primary' | 'secondary' }) => (props.variant === 'primary' ? '#ff3b30' : '#e0e0e0')};
 `;
 
 const ButtonText = styled.Text<{ variant?: 'primary' | 'secondary' }>`
-  color: ${(props) => (props.variant === 'primary' ? '#fff' : '#000')};
+  color: ${(props: { variant?: 'primary' | 'secondary' }) => (props.variant === 'primary' ? '#fff' : '#000')};
   font-size: 16px;
   font-weight: 600;
 `;
