@@ -172,12 +172,27 @@ export default function PopupsPage() {
             ]}
             usage={[
               "새 팝업 작성: 제목(관리용)을 입력하고 이미지를 업로드한 후 '팝업 등록' 버튼을 클릭합니다. 제목은 관리 목적으로만 사용되며 앱에는 표시되지 않습니다.",
-              "이미지 업로드: 400×400px JPG 형식 권장 (품질 85%, 1:1 정사각형). 파일 크기는 150KB 이하가 최적이며, 최대 300KB까지 가능합니다. 팝업은 바텀시트 형태로 화면 높이의 28%를 차지하며, 이미지만 표시됩니다.",
-              "딥링크 설정: 링크 URL을 입력하면 사용자가 팝업 이미지를 클릭했을 때 해당 링크로 이동합니다. 웹 URL (https://) 또는 앱 딥링크 (myapp://) 형식을 사용할 수 있습니다.",
+              "이미지 업로드: 400×400px JPG 형식 권장 (품질 85%, 1:1 정사각형). 파일 크기는 150KB 이하가 최적이며, 최대 300KB까지 가능합니다. 팝업은 바텀시트 형태로 화면 높이의 45%를 차지하며, 이미지만 표시됩니다.",
+              "딥링크 설정: 링크 URL을 입력하면 사용자가 팝업 이미지를 클릭했을 때 해당 링크로 이동합니다. 웹 URL (https://) 또는 앱 딥링크 (passbook://) 형식을 사용할 수 있습니다.",
               "활성 상태: '활성' 토글로 팝업의 표시 여부를 제어할 수 있습니다. 비활성 상태면 앱에 표시되지 않습니다.",
               "기간 설정: 시작일과 종료일을 설정하면 해당 기간에만 팝업이 표시됩니다. 설정하지 않으면 무기한 표시됩니다.",
               "팝업 삭제: '삭제' 버튼을 클릭하면 해당 팝업이 영구적으로 삭제됩니다.",
             ]}
+            deepLinkGuide={{
+              title: "앱 딥링크 사용 방법",
+              description: "팝업 이미지 클릭 시 앱 내부 페이지로 이동하려면 다음 형식의 딥링크를 사용하세요:",
+              examples: [
+                { label: "홈 화면", url: "passbook:///home" },
+                { label: "정산 화면", url: "passbook:///settlement" },
+                { label: "수강생 목록", url: "passbook:///students" },
+                { label: "수강생 상세 (ID: 3)", url: "passbook:///students/3" },
+                { label: "알림 화면", url: "passbook:///notifications" },
+                { label: "공지사항", url: "passbook:///notices" },
+                { label: "설정 화면", url: "passbook:///settings" },
+                { label: "계약서 보기 (ID: 5)", url: "passbook:///contracts/5" },
+              ],
+              note: "웹 URL로 이동하려면 일반 HTTP/HTTPS URL을 사용하세요 (예: https://example.com).",
+            }}
           />
           <FormSection>
             <SectionTitle>새 팝업 작성</SectionTitle>

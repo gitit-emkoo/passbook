@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ActivityIndicator } from 'react-native';
+import { ActivityIndicator, Linking, Alert } from 'react-native';
 import { NavigationProp, RouteProp, useRoute, useNavigation } from '@react-navigation/native';
 import styled from 'styled-components/native';
 import { noticesApi, Notice } from '../api/notices';
@@ -10,6 +10,62 @@ const formatDate = (dateString: string): string => {
   const month = date.getMonth() + 1;
   const day = date.getDate();
   return `${year}년 ${month}월 ${day}일`;
+};
+
+// URL 패턴 정규식
+const URL_REGEX = /(https?:\/\/[^\s]+)/g;
+
+// 텍스트를 URL과 일반 텍스트로 파싱
+const parseTextWithUrls = (text: string): Array<{ type: 'text' | 'url'; content: string }> => {
+  const parts: Array<{ type: 'text' | 'url'; content: string }> = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = URL_REGEX.exec(text)) !== null) {
+    // URL 이전의 일반 텍스트
+    if (match.index > lastIndex) {
+      parts.push({
+        type: 'text',
+        content: text.substring(lastIndex, match.index),
+      });
+    }
+    // URL
+    parts.push({
+      type: 'url',
+      content: match[0],
+    });
+    lastIndex = match.index + match[0].length;
+  }
+
+  // 마지막 URL 이후의 일반 텍스트
+  if (lastIndex < text.length) {
+    parts.push({
+      type: 'text',
+      content: text.substring(lastIndex),
+    });
+  }
+
+  // URL이 없으면 전체를 일반 텍스트로
+  if (parts.length === 0) {
+    parts.push({ type: 'text', content: text });
+  }
+
+  return parts;
+};
+
+// URL 클릭 핸들러
+const handleUrlPress = async (url: string) => {
+  try {
+    const canOpen = await Linking.canOpenURL(url);
+    if (canOpen) {
+      await Linking.openURL(url);
+    } else {
+      Alert.alert('알림', '이 링크를 열 수 없습니다.');
+    }
+  } catch (error) {
+    console.error('[NoticeDetail] Error opening URL:', error);
+    Alert.alert('오류', '링크를 열 수 없습니다.');
+  }
 };
 
 type NoticeStackParamList = {
@@ -84,7 +140,18 @@ export default function NoticeDetailScreen() {
             <DateText>{formatDate(notice.created_at)}</DateText>
           </Header>
           <Title>{notice.title}</Title>
-          <ContentText>{notice.content}</ContentText>
+          <ContentTextContainer>
+            {parseTextWithUrls(notice.content).map((part, index) => {
+              if (part.type === 'url') {
+                return (
+                  <LinkText key={index} onPress={() => handleUrlPress(part.content)}>
+                    {part.content}
+                  </LinkText>
+                );
+              }
+              return <ContentText key={index}>{part.content}</ContentText>;
+            })}
+          </ContentTextContainer>
         </Content>
       </StyledScrollView>
     </Container>
@@ -163,9 +230,22 @@ const Title = styled.Text`
   line-height: 28px;
 `;
 
+const ContentTextContainer = styled.Text`
+  font-size: 16px;
+  color: #333333;
+  line-height: 24px;
+`;
+
 const ContentText = styled.Text`
   font-size: 16px;
   color: #333333;
   line-height: 24px;
+`;
+
+const LinkText = styled.Text`
+  font-size: 16px;
+  color: #1d42d8;
+  line-height: 24px;
+  text-decoration-line: underline;
 `;
 

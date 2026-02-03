@@ -266,25 +266,13 @@ function HomeContent() {
           setTodayClassesLoading(false);
         }
       };
-      
+
       refreshTodayClasses();
-      
+
       // 대시보드 갱신
       fetchDashboard().catch(() => {});
       // 정산 데이터 갱신
       fetchInvoicesSections(true).catch(() => {});
-      // 오늘 수업 갱신
-      (async () => {
-        try {
-          setTodayClassesLoading(true);
-          const data = await contractsApi.getTodayClasses();
-          setTodayClasses(Array.isArray(data) ? data : []);
-        } catch (e) {
-          setTodayClasses([]);
-        } finally {
-          setTodayClassesLoading(false);
-        }
-      })();
       // 미처리 출결 개수 갱신
       loadUnprocessedCount();
     }, [isPersistReady, fetchDashboard, fetchInvoicesSections, loadUnprocessedCount]),

@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { NavigationContainer, CommonActions, NavigationContainerRef, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { createBottomTabNavigator, BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator, NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { TouchableOpacity, View, ImageSourcePropType } from 'react-native';
+import { TouchableOpacity, View, ImageSourcePropType, Linking } from 'react-native';
 import { useAuthStore } from '../store/useStore';
 import { registerForPushNotificationsAsync, setupNotificationListeners } from '../services/pushNotificationService';
 import PhoneAuthScreen from '../screens/PhoneAuthScreen';
@@ -554,9 +554,10 @@ export default function AppNavigator() {
     loadAuth();
   }, [loadAuth]);
   const notificationCleanup = useRef<(() => void) | null>(null);
+  const linkingCleanup = useRef<(() => void) | null>(null);
   const navigationRef = useRef<NavigationContainerRef<any>>(null);
 
-  // 알림 탭 시 화면 이동 처리
+  // 경로 기반 화면 이동 처리 (알림 및 딥링크 공통)
   const handleNotificationNavigation = (targetRoute: string) => {
     if (!navigationRef.current) {
       return;
@@ -606,9 +607,61 @@ export default function AppNavigator() {
             },
           }),
         );
+      } else if (targetRoute === '/settings' || targetRoute.startsWith('/settings')) {
+        navigationRef.current.dispatch(
+          CommonActions.navigate({
+            name: 'MainTabs',
+            params: {
+              screen: 'Settings',
+            },
+          }),
+        );
+      } else if (targetRoute === '/notices' || targetRoute.startsWith('/notices')) {
+        navigationRef.current.dispatch(
+          CommonActions.navigate({
+            name: 'NoticesList',
+          }),
+        );
+      } else if (targetRoute.startsWith('/contracts/')) {
+        // /contracts/3 형식
+        const contractIdMatch = targetRoute.match(/\/contracts\/(\d+)/);
+        if (contractIdMatch) {
+          const contractId = parseInt(contractIdMatch[1], 10);
+          navigationRef.current.dispatch(
+            CommonActions.navigate({
+              name: 'MainTabs',
+              params: {
+                screen: 'Students',
+                params: {
+                  screen: 'ContractView',
+                  params: { contractId },
+                },
+              },
+            }),
+          );
+        }
       }
     } catch (error: any) {
       console.error('[AppNavigator] Failed to navigate from notification:', error);
+    }
+  };
+
+  // 딥링크 처리 함수
+  const handleDeepLink = (url: string) => {
+    try {
+      // passbook:// 형식 처리
+      if (url.startsWith('passbook://')) {
+        // passbook:///home 또는 passbook://home 형식 모두 처리
+        const path = url.replace('passbook://', '').replace(/^\/+/, '/');
+        handleNotificationNavigation(path || '/');
+      } else if (url.startsWith('http://') || url.startsWith('https://')) {
+        // 웹 URL은 외부 브라우저로 열기
+        Linking.openURL(url).catch((error) => {
+          console.error('[AppNavigator] Failed to open URL:', error);
+        });
+      }
+    } catch (error: any) {
+      console.error('[AppNavigator] Failed to handle deep link:', error);
     }
   };
 
@@ -644,6 +697,40 @@ export default function AppNavigator() {
     return () => {
       if (notificationCleanup.current) {
         notificationCleanup.current();
+      }
+    };
+  }, [isAuthenticated]);
+
+  // 딥링크 리스너 설정
+  useEffect(() => {
+    // 앱이 실행 중일 때 딥링크 처리
+    const handleInitialURL = async () => {
+      const initialUrl = await Linking.getInitialURL();
+      if (initialUrl) {
+        if (__DEV__) {
+          console.log('[AppNavigator] Initial URL:', initialUrl);
+        }
+        handleDeepLink(initialUrl);
+      }
+    };
+
+    // 앱이 백그라운드에서 포그라운드로 올 때 딥링크 처리
+    const linkingListener = Linking.addEventListener('url', (event) => {
+      if (__DEV__) {
+        console.log('[AppNavigator] Deep link received:', event.url);
+      }
+      handleDeepLink(event.url);
+    });
+
+    linkingCleanup.current = () => {
+      linkingListener.remove();
+    };
+
+    handleInitialURL();
+
+    return () => {
+      if (linkingCleanup.current) {
+        linkingCleanup.current();
       }
     };
   }, [isAuthenticated]);

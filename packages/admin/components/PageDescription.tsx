@@ -1,11 +1,24 @@
 import React, { useState } from "react";
 import styled from "styled-components";
 
+interface DeepLinkExample {
+  label: string;
+  url: string;
+}
+
+interface DeepLinkGuide {
+  title: string;
+  description: string;
+  examples: DeepLinkExample[];
+  note?: string;
+}
+
 interface PageDescriptionProps {
   title: string;
   description: string;
   features?: string[];
   usage?: string[];
+  deepLinkGuide?: DeepLinkGuide;
 }
 
 const DescriptionBox = styled.div`
@@ -83,11 +96,77 @@ const UsageItem = styled.li`
   margin-bottom: 4px;
 `;
 
+const DeepLinkSection = styled.div`
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #bae6fd;
+`;
+
+const DeepLinkTitle = styled.h4`
+  font-size: 14px;
+  font-weight: 700;
+  color: #0369a1;
+  margin: 0 0 8px;
+`;
+
+const DeepLinkDescription = styled.p`
+  font-size: 13px;
+  color: #075985;
+  line-height: 1.6;
+  margin: 0 0 12px;
+`;
+
+const DeepLinkExamples = styled.div`
+  background-color: #ffffff;
+  border: 1px solid #e0f2fe;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 8px;
+`;
+
+const DeepLinkExampleItem = styled.div`
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 13px;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+`;
+
+const DeepLinkLabel = styled.span`
+  color: #075985;
+  font-weight: 600;
+  min-width: 140px;
+  margin-right: 8px;
+`;
+
+const DeepLinkUrl = styled.code`
+  background-color: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: #0c4a6e;
+  font-family: 'Courier New', monospace;
+  flex: 1;
+`;
+
+const DeepLinkNote = styled.p`
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.5;
+  margin: 8px 0 0;
+  font-style: italic;
+`;
+
 export default function PageDescription({
   title,
   description,
   features,
   usage,
+  deepLinkGuide,
 }: PageDescriptionProps) {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -112,6 +191,23 @@ export default function PageDescription({
               <UsageItem key={index}>{item}</UsageItem>
             ))}
           </UsageList>
+        )}
+        {deepLinkGuide && (
+          <DeepLinkSection>
+            <DeepLinkTitle>{deepLinkGuide.title}</DeepLinkTitle>
+            <DeepLinkDescription>{deepLinkGuide.description}</DeepLinkDescription>
+            <DeepLinkExamples>
+              {deepLinkGuide.examples.map((example, index) => (
+                <DeepLinkExampleItem key={index}>
+                  <DeepLinkLabel>{example.label}:</DeepLinkLabel>
+                  <DeepLinkUrl>{example.url}</DeepLinkUrl>
+                </DeepLinkExampleItem>
+              ))}
+            </DeepLinkExamples>
+            {deepLinkGuide.note && (
+              <DeepLinkNote>{deepLinkGuide.note}</DeepLinkNote>
+            )}
+          </DeepLinkSection>
         )}
       </DescriptionContent>
     </DescriptionBox>
