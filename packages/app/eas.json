@@ -52,7 +52,7 @@
         "PUBLIC_URL": "https://passbook.today"
       },
       "android": {
-        "buildType": "aab"
+        "buildType": "app-bundle"
       }
     }
   },
