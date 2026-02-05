@@ -579,33 +579,55 @@ const guardianLine = useMemo(() => {
       
       // 예약 날짜 맵 생성 (날짜 형식 정규화: ISO 문자열에서 YYYY-MM-DD 추출)
       const datesMap = new Map<string, { id: number; time?: string | null; hasAttendanceLog?: boolean }>();
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      let hasActiveReservation = false;
+
       (reservationsData || []).forEach((reservation: any) => {
         let dateStr = reservation.reserved_date;
+        let dateObj: Date | null = null;
+
         if (dateStr) {
           // Date 객체이거나 ISO 문자열인 경우 처리
           if (dateStr instanceof Date) {
-            const year = dateStr.getFullYear();
-            const month = String(dateStr.getMonth() + 1).padStart(2, '0');
-            const day = String(dateStr.getDate()).padStart(2, '0');
+            dateObj = dateStr;
+            const year = dateObj.getFullYear();
+            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const day = String(dateObj.getDate()).padStart(2, '0');
             dateStr = `${year}-${month}-${day}`;
           } else if (typeof dateStr === 'string') {
             // ISO 문자열인 경우: Date 객체로 변환 후 로컬 시간 기준으로 날짜 추출 (시간대 문제 해결)
-            const dateObj = new Date(dateStr);
+            dateObj = new Date(dateStr);
             const year = dateObj.getFullYear();
             const month = String(dateObj.getMonth() + 1).padStart(2, '0');
             const day = String(dateObj.getDate()).padStart(2, '0');
             dateStr = `${year}-${month}-${day}`;
           }
+
+          const hasAttendanceLog = reservation.has_attendance_log || false;
           datesMap.set(dateStr, {
             id: reservation.id,
             time: reservation.reserved_time,
-            hasAttendanceLog: reservation.has_attendance_log || false,
+            hasAttendanceLog,
           });
+
+          // 활성(변경 가능한) 예약 판별:
+          // - 오늘 포함 미래 날짜
+          // - 아직 출결(사용 처리)이 되지 않은 예약 (has_attendance_log === false)
+          if (dateObj) {
+            const normalized = new Date(dateObj);
+            normalized.setHours(0, 0, 0, 0);
+            const isFutureOrToday = normalized.getTime() >= today.getTime();
+            if (isFutureOrToday && !hasAttendanceLog) {
+              hasActiveReservation = true;
+            }
+          }
         }
       });
       setReservationDates(datesMap);
 
-      if (reservationsData && reservationsData.length === 0) {
+      // 활성(미래, 미사용) 예약이 하나도 없으면 변경 모드로 진입하지 않고 안내
+      if (!hasActiveReservation) {
         Alert.alert('안내', '변경할 예약이 없습니다.');
         setShowScheduleModal(false);
         return;
@@ -935,7 +957,7 @@ const guardianLine = useMemo(() => {
             </EditButton>
             {extendMeta.extendEligible && (
               <ExtendButton onPress={handleExtendPress}>
-                <ExtendButtonText>연장하기</ExtendButtonText>
+                <ExtendButtonText>연장</ExtendButtonText>
               </ExtendButton>
             )}
           </ButtonGroup>
@@ -1097,12 +1119,12 @@ const guardianLine = useMemo(() => {
           <SectionHeader>
             <SectionHeaderLeft>
               <SectionTitle>{attendanceSectionTitle}</SectionTitle>
-              {availableMonths.length > 0 && (
-                <MonthPickerButton onPress={() => setShowMonthPicker(true)}>
-                  <RemixIcon name="calendar-check-line" size={18} color="#666" />
-                </MonthPickerButton>
-              )}
             </SectionHeaderLeft>
+            {availableMonths.length > 0 && (
+              <MonthPickerButton onPress={() => setShowMonthPicker(true)}>
+                <MonthPickerText>월 선택</MonthPickerText>
+              </MonthPickerButton>
+            )}
           </SectionHeader>
           {filteredAttendanceLogs.length === 0 ? (
             <EmptyDescription>{attendanceEmptyDescription}</EmptyDescription>
@@ -1179,8 +1201,11 @@ const guardianLine = useMemo(() => {
                     if (isAmountBased && (log.status === 'present' || log.status === 'vanish') && log.amount !== null && log.amount !== undefined) {
                       // 금액권의 경우: JSX로 분리하여 금액 부분만 빨간색으로 표시
                       const memoPart = memo ? ` ${memo}` : '';
-                      const needsSms = log.status === 'present' && log.sms_sent === false;
-                      const smsSent = log.status === 'present' && log.sms_sent === true;
+                      // present/vanish 모두에서 사용처리 안내를 전송할 수 있도록 처리
+                      const canSendSms = log.status === 'present' || log.status === 'vanish';
+                      const smsSent = canSendSms && log.sms_sent === true;
+                      // sms_sent가 undefined인 경우도 "미전송"으로 보고 전송 버튼을 노출
+                      const needsSms = canSendSms && !smsSent;
                       const amountText = log.amount === 0 ? '0원' : `-${log.amount.toLocaleString()}원`;
                       
                       return (
@@ -1229,9 +1254,11 @@ const guardianLine = useMemo(() => {
                     }
                   }
                   
-                  // 횟수권 또는 다른 상태: 전송 버튼/체크표시 추가
-                  const needsSms = log.status === 'present' && log.sms_sent === false;
-                  const smsSent = log.status === 'present' && log.sms_sent === true;
+                  // present/vanish 상태에서 사용처리 안내 전송 버튼/체크표시 추가
+                  const canSendSms = log.status === 'present' || log.status === 'vanish';
+                  const smsSent = canSendSms && log.sms_sent === true;
+                  // sms_sent가 undefined인 경우도 "미전송"으로 취급하여 전송 버튼을 노출
+                  const needsSms = canSendSms && !smsSent;
                   
                   return (
                     <AttendanceItem key={log.id}>
@@ -2136,13 +2163,14 @@ const SectionTitle = styled.Text`
 `;
 
 const MonthPickerButton = styled.TouchableOpacity`
-  border-radius: 6px;
-  background-color: transparent;
+  padding: 6px 10px;
+  border-radius: 16px;
+  background-color: #e0f2fe;
 `;
 
 const MonthPickerText = styled.Text`
-  font-size: 12px;
-  color: #666;
+  font-size: 13px;
+  color: #1d42d8;
   font-weight: 600;
 `;
 

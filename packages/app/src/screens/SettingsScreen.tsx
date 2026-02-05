@@ -19,7 +19,9 @@ function SettingsContent() {
   const navigation = useNavigation();
   const route = useRoute();
   const [loading, setLoading] = useState(false);
-  const paramsProcessedRef = useRef(false);
+  const settingsLastFetchedRef = useRef<number | null>(null); // 타임스탬프 기반 캐싱
+  const subscriptionLastFetchedRef = useRef<number | null>(null); // 타임스탬프 기반 캐싱
+  const paramsProcessedRef = useRef<string | null>(null); // 파라미터 처리 추적 (무한 루프 방지)
 
   // 기본 정보
   const [userName, setUserName] = useState('');
@@ -77,7 +79,17 @@ function SettingsContent() {
     setTokenInput(accessToken || '');
   }, [apiBaseUrl, accessToken]);
 
-  const loadSettings = useCallback(async () => {
+  const loadSettings = useCallback(async (force = false) => {
+    // 타임스탬프 기반 캐싱: 30초 내 재호출 방지 (강제 새로고침이 아닐 때만)
+    if (!force) {
+      const now = Date.now();
+      const CACHE_TTL_MS = 30 * 1000;
+      if (settingsLastFetchedRef.current && (now - settingsLastFetchedRef.current) < CACHE_TTL_MS) {
+        // 캐시된 데이터 사용 (서버 호출 없이)
+        return;
+      }
+    }
+
     try {
       setLoading(true);
       const user = await usersApi.getMe();
@@ -132,6 +144,7 @@ function SettingsContent() {
         setAccountHolder('');
       }
       
+      settingsLastFetchedRef.current = Date.now();
       // 구독 상태는 별도로 로드
     } catch (error: any) {
       console.error('[Settings] load error', error);
@@ -142,7 +155,17 @@ function SettingsContent() {
   }, []);
 
   // 구독 상태 로드
-  const loadSubscriptionInfo = useCallback(async () => {
+  const loadSubscriptionInfo = useCallback(async (force = false) => {
+    // 타임스탬프 기반 캐싱: 30초 내 재호출 방지 (강제 새로고침이 아닐 때만)
+    if (!force) {
+      const now = Date.now();
+      const CACHE_TTL_MS = 30 * 1000;
+      if (subscriptionLastFetchedRef.current && (now - subscriptionLastFetchedRef.current) < CACHE_TTL_MS) {
+        // 캐시된 데이터 사용 (서버 호출 없이)
+        return;
+      }
+    }
+
     try {
       const students = useStudentsStore.getState().list.items;
       const contractCount = students.filter((s) => s.latest_contract && s.latest_contract.status !== 'draft').length;
@@ -153,12 +176,14 @@ function SettingsContent() {
         contractCount: info.contractCount,
         isFirstTimeBonus: info.isFirstTimeBonus,
       });
+      subscriptionLastFetchedRef.current = Date.now();
     } catch (error) {
       console.error('[Settings] Failed to load subscription info', error);
     }
   }, []);
 
-  // 네비게이션 파라미터 처리 (한 번만 실행)
+  // 네비게이션 파라미터 처리
+  // 일반 경로의 경우: 무료구독 버튼을 클릭할 때까지 계속 모달을 표시해야 함
   useEffect(() => {
     const params = route.params as
       | {
@@ -167,21 +192,23 @@ function SettingsContent() {
         }
       | undefined;
     
-    // 파라미터가 있고 아직 처리하지 않았을 때만 실행
-    if (params?.showSubscriptionIntro && !paramsProcessedRef.current) {
-      paramsProcessedRef.current = true;
-      setSubscriptionIntroModalVisible(true);
-      // isFirstTimeBonus 파라미터로 최초 접속 팝업 경로인지 구분
-      setIsFirstTimeBonusPath(params.isFirstTimeBonus === true);
-      // 파라미터 제거 (다음 진입을 위해 ref는 유지)
-      navigation.setParams(undefined as never);
+    // 파라미터가 있고 아직 처리하지 않은 경우만 실행 (무한 루프 방지)
+    if (params?.showSubscriptionIntro) {
+      // 파라미터를 문자열로 변환하여 중복 처리 방지
+      const paramsKey = `${params.showSubscriptionIntro}-${params.isFirstTimeBonus}`;
+      
+      // 이미 처리한 파라미터가 아니면 처리
+      if (paramsProcessedRef.current !== paramsKey) {
+        paramsProcessedRef.current = paramsKey;
+        setSubscriptionIntroModalVisible(true);
+        // isFirstTimeBonus 파라미터로 최초 접속 팝업 경로인지 구분
+        setIsFirstTimeBonusPath(params.isFirstTimeBonus === true);
+      }
+    } else {
+      // 파라미터가 없으면 ref 초기화 (다음 진입을 위해)
+      paramsProcessedRef.current = null;
     }
-    
-    // 파라미터가 없으면 ref 초기화 (다음 진입을 위해)
-    if (!params?.showSubscriptionIntro) {
-      paramsProcessedRef.current = false;
-    }
-  }, [route.params, navigation]);
+  }, [route.params]);
 
   // 화면 포커스 시 데이터 로드 (파라미터와 분리)
   useFocusEffect(
@@ -193,11 +220,16 @@ function SettingsContent() {
       }
       loadSettings();
       loadSubscriptionInfo();
+      
+      // 화면 포커스를 잃을 때 paramsProcessedRef 초기화 (다음 진입 시 모달이 다시 표시되도록)
+      return () => {
+        paramsProcessedRef.current = null;
+      };
     }, [loadSettings, loadSubscriptionInfo]),
   );
 
   const handleProfileEditSave = useCallback(() => {
-    loadSettings();
+    loadSettings(true); // 강제 새로고침
     setToastMessage('수정되었습니다');
     setToastVisible(true);
     setTimeout(() => {
@@ -206,11 +238,11 @@ function SettingsContent() {
   }, [loadSettings]);
 
   const handleContractSettingsSave = useCallback(() => {
-    loadSettings();
+    loadSettings(true); // 강제 새로고침
   }, [loadSettings]);
 
   const handleAccountInfoSave = useCallback(() => {
-    loadSettings();
+    loadSettings(true); // 강제 새로고침
   }, [loadSettings]);
 
   // 구독 활성화
@@ -218,14 +250,17 @@ function SettingsContent() {
     try {
       // 최초 접속 팝업 경로인지 확인 (상태로 저장된 값 사용)
       await activateFreeSubscription(isFirstTimeBonusPath);
-      await loadSubscriptionInfo();
+      await loadSubscriptionInfo(true); // 강제 새로고침
       setToastMessage(isFirstTimeBonusPath ? '3개월 무료구독이 시작되었습니다' : '2개월 무료구독이 시작되었습니다');
       setToastVisible(true);
       setTimeout(() => {
         setToastVisible(false);
       }, 2000);
-      // 활성화 후 플래그 초기화
+      // 활성화 후 모달 닫기 및 플래그 초기화
+      setSubscriptionIntroModalVisible(false);
       setIsFirstTimeBonusPath(false);
+      // 파라미터 처리 ref 초기화 (다음 진입을 위해)
+      paramsProcessedRef.current = null;
     } catch (error) {
       Alert.alert('오류', '구독 활성화에 실패했습니다.');
     }
@@ -414,51 +449,53 @@ function SettingsContent() {
           </SettingsItem>
         </Section>
 
-        {/* 개발자 옵션 (백엔드 정식 배포 전까지) */}
-        <Section>
-          <SectionTitle>개발자 옵션</SectionTitle>
-          <HelperText>백엔드 정식 배포 전까지 테스트용 기능입니다.</HelperText>
-          
-          <InputLabel>API URL</InputLabel>
-          <HelperText>현재 적용 중: {normalizedCurrentBase}</HelperText>
-          <DevTextInput
-            value={apiUrlInput}
-            onChangeText={setApiUrlInput}
-            placeholder="예: http://192.168.0.82:3000"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <DevButton onPress={handleSaveApiUrl}>
-            <DevButtonText>API URL 저장</DevButtonText>
-          </DevButton>
+        {/* 개발자 옵션 (개발 모드에서만 표시) */}
+        {__DEV__ && (
+          <Section>
+            <SectionTitle>개발자 옵션</SectionTitle>
+            <HelperText>백엔드 정식 배포 전까지 테스트용 기능입니다.</HelperText>
+            
+            <InputLabel>API URL</InputLabel>
+            <HelperText>현재 적용 중: {normalizedCurrentBase}</HelperText>
+            <DevTextInput
+              value={apiUrlInput}
+              onChangeText={setApiUrlInput}
+              placeholder="예: http://192.168.0.82:3000"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <DevButton onPress={handleSaveApiUrl}>
+              <DevButtonText>API URL 저장</DevButtonText>
+            </DevButton>
 
-          <InputLabel style={{ marginTop: 20 }}>Access Token</InputLabel>
-          <DevTextInput
-            value={tokenInput}
-            onChangeText={setTokenInput}
-            placeholder="Bearer 토큰 문자열을 입력하세요"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <DevButton onPress={handleSaveAccessToken}>
-            <DevButtonText>토큰 저장</DevButtonText>
-          </DevButton>
+            <InputLabel style={{ marginTop: 20 }}>Access Token</InputLabel>
+            <DevTextInput
+              value={tokenInput}
+              onChangeText={setTokenInput}
+              placeholder="Bearer 토큰 문자열을 입력하세요"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <DevButton onPress={handleSaveAccessToken}>
+              <DevButtonText>토큰 저장</DevButtonText>
+            </DevButton>
 
-          <InputLabel style={{ marginTop: 20 }}>헬스체크</InputLabel>
-          <DevButton onPress={handleHealthCheck} disabled={healthLoading}>
-            <DevButtonText>{healthLoading ? '요청 중...' : 'Health Check 호출'}</DevButtonText>
-          </DevButton>
-          {healthStatus && (
-            <HealthResult>
-              <HealthResultText>Status: {healthStatus}</HealthResultText>
-            </HealthResult>
-          )}
-          {healthError && (
-            <HealthResult>
-              <HealthResultError>오류: {healthError}</HealthResultError>
-            </HealthResult>
-          )}
-        </Section>
+            <InputLabel style={{ marginTop: 20 }}>헬스체크</InputLabel>
+            <DevButton onPress={handleHealthCheck} disabled={healthLoading}>
+              <DevButtonText>{healthLoading ? '요청 중...' : 'Health Check 호출'}</DevButtonText>
+            </DevButton>
+            {healthStatus && (
+              <HealthResult>
+                <HealthResultText>Status: {healthStatus}</HealthResultText>
+              </HealthResult>
+            )}
+            {healthError && (
+              <HealthResult>
+                <HealthResultError>오류: {healthError}</HealthResultError>
+              </HealthResult>
+            )}
+          </Section>
+        )}
         {/* 하단 푸터: 사업자 정보 및 회원탈퇴 링크 (스크롤 맨 아래에 표시) */}
         <FooterContainer>
           <FooterText>KWCC(주)</FooterText>

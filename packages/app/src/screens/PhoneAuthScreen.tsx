@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Alert, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Image, Modal, TouchableOpacity } from 'react-native';
-import { useNavigation, NativeStackNavigationProp } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import styled from 'styled-components/native';
 import { authApi } from '../api/auth';
@@ -308,7 +309,7 @@ export default function PhoneAuthScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <HeaderArea>
-            <AppTitle>Passbook</AppTitle>
+            <AppTitle>PassBook</AppTitle>
             <LogoImage source={logoImage} resizeMode="contain" />
             <AppSlogan>이용권 운영 자동화</AppSlogan>
             <AppSubtitle>이용권 발행부터 사용처리까지 더 편리해집니다.</AppSubtitle>
@@ -329,7 +330,7 @@ export default function PhoneAuthScreen() {
               <InputLabel>휴대폰 번호</InputLabel>
               <PhoneInput
                 value={phone}
-                onChangeText={(text) => setPhone(formatPhone(text))}
+                onChangeText={(text:string) => setPhone(formatPhone(text))}
                 placeholder="010-1234-5678"
                 keyboardType="phone-pad"
                 maxLength={13}
@@ -380,32 +381,36 @@ export default function PhoneAuthScreen() {
                 </SecondaryButton>
               )}
 
-              {/* API URL 설정 버튼 (개발용) */}
-              <SecondaryButton 
-                onPress={() => setShowApiUrlInput(true)}
-                style={{ marginTop: 8 }}
-              >
-                <SecondaryButtonText style={{ fontSize: 12, color: '#8e8e93' }}>
-                  API URL 설정
-                </SecondaryButtonText>
-              </SecondaryButton>
+              {/* API URL 설정 버튼 (개발 모드에서만 표시) */}
+              {__DEV__ && (
+                <SecondaryButton 
+                  onPress={() => setShowApiUrlInput(true)}
+                  style={{ marginTop: 8 }}
+                >
+                  <SecondaryButtonText style={{ fontSize: 12, color: '#8e8e93' }}>
+                    API URL 설정
+                  </SecondaryButtonText>
+                </SecondaryButton>
+              )}
 
-              {/* AccessToken 직접 입력 버튼 (임시 개발용) */}
-              <SecondaryButton 
-                onPress={() => setShowTokenInput(true)}
-                style={{ marginTop: 8 }}
-              >
-                <SecondaryButtonText style={{ fontSize: 12, color: '#ff6b00' }}>
-                  AccessToken 직접 입력 (임시)
-                </SecondaryButtonText>
-              </SecondaryButton>
+              {/* AccessToken 직접 입력 버튼 (개발 모드에서만 표시) */}
+              {__DEV__ && (
+                <SecondaryButton 
+                  onPress={() => setShowTokenInput(true)}
+                  style={{ marginTop: 8 }}
+                >
+                  <SecondaryButtonText style={{ fontSize: 12, color: '#ff6b00' }}>
+                    AccessToken 직접 입력 (임시)
+                  </SecondaryButtonText>
+                </SecondaryButton>
+              )}
             </StepContainer>
           </Content>
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* API URL 입력 모달 */}
-      {showApiUrlInput && (
+      {/* API URL 입력 모달 (개발 모드에서만 표시) */}
+      {__DEV__ && showApiUrlInput && (
         <Modal
           visible={showApiUrlInput}
           transparent
@@ -443,8 +448,8 @@ export default function PhoneAuthScreen() {
         </Modal>
       )}
 
-      {/* AccessToken 입력 모달 (임시 개발용) */}
-      {showTokenInput && (
+      {/* AccessToken 입력 모달 (개발 모드에서만 표시) */}
+      {__DEV__ && showTokenInput && (
         <Modal
           visible={showTokenInput}
           transparent
@@ -607,7 +612,7 @@ const PrimaryButton = styled.TouchableOpacity<{ disabled?: boolean }>`
   align-items: center;
   justify-content: center;
   margin-top: 24px;
-  opacity: ${(props) => (props.disabled ? 0.5 : 1)};
+  opacity: ${(props: { disabled?: boolean }) => (props.disabled ? 0.5 : 1)};
 `;
 
 const PrimaryButtonText = styled.Text`
@@ -683,11 +688,11 @@ const ModalButtons = styled.View`
 const ModalButton = styled.TouchableOpacity<{ primary?: boolean }>`
   padding: 12px 24px;
   border-radius: 8px;
-  background-color: ${(props) => (props.primary ? '#1d42d8' : '#f0f0f0')};
+  background-color: ${(props: { primary?: boolean }) => (props.primary ? '#1d42d8' : '#f0f0f0')};
 `;
 
 const ModalButtonText = styled.Text<{ primary?: boolean }>`
-  color: ${(props) => (props.primary ? '#ffffff' : '#111111')};
+  color: ${(props: { primary?: boolean }) => (props.primary ? '#ffffff' : '#111111')};
   font-size: 14px;
   font-weight: 600;
 `;

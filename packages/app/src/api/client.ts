@@ -8,7 +8,7 @@ import { useAuthStore } from '../store/useStore';
  */
 const apiClient = axios.create({
   baseURL: env.API_URL,
-  timeout: 10000,
+  timeout: 20000, // Fly.io 환경 대응: 10초 → 20초로 증가
   headers: {
     'Content-Type': 'application/json',
   },

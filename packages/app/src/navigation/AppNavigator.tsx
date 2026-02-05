@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { NavigationContainer, CommonActions, NavigationContainerRef, useNavigation, useFocusEffect } from '@react-navigation/native';
+import { NavigationContainer, CommonActions, NavigationContainerRef, useNavigation, useFocusEffect, NavigatorScreenParams } from '@react-navigation/native';
 import { createBottomTabNavigator, BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator, NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { TouchableOpacity, View, ImageSourcePropType, Linking } from 'react-native';
@@ -163,9 +163,12 @@ function StudentsStack() {
 
 export type HomeStackParamList = {
   HomeMain: undefined;
-  ContractNew: undefined;
+  ContractNew: {
+    isFirstTimeBonus?: boolean;
+  } | undefined;
   ContractPreview: {
     contractId: number;
+    isFirstTimeBonus?: boolean;
   };
   AttendanceView: {
     attendanceLogId: number;
@@ -351,7 +354,7 @@ function MainAppStack() {
 }
 
 export type MainTabsParamList = {
-  Home: undefined;
+  Home: NavigatorScreenParams<HomeStackParamList> | undefined;
   Students: undefined;
   ContractAdd: undefined; // 플로팅 버튼용 빈 화면
   Settlement: undefined;
@@ -396,7 +399,7 @@ function MainTabs() {
       return;
     }
     
-    // 계약서 작성 화면으로 이동
+    // 계약서 작성 화면으로 이동 (일반 경로: 파라미터 없음)
     navigation.navigate('Home', {
       screen: 'ContractNew',
     });

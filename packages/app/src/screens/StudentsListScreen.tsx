@@ -59,10 +59,11 @@ function StudentsListContent() {
   const [showExtendModal, setShowExtendModal] = useState(false);
   const [selectedContractForExtend, setSelectedContractForExtend] = useState<{
     contractId: number;
-    contractType: 'sessions' | 'monthly';
+    contractType: 'sessions' | 'amount';
     totalSessions?: number;
     remainingSessions?: number;
-    currentEndDate?: string | null;
+    totalAmount?: number;
+    remainingAmount?: number;
   } | null>(null);
 
   const fetchStudents = useStudentsStore((state) => state.fetchStudents);
@@ -452,41 +453,25 @@ function StudentsListContent() {
           ) : null}
 
           <RowWithFooter>
+            {/* 왼쪽 컬럼: 3번째 줄 텍스트 + 4번째 줄(총/잔여) 텍스트를 수직으로 묶음 */}
             <FooterLeft>
-            {student.this_month_status_summary ? (
-              <CardRow3WithButton>
+              {student.this_month_status_summary ? (
                 <CardRow3>{student.this_month_status_summary}</CardRow3>
-                {contract && !meta.isExpired ? (
-                  <CardScheduleButton
-                    onPress={(e) => {
-                      e?.stopPropagation?.();
-                      handleSchedulePress(card);
-                    }}
-                  >
-                    <CardScheduleButtonText>
-                      일정 관리 <CardScheduleButtonArrow>{'>'}</CardScheduleButtonArrow>
-                    </CardScheduleButtonText>
-                  </CardScheduleButton>
-                ) : null}
-              </CardRow3WithButton>
               ) : null}
-              {meta.contractType === 'sessions' && typeof meta.remainingSessions === 'number' && typeof meta.totalSessions === 'number' ? (
+
+              {meta.contractType === 'sessions' &&
+              typeof meta.remainingSessions === 'number' &&
+              typeof meta.totalSessions === 'number' ? (
                 <ExtendNoteRow>
                   <ExtendNote>
                     <ExtendNoteTotal>총{meta.totalSessions}회</ExtendNoteTotal>
                     {' / '}
                     <ExtendNoteRemaining>잔여{meta.remainingSessions}회</ExtendNoteRemaining>
                   </ExtendNote>
-                  {meta.extendEligible ? (
-                    <ExtendActionButton onPress={(e) => {
-                      e?.stopPropagation?.();
-                      handleExtendPress(card);
-                    }}>
-                      <ExtendActionButtonText>연장하기</ExtendActionButtonText>
-                    </ExtendActionButton>
-                  ) : null}
                 </ExtendNoteRow>
-              ) : meta.contractType === 'amount' && typeof meta.remainingAmount === 'number' && typeof meta.totalAmount === 'number' ? (
+              ) : meta.contractType === 'amount' &&
+                typeof meta.remainingAmount === 'number' &&
+                typeof meta.totalAmount === 'number' ? (
                 <ExtendNoteRow>
                   <ExtendNote>
                     <ExtendNoteLabel>총</ExtendNoteLabel>
@@ -495,28 +480,51 @@ function StudentsListContent() {
                     <ExtendNoteLabel>잔여</ExtendNoteLabel>
                     <ExtendNoteRemaining>{meta.remainingAmount.toLocaleString()}원</ExtendNoteRemaining>
                   </ExtendNote>
-                  {meta.extendEligible ? (
-                    <ExtendActionButton onPress={(e) => {
-                      e?.stopPropagation?.();
-                      handleExtendPress(card);
-                    }}>
-                      <ExtendActionButtonText>연장하기</ExtendActionButtonText>
-                    </ExtendActionButton>
-                  ) : null}
                 </ExtendNoteRow>
               ) : meta.extendEligible && meta.extendReason ? (
                 <ExtendNote>{meta.extendReason}</ExtendNote>
               ) : null}
             </FooterLeft>
+
+            {/* 오른쪽 컬럼: 3번째 줄 버튼(일정관리/삭제) + 4번째 줄 버튼(연장하기)을 수직으로 묶음 */}
             <RightButtonContainer>
-              {meta.isExpired ? (
-                <DeleteButton onPress={(e) => {
-                  e?.stopPropagation?.();
-                  handleDeletePress(card);
-                }}>
+              {/* 계약이 살아있는 경우: 일정 관리 버튼 */}
+              {contract && !meta.isExpired && (
+                <CardScheduleButton
+                  onPress={(e: any) => {
+                    e?.stopPropagation?.();
+                    handleSchedulePress(card);
+                  }}
+                >
+                  <CardScheduleButtonText>
+                    일정 관리 <CardScheduleButtonArrow>{'>'}</CardScheduleButtonArrow>
+                  </CardScheduleButtonText>
+                </CardScheduleButton>
+              )}
+
+              {/* 연장 가능하면 (계약 종료 여부와 무관하게) 연장하기 버튼 */}
+              {meta.extendEligible && (
+                <ExtendActionButton
+                  onPress={(e: any) => {
+                    e?.stopPropagation?.();
+                    handleExtendPress(card);
+                  }}
+                >
+                  <ExtendActionButtonText>연장</ExtendActionButtonText>
+                </ExtendActionButton>
+              )}
+
+              {/* 계약 종료 고객: 삭제 버튼 */}
+              {meta.isExpired && (
+                <DeleteButton
+                  onPress={(e: any) => {
+                    e?.stopPropagation?.();
+                    handleDeletePress(card);
+                  }}
+                >
                   <DeleteButtonText>삭제</DeleteButtonText>
                 </DeleteButton>
-              ) : null}
+              )}
             </RightButtonContainer>
           </RowWithFooter>
         </Card>
@@ -575,7 +583,7 @@ function StudentsListContent() {
     if (status === 'loading' && items.length > 0) {
       return (
         <FooterLoader>
-          <ActivityIndicator color="#ff6b00" />
+          <ActivityIndicator color="#1d42d8" />
         </FooterLoader>
       );
     }
@@ -667,7 +675,7 @@ function StudentsListContent() {
       return;
     }
     
-    // 홈 스택의 ContractNew로 이동
+    // 홈 스택의 ContractNew로 이동 (일반 경로: 파라미터 없음)
     (mainTabsNavigation as any).navigate('Home', {
       screen: 'ContractNew',
     });
@@ -734,7 +742,7 @@ function StudentsListContent() {
           ) : (
             <>
               {primaryCards.map((item, index) => (
-                <React.Fragment key={`${item.student.id}-${item.id ?? index}`}>
+                <React.Fragment key={`${item.student.id}-${index}`}>
                   {renderStudentCard(item)}
                 </React.Fragment>
               ))}
@@ -868,7 +876,8 @@ const CardLeftLine = styled.View<{ isExpired?: boolean }>`
   top: 0;
   bottom: 0;
   width: 4px;
-  background-color: ${(props) => (props.isExpired ? '#eef2ff' : '#0f1b4d')};
+  background-color: ${(props: { isExpired?: boolean }) =>
+    props.isExpired ? '#eef2ff' : '#0f1b4d'};
 `;
 
 const CardRow1 = styled.View`
@@ -897,9 +906,23 @@ const BadgeContainer = styled.View`
   gap: 6px;
 `;
 
-const Badge = styled.View<{ contractType?: boolean; billingType?: boolean; absencePolicy?: boolean; billingTypeValue?: string; contractTypeValue?: 'sessions' | 'amount' | 'unknown'; absencePolicyValue?: string }>`
+const Badge = styled.View<{
+  contractType?: boolean;
+  billingType?: boolean;
+  absencePolicy?: boolean;
+  billingTypeValue?: string;
+  contractTypeValue?: 'sessions' | 'amount' | 'unknown';
+  absencePolicyValue?: string;
+}>`
   padding: 4px 8px;
-  background-color: ${(props) => {
+  background-color: ${(props: {
+    contractType?: boolean;
+    billingType?: boolean;
+    absencePolicy?: boolean;
+    billingTypeValue?: string;
+    contractTypeValue?: 'sessions' | 'amount' | 'unknown';
+    absencePolicyValue?: string;
+  }) => {
     if (props.contractType) {
       // 금액권: 블루 배경, 횟수권: 빨강 배경
       return props.contractTypeValue === 'amount' ? '#e8f2ff' : '#ffe5e5';
@@ -915,9 +938,21 @@ const Badge = styled.View<{ contractType?: boolean; billingType?: boolean; absen
   border-radius: 12px;
 `;
 
-const BadgeText = styled.Text<{ contractType?: boolean; absencePolicy?: boolean; billingTypeValue?: string; contractTypeValue?: 'sessions' | 'amount' | 'unknown'; absencePolicyValue?: string }>`
+const BadgeText = styled.Text<{
+  contractType?: boolean;
+  absencePolicy?: boolean;
+  billingTypeValue?: string;
+  contractTypeValue?: 'sessions' | 'amount' | 'unknown';
+  absencePolicyValue?: string;
+}>`
   font-size: 11px;
-  color: ${(props) => {
+  color: ${(props: {
+    contractType?: boolean;
+    absencePolicy?: boolean;
+    billingTypeValue?: string;
+    contractTypeValue?: 'sessions' | 'amount' | 'unknown';
+    absencePolicyValue?: string;
+  }) => {
     if (props.contractType) {
       // 금액권: 블루 텍스트, 횟수권: 빨강 텍스트
       return props.contractTypeValue === 'amount' ? '#246bfd' : '#ff3b30';
@@ -1072,7 +1107,7 @@ const ExtendNoteRemaining = styled.Text`
 `;
 
 const ExtendActionButton = styled.TouchableOpacity`
-  padding: 8px 14px;
+  padding: 8px 16px;
   background-color: #eef2ff;
   border-radius: 8px;
 `;

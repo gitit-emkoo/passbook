@@ -82,6 +82,7 @@ function HomeContent() {
   const todayClassesInFlightRef = useRef(false);
   const [todayClasses, setTodayClasses] = useState<TodayClass[]>([]);
   const [todayClassesLoading, setTodayClassesLoading] = useState(false);
+  const todayClassesLastFetchedRef = useRef<number | null>(null); // 타임스탬프 기반 캐싱
   const [showAllGuidanceStudents, setShowAllGuidanceStudents] = useState(false);
   const [showAllRecentContracts, setShowAllRecentContracts] = useState(false);
   const sendContract = useContractsStore((state) => state.sendContract);
@@ -219,6 +220,7 @@ function HomeContent() {
       try {
         const data = await contractsApi.getTodayClasses();
         setTodayClasses(Array.isArray(data) ? data : []);
+        todayClassesLastFetchedRef.current = Date.now();
       } catch (error: any) {
         console.error('[Home] error loading today classes', error?.message);
         setTodayClasses([]);
@@ -247,34 +249,51 @@ function HomeContent() {
     loadUnprocessedCount();
   }, [isPersistReady, loadUnprocessedCount]);
 
-  // 탭 포커스 시 대시보드/정산/오늘 수업 재요청
+  // 탭 포커스 시 대시보드/정산/오늘 수업 재요청 (병렬 처리 + 캐싱 최적화)
   useFocusEffect(
     React.useCallback(() => {
       // 인증 상태 확인
       const { isAuthenticated, accessToken } = useAuthStore.getState();
       if (!isPersistReady || !isAuthenticated || !accessToken) return;
       
-      // 홈 화면이 focus될 때마다 오늘 방문 목록 새로고침
-      const refreshTodayClasses = async () => {
-        try {
-          setTodayClassesLoading(true);
-          const data = await contractsApi.getTodayClasses();
-          setTodayClasses(Array.isArray(data) ? data : []);
-        } catch (error: any) {
-          console.error('[Home] error refreshing today classes on focus', error?.message);
-        } finally {
-          setTodayClassesLoading(false);
-        }
-      };
-
-      refreshTodayClasses();
-
-      // 대시보드 갱신
-      fetchDashboard().catch(() => {});
-      // 정산 데이터 갱신
-      fetchInvoicesSections(true).catch(() => {});
-      // 미처리 출결 개수 갱신
-      loadUnprocessedCount();
+      // 타임스탬프 기반 캐싱: 30초 내 재호출 방지
+      const now = Date.now();
+      const CACHE_TTL_MS = 30 * 1000;
+      const shouldFetchTodayClasses = !todayClassesLastFetchedRef.current || 
+        (now - todayClassesLastFetchedRef.current) >= CACHE_TTL_MS;
+      
+      // 모든 API를 병렬로 실행하여 Fly.io 환경에서 응답 시간 단축
+      Promise.all([
+        // 오늘 방문 목록 (캐시 체크)
+        (async () => {
+          if (!shouldFetchTodayClasses) {
+            // 캐시된 데이터 사용 (로딩 스피너 없이)
+            return;
+          }
+          try {
+            // Stale-while-revalidate: 캐시된 데이터가 있으면 로딩 상태 유지하지 않음
+            const currentClasses = todayClasses.length > 0;
+            if (!currentClasses) {
+              setTodayClassesLoading(true);
+            }
+            const data = await contractsApi.getTodayClasses();
+            setTodayClasses(Array.isArray(data) ? data : []);
+            todayClassesLastFetchedRef.current = now;
+          } catch (error: any) {
+            console.error('[Home] error refreshing today classes on focus', error?.message);
+          } finally {
+            setTodayClassesLoading(false);
+          }
+        })(),
+        // 대시보드 갱신
+        fetchDashboard().catch(() => {}),
+        // 정산 데이터 갱신
+        fetchInvoicesSections(true).catch(() => {}),
+        // 미처리 출결 개수 갱신
+        loadUnprocessedCount().catch(() => {}),
+      ]).catch((error) => {
+        console.error('[Home] error in parallel fetch', error);
+      });
     }, [isPersistReady, fetchDashboard, fetchInvoicesSections, loadUnprocessedCount]),
   );
 
@@ -1297,8 +1316,8 @@ function HomeContent() {
         visible={showFirstTimeBonusModal}
         onClose={() => setShowFirstTimeBonusModal(false)}
         onExtend={() => {
-          // 최초 접속 팝업 경로: isFirstTimeBonus: true로 90일 적용 경로임을 표시
-          navigation.navigate('Settings', { showSubscriptionIntro: true, isFirstTimeBonus: true });
+          // 이벤트 경로: 계약서 작성 화면으로 이동 (isFirstTimeBonus: true로 표시)
+          navigation.navigate('ContractNew', { isFirstTimeBonus: true });
         }}
       />
 
@@ -1765,9 +1784,13 @@ const StudentItemMeta = styled.Text`
 `;
 
 const StudentItemButton = styled.TouchableOpacity`
-  padding: 6px 12px;
+  padding: 0 12px;
+  height: 32px;
+  min-width: 80px;
   background-color: #1d42d8;
   border-radius: 6px;
+  align-items: center;
+  justify-content: center;
 `;
 
 const StudentItemButtonText = styled.Text`
@@ -1804,9 +1827,13 @@ const RecentContractMeta = styled.Text`
 `;
 
 const RecentContractStatusBadge = styled.View<{ $color: string }>`
-  padding: 6px 12px;
+  padding: 0 12px;
+  height: 32px;
+  min-width: 80px;
   background-color: ${({ $color }: { $color: string }) => `${$color}15`};
   border-radius: 6px;
+  align-items: center;
+  justify-content: center;
 `;
 
 const RecentContractStatusText = styled.Text<{ $color: string }>`
@@ -1816,9 +1843,13 @@ const RecentContractStatusText = styled.Text<{ $color: string }>`
 `;
 
 const RecentContractSendButton = styled.TouchableOpacity<{ disabled?: boolean }>`
-  padding: 8px 16px;
+  padding: 0 12px;
+  height: 32px;
+  min-width: 80px;
   background-color: #ff6b00;
   border-radius: 6px;
+  align-items: center;
+  justify-content: center;
   opacity: ${({ disabled }: { disabled?: boolean }) => (disabled ? 0.6 : 1)};
 `;
 

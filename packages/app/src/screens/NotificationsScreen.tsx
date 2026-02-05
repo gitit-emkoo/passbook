@@ -210,10 +210,7 @@ export default function NotificationsScreen() {
       } 
       // 나머지는 MainTabs 내부 화면
       else {
-        navigation.navigate('MainTabs', {
-          screen: item.target.screen,
-          params: item.target.params,
-        });
+        navigation.navigate('MainTabs', item.target as any);
       }
     },
     [navigation],
@@ -221,20 +218,20 @@ export default function NotificationsScreen() {
 
   const renderItem = useCallback(
     ({ item }: { item: NotificationItem }) => (
-      <Card onPress={() => handleCardPress(item)}>
-        <CardContent>
-          <CardHeader>
-            <CardTitle numberOfLines={1}>{item.title}</CardTitle>
+      <NotificationRow onPress={() => handleCardPress(item)}>
+        <NotificationContent>
+          <NotificationHeader>
+            <NotificationTitle numberOfLines={1}>{item.title}</NotificationTitle>
             {!item.read && <UnreadDot />}
-          </CardHeader>
-          <CardMessage numberOfLines={2}>{item.message}</CardMessage>
-          <CardMeta>
-            <CardMetaText>{CATEGORY_LABEL[item.category]}</CardMetaText>
-            <CardMetaDot>•</CardMetaDot>
-            <CardMetaText>{formatKoreanDateTime(item.createdAt)}</CardMetaText>
-          </CardMeta>
-        </CardContent>
-      </Card>
+          </NotificationHeader>
+          <NotificationMessage numberOfLines={2}>{item.message}</NotificationMessage>
+          <NotificationMeta>
+            <NotificationMetaText>{CATEGORY_LABEL[item.category]}</NotificationMetaText>
+            <NotificationMetaDot>•</NotificationMetaDot>
+            <NotificationMetaText>{formatKoreanDateTime(item.createdAt)}</NotificationMetaText>
+          </NotificationMeta>
+        </NotificationContent>
+      </NotificationRow>
     ),
     [handleCardPress],
   );
@@ -249,12 +246,17 @@ export default function NotificationsScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: 0, gap: 8 }}
         >
-          {FILTERS.map((chip) => (
-            <FilterChip key={chip.value} active={chip.value === filter} onPress={() => setFilter(chip.value)}>
+          {FILTERS.map((chip, index) => (
+            <FilterChip
+              key={chip.value}
+              active={chip.value === filter}
+              $isFirst={index === 0}
+              onPress={() => setFilter(chip.value)}
+            >
               <FilterChipText active={chip.value === filter}>{chip.label}</FilterChipText>
             </FilterChip>
           ))}
-          <FilterChip active={false} onPress={handleMarkAllRead}>
+          <FilterChip active={false} $isFirst={false} onPress={handleMarkAllRead}>
             <FilterChipText active={false}>모두 읽음</FilterChipText>
           </FilterChip>
         </FilterRow>
@@ -298,7 +300,7 @@ function formatKoreanDateTime(isoString: string) {
 
 const Container = styled.SafeAreaView`
   flex: 1;
-  background-color: #f5f5f5;
+  background-color: #ffffff;
   padding: 20px 20px 0;
 `;
 
@@ -327,28 +329,27 @@ const Subtitle = styled.Text`
 `;
 
 const FilterWrapper = styled.View`
-  margin-bottom: 24px;
+  /* 좌우 여백 제거: Container의 패딩(20px)을 상쇄 */
+  margin: 0 -20px 24px;
 `;
 
 const FilterRow = styled.ScrollView``;
 
-const FilterChip = styled.TouchableOpacity<{ active: boolean }>`
+const FilterChip = styled.TouchableOpacity<{ active: boolean; $isFirst?: boolean }>`
   padding: 10px 18px;
   border-radius: 20px;
   border-width: 1px;
-  border-color: ${(props) => (props.active ? '#B22222' : '#e1e1e1')};
-  background-color: ${(props) => (props.active ? '#B22222' : '#ffffff')};
-  shadow-color: #B22222;
-  shadow-opacity: ${(props) => (props.active ? 0.3 : 0)};
-  shadow-offset: 0px 5px;
-  shadow-radius: 12px;
-  elevation: ${(props) => (props.active ? 4 : 0)};
+  border-color: ${(props: { active: boolean }) => (props.active ? '#1d42d8' : '#e1e1e1')};
+  background-color: #ffffff;
+  margin-left: ${(props: { $isFirst?: boolean }) => (props.$isFirst ? '20px' : '0px')};
+  shadow-opacity: 0;
+  elevation: 0;
 `;
 
 const FilterChipText = styled.Text<{ active: boolean }>`
   font-size: 13px;
-  color: ${(props) => (props.active ? '#ffffff' : '#666666')};
-  font-weight: ${(props) => (props.active ? '700' : '500')};
+  color: ${(props: { active: boolean }) => (props.active ? '#1d42d8' : '#666666')};
+  font-weight: ${(props: { active: boolean }) => (props.active ? '700' : '500')};
 `;
 
 const Loader = styled.View`
@@ -397,30 +398,24 @@ const EmptyDescription = styled.Text`
   text-align: center;
 `;
 
-const Card = styled.TouchableOpacity`
+const NotificationRow = styled.TouchableOpacity`
   flex-direction: row;
-  background-color: #ffffff;
-  border-radius: 16px;
-  padding: 16px;
-  margin-bottom: 12px;
-  shadow-color: #000000;
-  shadow-opacity: 0.05;
-  shadow-offset: 0px 6px;
-  shadow-radius: 10px;
-  elevation: 2;
+  padding-vertical: 12px;
+  border-bottom-width: 1px;
+  border-bottom-color: #e5e5ea;
 `;
 
-const CardContent = styled.View`
+const NotificationContent = styled.View`
   flex: 1;
 `;
 
-const CardHeader = styled.View`
+const NotificationHeader = styled.View`
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
 `;
 
-const CardTitle = styled.Text`
+const NotificationTitle = styled.Text`
   font-size: 16px;
   font-weight: 700;
   color: #111111;
@@ -435,24 +430,24 @@ const UnreadDot = styled.View`
   background-color: #B22222;
 `;
 
-const CardMessage = styled.Text`
+const NotificationMessage = styled.Text`
   margin-top: 6px;
   font-size: 14px;
   color: #555555;
 `;
 
-const CardMeta = styled.View`
+const NotificationMeta = styled.View`
   margin-top: 10px;
   flex-direction: row;
   align-items: center;
 `;
 
-const CardMetaText = styled.Text`
+const NotificationMetaText = styled.Text`
   font-size: 13px;
   color: #888888;
 `;
 
-const CardMetaDot = styled.Text`
+const NotificationMetaDot = styled.Text`
   margin: 0 6px;
   color: #bbbbbb;
 `;

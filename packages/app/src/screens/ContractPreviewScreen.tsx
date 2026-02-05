@@ -6,8 +6,11 @@ import { HomeStackParamList, StudentsStackNavigationProp } from '../navigation/A
 import { contractsApi } from '../api/contracts';
 import styled from 'styled-components/native';
 import ContractSignatureModal from '../components/modals/ContractSignatureModal';
+import FirstContractBonusSuccessModal from '../components/modals/FirstContractBonusSuccessModal';
 import { useDashboardStore } from '../store/useDashboardStore';
 import { useInvoicesStore } from '../store/useInvoicesStore';
+import { useStudentsStore } from '../store/useStudentsStore';
+import { activateFreeSubscription } from '../utils/subscription';
 
 const Container = styled.View`
   flex: 1;
@@ -86,7 +89,7 @@ const SignatureButtonText = styled.Text<{ $filled?: boolean }>`
 function ContractPreviewContent() {
   const route = useRoute<RouteProp<HomeStackParamList, 'ContractPreview'>>();
   const navigation = useNavigation<StudentsStackNavigationProp>();
-  const { contractId } = route.params;
+  const { contractId, isFirstTimeBonus } = route.params;
   const [html, setHtml] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +100,7 @@ function ContractPreviewContent() {
   const [tempTeacherSignature, setTempTeacherSignature] = useState<string | null>(null);
   const [tempStudentSignature, setTempStudentSignature] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [showBonusSuccessModal, setShowBonusSuccessModal] = useState(false);
   const fetchDashboard = useDashboardStore((s) => s.fetchDashboard);
   const fetchInvoicesCurrent = useInvoicesStore((s) => s.fetchCurrentMonth);
 
@@ -206,6 +210,15 @@ function ContractPreviewContent() {
       ]);
       setTempTeacherSignature(null);
       setTempStudentSignature(null);
+      
+      // 이벤트 경로인 경우: 90일 무료구독 자동 활성화
+      // 이벤트 모달은 최초 접속자에게만 표시되므로, 이벤트 경로로 온 경우는 무조건 첫 이용권으로 간주
+      if (isFirstTimeBonus === true) {
+        // 첫 이용권 생성 완료 모달 표시
+        setShowBonusSuccessModal(true);
+        return; // 모달에서 확인 클릭 시 navigate 처리
+      }
+      
       // 계약서 미리보기 화면으로 이동
       navigation.navigate('Students', {
         screen: 'ContractView',
@@ -217,7 +230,26 @@ function ContractPreviewContent() {
     } finally {
       setConfirming(false);
     }
-  }, [contractId, contractMeta, canConfirm, tempTeacherSignature, tempStudentSignature]);
+  }, [contractId, contractMeta, canConfirm, tempTeacherSignature, tempStudentSignature, isFirstTimeBonus, navigation]);
+  
+  // 첫 이용권 생성 완료 모달 확인 클릭 시 90일 무료구독 활성화
+  const handleBonusSuccessConfirm = useCallback(async () => {
+    try {
+      // 90일 무료구독 활성화 (isFirstTimeBonus: true)
+      await activateFreeSubscription(true);
+      setShowBonusSuccessModal(false);
+      
+      // 계약서 미리보기 화면으로 이동
+      navigation.navigate('Students', {
+        screen: 'ContractView',
+        params: { contractId },
+      });
+    } catch (error) {
+      console.error('[ContractPreview] Failed to activate subscription', error);
+      Alert.alert('오류', '무료구독 활성화에 실패했습니다.');
+      setShowBonusSuccessModal(false);
+    }
+  }, [contractId, navigation]);
 
   if (loading) {
     return (
@@ -313,6 +345,10 @@ function ContractPreviewContent() {
           setSignerType(null);
         }}
         onConfirm={handleSignatureComplete}
+      />
+      <FirstContractBonusSuccessModal
+        visible={showBonusSuccessModal}
+        onClose={handleBonusSuccessConfirm}
       />
     </Container>
   );

@@ -15,6 +15,7 @@ interface StudentsListState {
   _currentPage: number;
   _currentSearch?: string;
   _currentFilter?: string;
+  _lastFetchedAt: number | null; // 타임스탬프 기반 캐싱
 }
 
 interface StudentDetailState {
@@ -38,6 +39,8 @@ interface StudentsState {
 }
 
 const DEFAULT_PAGE_SIZE = 20;
+// 캐시 유효 시간: 30초 (Fly.io 환경 대응)
+const CACHE_TTL_MS = 30 * 1000;
 
 export const useStudentsStore = create<StudentsState>((set, get) => ({
   list: {
@@ -51,6 +54,7 @@ export const useStudentsStore = create<StudentsState>((set, get) => ({
     _loadedOnce: false,
     _inFlight: false,
     _currentPage: 1,
+    _lastFetchedAt: null,
   },
   details: {},
 
@@ -65,10 +69,23 @@ export const useStudentsStore = create<StudentsState>((set, get) => ({
     const isRefresh = refresh || page === 1;
     const targetPage = isRefresh ? 1 : page;
 
+    // 타임스탬프 기반 캐싱: 30초 내 재호출 방지 (검색/필터 변경 시에는 무시)
+    const now = Date.now();
+    const searchChanged = search !== state.list._currentSearch;
+    const filterChanged = filter !== state.list._currentFilter;
+    if (!isRefresh && !searchChanged && !filterChanged && state.list._lastFetchedAt) {
+      const cacheAge = now - state.list._lastFetchedAt;
+      if (cacheAge < CACHE_TTL_MS) {
+        return; // 캐시된 데이터 사용
+      }
+    }
+
+    // Stale-while-revalidate: 캐시된 데이터가 있으면 로딩 상태 유지하지 않음
+    const hasStaleData = state.list.items.length > 0 && !isRefresh;
     set((state) => ({
       list: {
         ...state.list,
-        status: isRefresh ? 'loading' : state.list.status,
+        status: isRefresh && !hasStaleData ? 'loading' : state.list.status,
         isRefreshing: isRefresh,
         errorMessage: null,
         _inFlight: true,
@@ -99,6 +116,7 @@ export const useStudentsStore = create<StudentsState>((set, get) => ({
             lastUpdatedAt: Date.now(),
             _loadedOnce: true,
             _inFlight: false,
+            _lastFetchedAt: now,
           },
         };
       });
@@ -211,6 +229,7 @@ export const useStudentsStore = create<StudentsState>((set, get) => ({
         _loadedOnce: false,
         _inFlight: false,
         _currentPage: 1,
+        _lastFetchedAt: null,
       },
       details: {},
     });

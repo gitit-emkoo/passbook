@@ -16,11 +16,15 @@ interface InvoicesState {
   errorMessage: string | null;
   _loadedOnce: boolean;
   _inFlight: boolean;
+  _lastFetchedAt: number | null; // 타임스탬프 기반 캐싱
   fetchCurrentMonth: (options?: { historyMonths?: number; force?: boolean }) => Promise<void>;
   fetchSections: (force?: boolean) => Promise<void>;
   updateInvoice: (id: number, manualAdjustment: number, manualReason?: string) => Promise<void>;
   reset: () => void;
 }
+
+// 캐시 유효 시간: 30초 (Fly.io 환경 대응)
+const CACHE_TTL_MS = 30 * 1000;
 
 export const useInvoicesStore = create<InvoicesState>((set, get) => ({
   currentMonthInvoices: [],
@@ -30,6 +34,7 @@ export const useInvoicesStore = create<InvoicesState>((set, get) => ({
   errorMessage: null,
   _loadedOnce: false,
   _inFlight: false,
+  _lastFetchedAt: null,
 
   fetchCurrentMonth: async (options = {}) => {
     const { historyMonths = 3, force = false } = options;
@@ -86,15 +91,26 @@ export const useInvoicesStore = create<InvoicesState>((set, get) => ({
   fetchSections: async (force = false) => {
     const state = get();
 
-    if (!force && state.sections && !state._inFlight) {
-      return;
+    // 타임스탬프 기반 캐싱: 30초 내 재호출 방지
+    const now = Date.now();
+    if (!force && state.sections && state._lastFetchedAt) {
+      const cacheAge = now - state._lastFetchedAt;
+      if (cacheAge < CACHE_TTL_MS && !state._inFlight) {
+        return; // 캐시된 데이터 사용
+      }
     }
 
     if (state._inFlight) {
       return;
     }
 
-    set({ status: 'loading', errorMessage: null, _inFlight: true });
+    // Stale-while-revalidate: 캐시된 데이터가 있으면 로딩 상태 유지하지 않음
+    const hasStaleData = state.sections !== null;
+    if (!hasStaleData) {
+      set({ status: 'loading', errorMessage: null, _inFlight: true });
+    } else {
+      set({ _inFlight: true });
+    }
 
     try {
       const data = await invoicesApi.getBySections();
@@ -108,6 +124,7 @@ export const useInvoicesStore = create<InvoicesState>((set, get) => ({
         status: 'success',
         errorMessage: null,
         _inFlight: false,
+        _lastFetchedAt: now,
       });
     } catch (error: any) {
       const statusCode = error?.response?.status;
@@ -182,6 +199,7 @@ export const useInvoicesStore = create<InvoicesState>((set, get) => ({
       errorMessage: null,
       _loadedOnce: false,
       _inFlight: false,
+      _lastFetchedAt: null,
     });
   },
 }));

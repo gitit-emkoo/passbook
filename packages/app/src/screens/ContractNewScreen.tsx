@@ -2,8 +2,8 @@ import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { usersApi } from '../api/users';
 import { Alert, ScrollView, ActivityIndicator, Modal, Platform } from 'react-native';
 import styled from 'styled-components/native';
-import { useNavigation } from '@react-navigation/native';
-import { HomeStackNavigationProp } from '../navigation/AppNavigator';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { HomeStackNavigationProp, HomeStackParamList } from '../navigation/AppNavigator';
 import { contractsApi } from '../api/contracts';
 import { studentsApi } from '../api/students';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -34,7 +34,11 @@ const ABSENCE_POLICIES = [
 
 export default function ContractNewScreen() {
   const navigation = useNavigation<HomeStackNavigationProp>();
+  const route = useRoute<RouteProp<HomeStackParamList, 'ContractNew'>>();
   const [loading, setLoading] = useState(false);
+  
+  // 이벤트 경로 추적 (isFirstTimeBonus 파라미터)
+  const isFirstTimeBonus = route.params?.isFirstTimeBonus === true;
 
   // 수강생 정보 (뷰티앱: 고객 정보)
   const [studentName, setStudentName] = useState('');
@@ -483,9 +487,10 @@ export default function ContractNewScreen() {
 
       const contract = await contractsApi.create(contractData);
 
-      // 계약서 미리보기 화면으로 이동
+      // 계약서 미리보기 화면으로 이동 (이벤트 경로 정보 전달)
       navigation.navigate('ContractPreview', {
         contractId: contract.id,
+        isFirstTimeBonus: isFirstTimeBonus,
       });
     } catch (error: any) {
       console.error('[Contract] error', error);

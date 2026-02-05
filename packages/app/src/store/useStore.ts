@@ -7,6 +7,7 @@ interface User {
   id: number;
   phone: string;
   name?: string;
+  org_code?: string;
 }
 
 interface AuthState {

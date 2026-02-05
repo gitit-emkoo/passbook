@@ -6,7 +6,7 @@ import { authApi, CompleteSignupRequest } from '../api/auth';
 import { useAuthStore } from '../store/useStore';
 import { AuthStackParamList } from '../navigation/AppNavigator';
 
-const logoImage = require('../../assets/logo1.jpg');
+const logoImage = require('../../assets/icon.png');
 
 export default function SignupScreen() {
   const route = useRoute<RouteProp<AuthStackParamList, 'Signup'>>();
@@ -109,7 +109,9 @@ export default function SignupScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <HeaderArea>
-            <LogoImage source={logoImage} resizeMode="contain" />
+            <LogoContainer>
+              <LogoImage source={logoImage} resizeMode="cover" />
+            </LogoContainer>
             <AppSlogan>고객과 신뢰로 나누는 이용권 관리</AppSlogan>
           </HeaderArea>
           <Content>
@@ -236,11 +238,17 @@ const HeaderArea = styled.View`
   gap: 16px;
 `;
 
-const LogoImage = styled.Image`
+const LogoContainer = styled.View`
   width: 80px;
   height: 80px;
   margin-bottom: 8px;
   border-radius: 40px;
+  overflow: hidden;
+`;
+
+const LogoImage = styled.Image`
+  width: 100%;
+  height: 100%;
 `;
 
 const AppSlogan = styled.Text`
@@ -315,7 +323,7 @@ const PrimaryButton = styled.TouchableOpacity<{ disabled?: boolean }>`
   align-items: center;
   justify-content: center;
   margin-top: 24px;
-  opacity: ${(props) => (props.disabled ? 0.5 : 1)};
+  opacity: ${(props: { disabled?: boolean }) => (props.disabled ? 0.5 : 1)};
 `;
 
 const PrimaryButtonText = styled.Text`
@@ -335,16 +343,16 @@ const OptionButton = styled.TouchableOpacity<{ $selected: boolean }>`
   min-width: 80px;
   padding: 12px 16px;
   border-width: 1px;
-  border-color: ${(props) => (props.$selected ? '#1d42d8' : '#e0e0e0')};
+  border-color: ${(props: { $selected: boolean }) => (props.$selected ? '#1d42d8' : '#e0e0e0')};
   border-radius: 8px;
-  background-color: ${(props) => (props.$selected ? '#eef2ff' : '#ffffff')};
+  background-color: ${(props: { $selected: boolean }) => (props.$selected ? '#eef2ff' : '#ffffff')};
   align-items: center;
 `;
 
 const OptionButtonText = styled.Text<{ $selected: boolean }>`
   font-size: 14px;
-  font-weight: ${(props) => (props.$selected ? 600 : 500)};
-  color: ${(props) => (props.$selected ? '#1d42d8' : '#333333')};
+  font-weight: ${(props: { $selected: boolean }) => (props.$selected ? 600 : 500)};
+  color: ${(props: { $selected: boolean }) => (props.$selected ? '#1d42d8' : '#333333')};
 `;
 
 const DisabledOptionButton = styled.View<{ $selected?: boolean }>`
@@ -352,9 +360,9 @@ const DisabledOptionButton = styled.View<{ $selected?: boolean }>`
   min-width: 80px;
   padding: 12px 16px;
   border-width: 1px;
-  border-color: ${(props) => (props.$selected ? '#1d42d8' : '#e0e0e0')};
+  border-color: ${(props: { $selected?: boolean }) => (props.$selected ? '#1d42d8' : '#e0e0e0')};
   border-radius: 8px;
-  background-color: ${(props) => (props.$selected ? '#eef2ff' : '#ffffff')};
+  background-color: ${(props: { $selected?: boolean }) => (props.$selected ? '#eef2ff' : '#ffffff')};
   align-items: center;
   opacity: 0.7;
 `;

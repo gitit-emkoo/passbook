@@ -7,25 +7,39 @@ interface DashboardState {
   status: 'idle' | 'loading' | 'success' | 'error';
   errorMessage: string | null;
   _loadedOnce: boolean;
+  _lastFetchedAt: number | null; // 타임스탬프 기반 캐싱
   fetchDashboard: (options?: { force?: boolean }) => Promise<void>;
   reset: () => void;
 }
+
+// 캐시 유효 시간: 30초 (Fly.io 환경 대응)
+const CACHE_TTL_MS = 30 * 1000;
 
 export const useDashboardStore = create<DashboardState>((set, get) => ({
   summary: null,
   status: 'idle',
   errorMessage: null,
   _loadedOnce: false,
+  _lastFetchedAt: null,
 
   fetchDashboard: async (options = {}) => {
     const { force = false } = options;
     const state = get();
 
-    if (!force && state._loadedOnce && state.summary) {
-      return;
+    // 타임스탬프 기반 캐싱: 30초 내 재호출 방지
+    const now = Date.now();
+    if (!force && state._loadedOnce && state.summary && state._lastFetchedAt) {
+      const cacheAge = now - state._lastFetchedAt;
+      if (cacheAge < CACHE_TTL_MS) {
+        return; // 캐시된 데이터 사용
+      }
     }
 
-    set({ status: 'loading', errorMessage: null });
+    // Stale-while-revalidate: 캐시된 데이터가 있으면 로딩 상태 유지하지 않음
+    const hasStaleData = state.summary !== null;
+    if (!hasStaleData) {
+      set({ status: 'loading', errorMessage: null });
+    }
 
     try {
       const data = await dashboardApi.getSummary();
@@ -36,6 +50,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         status: 'success',
         errorMessage: null,
         _loadedOnce: true,
+        _lastFetchedAt: now,
       });
     } catch (error: any) {
       const statusCode = error?.response?.status;
@@ -67,6 +82,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       status: 'idle',
       errorMessage: null,
       _loadedOnce: false,
+      _lastFetchedAt: null,
     });
   },
 }));
