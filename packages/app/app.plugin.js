@@ -1,4 +1,4 @@
-const { withGradleProperties, withProjectBuildGradle, withDangerousMod } = require('@expo/config-plugins');
+const { withGradleProperties, withProjectBuildGradle, withAppBuildGradle, withDangerousMod } = require('@expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
 
@@ -46,7 +46,14 @@ const withKotlinVersion = (config) => {
   // 2. 루트 build.gradle에서 buildscript {} 블록을 먼저 처리하고, plugins {} 블록을 그 뒤에 배치
   config = withProjectBuildGradle(config, (config) => {
     if (config.modResults.language === 'groovy') {
+      const targetSdkVersion = config.android?.targetSdkVersion || 35;
       let contents = config.modResults.contents;
+      
+      // [0] targetSdkVersion 기본값을 app.config.js의 값으로 교체
+      contents = contents.replace(
+        /targetSdkVersion\s*=\s*Integer\.parseInt\(findProperty\(['"]android\.targetSdkVersion['"]\)\s*\?:\s*['"]\d+['"]\)/g,
+        `targetSdkVersion = Integer.parseInt(findProperty('android.targetSdkVersion') ?: '${targetSdkVersion}')`
+      );
       
       // [1] buildscript {} 블록은 유지하되, Kotlin 버전만 1.9.25로 강제
       // ext {} 블록에서 kotlinVersion을 1.9.25로 강제 교체
@@ -180,7 +187,54 @@ allprojects {
     return config;
   });
   
-  // 3. 모든 서브프로젝트 및 node_modules의 expo-modules-core에서 kotlinVersion 설정
+  // 3. gradle.properties에 targetSdkVersion 설정
+  config = withGradleProperties(config, (config) => {
+    const existingProps = config.modResults || [];
+    const targetSdkVersion = config.android?.targetSdkVersion || 35;
+    
+    const targetSdkProp = existingProps.find(
+      (prop) => prop.key === 'android.targetSdkVersion'
+    );
+    
+    if (!targetSdkProp) {
+      config.modResults.push({
+        type: 'property',
+        key: 'android.targetSdkVersion',
+        value: String(targetSdkVersion),
+      });
+    } else {
+      targetSdkProp.value = String(targetSdkVersion);
+    }
+    
+    return config;
+  });
+  
+  // 5. app/build.gradle에서 versionCode를 app.config.js와 동기화
+  config = withAppBuildGradle(config, (config) => {
+    if (config.modResults.language === 'groovy') {
+      const versionCode = config.android?.versionCode || 1;
+      let contents = config.modResults.contents;
+      
+      // versionCode를 app.config.js의 값으로 교체
+      contents = contents.replace(
+        /versionCode\s+\d+/g,
+        `versionCode ${versionCode}`
+      );
+      
+      // versionCode가 없으면 추가
+      if (!contents.includes('versionCode')) {
+        contents = contents.replace(
+          /(defaultConfig\s*\{[\s\S]*?)(\n\s*\})/,
+          `$1        versionCode ${versionCode}\n$2`
+        );
+      }
+      
+      config.modResults.contents = contents;
+    }
+    return config;
+  });
+  
+  // 4. 모든 서브프로젝트 및 node_modules의 expo-modules-core에서 kotlinVersion 설정
   config = withDangerousMod(config, [
     'android',
     async (config) => {

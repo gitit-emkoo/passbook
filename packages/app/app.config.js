@@ -26,7 +26,10 @@ export default ({ config }) => ({
         foregroundImage: './assets/adaptive-icon.png',
         backgroundColor: '#ffffff',
       },
-      useCleartextTraffic: process.env.USE_CLEARTEXT_TRAFFIC === 'true' || process.env.NODE_ENV !== 'production', // 환경변수로 제어, 기본값: 개발환경 true, 프로덕션 false
+      versionCode: 7,
+      targetSdkVersion: 35,
+      useCleartextTraffic:
+        process.env.USE_CLEARTEXT_TRAFFIC === 'true' || process.env.NODE_ENV !== 'production', // 환경변수로 제어, 기본값: 개발환경 true, 프로덕션 false
       networkSecurityConfig: './android/app/src/main/res/xml/network_security_config.xml',
       edgeToEdgeEnabled: true,
       predictiveBackGestureEnabled: false,
