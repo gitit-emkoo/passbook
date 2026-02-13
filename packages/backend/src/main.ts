@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -19,6 +20,9 @@ async function bootstrap() {
 
   // 전역 에러 핸들링
   app.useGlobalFilters(new AllExceptionsFilter());
+
+  // 전역 성능 로깅 인터셉터
+  app.useGlobalInterceptors(new LoggingInterceptor());
 
   // 전역 유효성 검사 파이프
   app.useGlobalPipes(
