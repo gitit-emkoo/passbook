@@ -297,131 +297,210 @@ export class DashboardService {
   }
 
   async getMonthlyRevenue(userId: number) {
-    // 현재 연도 기준으로 1월~12월 데이터 조회
+    // 현재 연도 기준으로 1월~12월 데이터 조회 - 최적화: 한 번의 쿼리로 모든 월 데이터 조회
     const now = new Date();
     const kstOffset = 9 * 60;
     const kstNow = new Date(now.getTime() + kstOffset * 60 * 1000);
     const currentYear = kstNow.getFullYear();
 
-    const monthlyData: Array<{ year: number; month: number; revenue: number }> = [];
+    // 한 번의 쿼리로 올해 모든 월의 데이터 조회
+    const allInvoices = await this.prisma.invoice.findMany({
+      where: {
+        user_id: userId,
+        year: currentYear,
+        send_status: 'sent',
+      },
+      select: {
+        month: true,
+        final_amount: true,
+      },
+    });
 
-    // 1월~12월 데이터 조회
+    // 월별로 그룹화하여 합계 계산
+    const monthlyRevenueMap = new Map<number, number>();
     for (let month = 1; month <= 12; month++) {
-      const invoices = await this.prisma.invoice.findMany({
-        where: {
-          user_id: userId,
-          year: currentYear,
-          month,
-          send_status: 'sent',
-        },
-        select: {
-          final_amount: true,
-        },
-      });
+      monthlyRevenueMap.set(month, 0);
+    }
 
-      const revenue = invoices.reduce((sum, inv) => sum + (inv.final_amount || 0), 0);
-      monthlyData.push({ year: currentYear, month, revenue });
+    allInvoices.forEach((inv) => {
+      const current = monthlyRevenueMap.get(inv.month) || 0;
+      monthlyRevenueMap.set(inv.month, current + (inv.final_amount || 0));
+    });
+
+    // 배열로 변환
+    const monthlyData: Array<{ year: number; month: number; revenue: number }> = [];
+    for (let month = 1; month <= 12; month++) {
+      monthlyData.push({
+        year: currentYear,
+        month,
+        revenue: monthlyRevenueMap.get(month) || 0,
+      });
     }
 
     return monthlyData;
   }
 
   async getMonthlyContracts(userId: number) {
-    // 현재 연도 기준으로 1월~12월 데이터 조회
+    // 현재 연도 기준으로 1월~12월 데이터 조회 - 최적화: 한 번의 쿼리로 모든 월 데이터 조회
     const now = new Date();
     const kstOffset = 9 * 60;
     const kstNow = new Date(now.getTime() + kstOffset * 60 * 1000);
     const currentYear = kstNow.getFullYear();
 
-    const monthlyData: Array<{ year: number; month: number; count: number }> = [];
+    // 올해 시작일과 종료일
+    const yearStart = new Date(Date.UTC(currentYear, 0, 1, 0, 0, 0, 0));
+    const yearEnd = new Date(Date.UTC(currentYear, 11, 31, 23, 59, 59, 999));
 
-    // 1월~12월 데이터 조회
-    for (let month = 1; month <= 12; month++) {
-      const monthStart = new Date(Date.UTC(currentYear, month - 1, 1, 0, 0, 0, 0));
-      const monthEnd = new Date(Date.UTC(currentYear, month, 0, 23, 59, 59, 999));
-
-      const count = await this.prisma.contract.count({
-        where: {
-          user_id: userId,
-          created_at: {
-            gte: monthStart,
-            lte: monthEnd,
-          },
+    // 한 번의 쿼리로 올해 모든 계약 조회
+    const allContracts = await this.prisma.contract.findMany({
+      where: {
+        user_id: userId,
+        created_at: {
+          gte: yearStart,
+          lte: yearEnd,
         },
-      });
+      },
+      select: {
+        created_at: true,
+      },
+    });
 
-      monthlyData.push({ year: currentYear, month, count });
+    // 월별로 그룹화하여 카운트
+    const monthlyCountMap = new Map<number, number>();
+    for (let month = 1; month <= 12; month++) {
+      monthlyCountMap.set(month, 0);
+    }
+
+    allContracts.forEach((contract) => {
+      const contractDate = new Date(contract.created_at);
+      const month = contractDate.getUTCMonth() + 1; // 0-based to 1-based
+      if (month >= 1 && month <= 12) {
+        const current = monthlyCountMap.get(month) || 0;
+        monthlyCountMap.set(month, current + 1);
+      }
+    });
+
+    // 배열로 변환
+    const monthlyData: Array<{ year: number; month: number; count: number }> = [];
+    for (let month = 1; month <= 12; month++) {
+      monthlyData.push({
+        year: currentYear,
+        month,
+        count: monthlyCountMap.get(month) || 0,
+      });
     }
 
     return monthlyData;
   }
 
   async getMonthlyUsageAmount(userId: number) {
-    // 현재 연도 기준으로 1월~12월 데이터 조회
+    // 현재 연도 기준으로 1월~12월 데이터 조회 - 최적화: 한 번의 쿼리로 모든 월 데이터 조회
     const now = new Date();
     const kstOffset = 9 * 60;
     const kstNow = new Date(now.getTime() + kstOffset * 60 * 1000);
     const currentYear = kstNow.getFullYear();
 
-    const monthlyData: Array<{ year: number; month: number; amount: number }> = [];
+    // 올해 시작일과 종료일
+    const yearStart = new Date(Date.UTC(currentYear, 0, 1, 0, 0, 0, 0));
+    const yearEnd = new Date(Date.UTC(currentYear, 11, 31, 23, 59, 59, 999));
 
-    // 1월~12월 데이터 조회
+    // 한 번의 쿼리로 올해 모든 출결 기록 조회
+    const allAttendanceLogs = await this.prisma.attendanceLog.findMany({
+      where: {
+        user_id: userId,
+        occurred_at: {
+          gte: yearStart,
+          lte: yearEnd,
+        },
+        status: { in: ['present', 'vanish'] }, // 사용과 소멸 모두 포함
+        voided: false,
+        amount: { not: null },
+      },
+      select: {
+        occurred_at: true,
+        amount: true,
+      },
+    });
+
+    // 월별로 그룹화하여 합계 계산
+    const monthlyAmountMap = new Map<number, number>();
     for (let month = 1; month <= 12; month++) {
-      const monthStart = new Date(Date.UTC(currentYear, month - 1, 1, 0, 0, 0, 0));
-      const monthEnd = new Date(Date.UTC(currentYear, month, 0, 23, 59, 59, 999));
+      monthlyAmountMap.set(month, 0);
+    }
 
-      const attendanceLogs = await this.prisma.attendanceLog.findMany({
-        where: {
-          user_id: userId,
-          occurred_at: {
-            gte: monthStart,
-            lte: monthEnd,
-          },
-          status: { in: ['present', 'vanish'] }, // 사용과 소멸 모두 포함
-          voided: false,
-          amount: { not: null },
-        },
-        select: {
-          amount: true,
-        },
+    allAttendanceLogs.forEach((log) => {
+      const logDate = new Date(log.occurred_at);
+      const month = logDate.getUTCMonth() + 1; // 0-based to 1-based
+      if (month >= 1 && month <= 12) {
+        const current = monthlyAmountMap.get(month) || 0;
+        monthlyAmountMap.set(month, current + (log.amount || 0));
+      }
+    });
+
+    // 배열로 변환
+    const monthlyData: Array<{ year: number; month: number; amount: number }> = [];
+    for (let month = 1; month <= 12; month++) {
+      monthlyData.push({
+        year: currentYear,
+        month,
+        amount: monthlyAmountMap.get(month) || 0,
       });
-
-      const amount = attendanceLogs.reduce((sum, log) => sum + (log.amount || 0), 0);
-      monthlyData.push({ year: currentYear, month, amount });
     }
 
     return monthlyData;
   }
 
   async getMonthlyUsageCount(userId: number) {
-    // 현재 연도 기준으로 1월~12월 데이터 조회
+    // 현재 연도 기준으로 1월~12월 데이터 조회 - 최적화: 한 번의 쿼리로 모든 월 데이터 조회
     const now = new Date();
     const kstOffset = 9 * 60;
     const kstNow = new Date(now.getTime() + kstOffset * 60 * 1000);
     const currentYear = kstNow.getFullYear();
 
-    const monthlyData: Array<{ year: number; month: number; count: number }> = [];
+    // 올해 시작일과 종료일
+    const yearStart = new Date(Date.UTC(currentYear, 0, 1, 0, 0, 0, 0));
+    const yearEnd = new Date(Date.UTC(currentYear, 11, 31, 23, 59, 59, 999));
 
-    // 1월~12월 데이터 조회
-    for (let month = 1; month <= 12; month++) {
-      const monthStart = new Date(Date.UTC(currentYear, month - 1, 1, 0, 0, 0, 0));
-      const monthEnd = new Date(Date.UTC(currentYear, month, 0, 23, 59, 59, 999));
-
-      // 횟수권 계약의 사용처리 횟수 (사용 + 소멸, amount가 null인 경우)
-      const count = await this.prisma.attendanceLog.count({
-        where: {
-          user_id: userId,
-          occurred_at: {
-            gte: monthStart,
-            lte: monthEnd,
-          },
-          status: { in: ['present', 'vanish'] }, // 사용과 소멸 모두 포함
-          voided: false,
-          amount: null,
+    // 한 번의 쿼리로 올해 모든 출결 기록 조회
+    const allAttendanceLogs = await this.prisma.attendanceLog.findMany({
+      where: {
+        user_id: userId,
+        occurred_at: {
+          gte: yearStart,
+          lte: yearEnd,
         },
-      });
+        status: { in: ['present', 'vanish'] }, // 사용과 소멸 모두 포함
+        voided: false,
+        amount: null, // 횟수권만
+      },
+      select: {
+        occurred_at: true,
+      },
+    });
 
-      monthlyData.push({ year: currentYear, month, count });
+    // 월별로 그룹화하여 카운트
+    const monthlyCountMap = new Map<number, number>();
+    for (let month = 1; month <= 12; month++) {
+      monthlyCountMap.set(month, 0);
+    }
+
+    allAttendanceLogs.forEach((log) => {
+      const logDate = new Date(log.occurred_at);
+      const month = logDate.getUTCMonth() + 1; // 0-based to 1-based
+      if (month >= 1 && month <= 12) {
+        const current = monthlyCountMap.get(month) || 0;
+        monthlyCountMap.set(month, current + 1);
+      }
+    });
+
+    // 배열로 변환
+    const monthlyData: Array<{ year: number; month: number; count: number }> = [];
+    for (let month = 1; month <= 12; month++) {
+      monthlyData.push({
+        year: currentYear,
+        month,
+        count: monthlyCountMap.get(month) || 0,
+      });
     }
 
     return monthlyData;
