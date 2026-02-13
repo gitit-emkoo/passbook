@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, TouchableOpacity, Image } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import styled from 'styled-components/native';
@@ -23,18 +23,34 @@ function StatisticsContent() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [statistics, setStatistics] = useState<StatisticsData | null>(null);
+  const dataLastFetchedRef = useRef<number | null>(null);
 
-  const loadStatistics = useCallback(async () => {
+  const loadStatistics = useCallback(async (force = false) => {
+    // 타임스탬프 기반 캐싱: 30초 내 재호출 방지 (강제 새로고침이 아닐 때만)
+    if (!force) {
+      const now = Date.now();
+      const CACHE_TTL_MS = 30 * 1000;
+      if (dataLastFetchedRef.current && (now - dataLastFetchedRef.current) < CACHE_TTL_MS) {
+        // 캐시된 데이터 사용 (서버 호출 없이)
+        return;
+      }
+    }
+
     try {
-      setLoading(true);
+      // Stale-while-revalidate: 캐시된 데이터가 있으면 로딩 상태 유지하지 않음
+      const hasCachedData = statistics !== null;
+      if (!hasCachedData) {
+        setLoading(true);
+      }
       const data = await dashboardApi.getStatistics();
       setStatistics(data);
+      dataLastFetchedRef.current = Date.now();
     } catch (error: any) {
       console.error('[Statistics] load error', error);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [statistics]);
 
   useFocusEffect(
     useCallback(() => {
@@ -44,7 +60,7 @@ function StatisticsContent() {
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    await loadStatistics();
+    await loadStatistics(true); // 강제 새로고침
     setRefreshing(false);
   }, [loadStatistics]);
 
@@ -52,7 +68,7 @@ function StatisticsContent() {
     return (
       <Container>
         <LoadingContainer>
-          <ActivityIndicator size="large" color="#ff6b00" />
+          <ActivityIndicator size="large" color="#1d42d8" />
         </LoadingContainer>
       </Container>
     );

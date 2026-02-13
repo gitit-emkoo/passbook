@@ -1,7 +1,8 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useMemo, useRef } from 'react';
 import { ActivityIndicator, Dimensions, RefreshControl, ScrollView } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import styled from 'styled-components/native';
+import RemixIcon from 'react-native-remix-icon';
 import { dashboardApi } from '../api/dashboard';
 
 interface MonthlyUsageCountData {
@@ -17,61 +18,8 @@ const CHART_PADDING = 40;
 const POINT_COLOR = '#b9d9ff';
 const LINE_COLOR = '#1d42d8';
 
-function UsageCountStatisticsContent() {
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [monthlyData, setMonthlyData] = useState<MonthlyUsageCountData[]>([]);
-  const [isLastYearExpanded, setIsLastYearExpanded] = useState(false);
-
-  const loadData = useCallback(async () => {
-    try {
-      setLoading(true);
-      const data = await dashboardApi.getMonthlyUsageCount();
-      setMonthlyData(data);
-    } catch (error: any) {
-      console.error('[UsageCountStatistics] load error', error);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      loadData();
-    }, [loadData]),
-  );
-
-  const handleRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await loadData();
-    setRefreshing(false);
-  }, [loadData]);
-
-  // 올해/지난해 누적 처리 횟수 계산
-  const currentYear = new Date().getFullYear();
-  
-  const thisYearCount = monthlyData
-    .filter(item => item.year === currentYear)
-    .reduce((sum, item) => sum + item.count, 0);
-  
-  // 올해가 아닌 모든 연도의 데이터를 그룹화
-  const pastYearsData = monthlyData
-    .filter(item => item.year < currentYear)
-    .reduce((acc, item) => {
-      if (!acc[item.year]) {
-        acc[item.year] = 0;
-      }
-      acc[item.year] += item.count;
-      return acc;
-    }, {} as Record<number, number>);
-  
-  // 연도별로 정렬 (최신순)
-  const pastYearsList = Object.entries(pastYearsData)
-    .map(([year, count]) => ({ year: parseInt(year), count }))
-    .sort((a, b) => b.year - a.year);
-
-  // 최대값을 깔끔한 숫자로 반올림하는 함수
-  const roundToNiceNumber = (value: number): number => {
+// 최대값을 깔끔한 숫자로 반올림하는 함수 (컴포넌트 외부로 이동하여 재생성 방지)
+const roundToNiceNumber = (value: number): number => {
     if (value === 0) return 1;
     const magnitude = Math.pow(10, Math.floor(Math.log10(value)));
     const normalized = value / magnitude;
@@ -81,25 +29,111 @@ function UsageCountStatisticsContent() {
     else if (normalized <= 5) rounded = 5;
     else rounded = 10;
     return rounded * magnitude;
-  };
+};
 
-  // 그래프 데이터 계산
-  const rawMaxCount = Math.max(...monthlyData.map(d => d.count), 0);
-  const maxCount = roundToNiceNumber(rawMaxCount);
-  const chartData = monthlyData.map((item, index) => {
-    const x = CHART_PADDING + (index * (CHART_WIDTH - CHART_PADDING * 2)) / (monthlyData.length - 1 || 1);
-    // Y축: 값이 클수록 위로 올라가야 함
-    // count가 0이면 아래쪽(CHART_HEIGHT - CHART_PADDING), maxCount면 위쪽(CHART_PADDING)
-    const ratio = maxCount > 0 ? item.count / maxCount : 0;
-    const y = CHART_HEIGHT - CHART_PADDING - (ratio * (CHART_HEIGHT - CHART_PADDING * 2));
-    return { x, y, ...item };
-  });
+function UsageCountStatisticsContent() {
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [monthlyData, setMonthlyData] = useState<MonthlyUsageCountData[]>([]);
+  const [isLastYearExpanded, setIsLastYearExpanded] = useState(false);
+  const dataLastFetchedRef = useRef<number | null>(null);
+
+  const loadData = useCallback(async (force = false) => {
+    // 타임스탬프 기반 캐싱: 30초 내 재호출 방지 (강제 새로고침이 아닐 때만)
+    if (!force) {
+      const now = Date.now();
+      const CACHE_TTL_MS = 30 * 1000;
+      if (dataLastFetchedRef.current && (now - dataLastFetchedRef.current) < CACHE_TTL_MS) {
+        // 캐시된 데이터 사용 (서버 호출 없이)
+        return;
+      }
+    }
+
+    try {
+      // Stale-while-revalidate: 캐시된 데이터가 있으면 로딩 상태 유지하지 않음
+      const hasCachedData = monthlyData.length > 0;
+      if (!hasCachedData) {
+        setLoading(true);
+      }
+      const data = await dashboardApi.getMonthlyUsageCount();
+      setMonthlyData(data);
+      dataLastFetchedRef.current = Date.now();
+    } catch (error: any) {
+      console.error('[UsageCountStatistics] load error', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [monthlyData.length]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData]),
+  );
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadData(true); // 강제 새로고침
+    setRefreshing(false);
+  }, [loadData]);
+
+  // 올해/지난해 누적 처리 횟수 계산 (메모이제이션)
+  const currentYear = useMemo(() => new Date().getFullYear(), []);
+  
+  const thisYearCount = useMemo(() => {
+    return monthlyData
+      .filter(item => item.year === currentYear)
+      .reduce((sum, item) => sum + item.count, 0);
+  }, [monthlyData, currentYear]);
+  
+  // 올해가 아닌 모든 연도의 데이터를 그룹화 (메모이제이션)
+  const pastYearsList = useMemo(() => {
+    const pastYearsData = monthlyData
+      .filter(item => item.year < currentYear)
+      .reduce((acc, item) => {
+        if (!acc[item.year]) {
+          acc[item.year] = 0;
+        }
+        acc[item.year] += item.count;
+        return acc;
+      }, {} as Record<number, number>);
+    
+    return Object.entries(pastYearsData)
+      .map(([year, count]) => ({ year: parseInt(year), count }))
+      .sort((a, b) => b.year - a.year);
+  }, [monthlyData, currentYear]);
+
+  // 그래프 데이터 계산 (메모이제이션)
+  const { chartData, maxCount, yAxisLabels } = useMemo(() => {
+    const rawMaxCount = Math.max(...monthlyData.map(d => d.count), 0);
+    const max = roundToNiceNumber(rawMaxCount);
+    const data = monthlyData.map((item, index) => {
+      const x = CHART_PADDING + (index * (CHART_WIDTH - CHART_PADDING * 2)) / (monthlyData.length - 1 || 1);
+      const ratio = max > 0 ? item.count / max : 0;
+      const y = CHART_HEIGHT - CHART_PADDING - (ratio * (CHART_HEIGHT - CHART_PADDING * 2));
+      return { x, y, ...item };
+    });
+    
+    // Y축 라벨 계산
+    const intervals = [0, 0.25, 0.5, 0.75, 1];
+    const labels: Array<{ ratio: number; value: number; y: number }> = [];
+    intervals.forEach((ratio) => {
+      const value = Math.round(max * ratio);
+      const y = CHART_PADDING + (CHART_HEIGHT - CHART_PADDING * 2) * (1 - ratio);
+      labels.push({ ratio, value, y });
+    });
+    const uniqueLabels = labels.filter((label, index, self) => 
+      index === self.findIndex(l => l.value === label.value)
+    );
+    
+    return { chartData: data, maxCount: max, yAxisLabels: uniqueLabels };
+  }, [monthlyData]);
 
   if (loading && monthlyData.length === 0) {
     return (
       <Container>
         <LoadingContainer>
-          <ActivityIndicator size="large" color="#ff6b00" />
+          <ActivityIndicator size="large" color="#1d42d8" />
         </LoadingContainer>
       </Container>
     );
@@ -181,34 +215,17 @@ function UsageCountStatisticsContent() {
               ))}
 
               {/* Y축 값 라벨 - 깔끔한 간격으로 표시 */}
-              {(() => {
-                // 5개 구간으로 나누기 (0, 0.25, 0.5, 0.75, 1)
-                const intervals = [0, 0.25, 0.5, 0.75, 1];
-                const labels: Array<{ ratio: number; value: number; y: number }> = [];
-                
-                intervals.forEach((ratio) => {
-                  const value = Math.round(maxCount * ratio);
-                  const y = CHART_PADDING + (CHART_HEIGHT - CHART_PADDING * 2) * (1 - ratio);
-                  labels.push({ ratio, value, y });
-                });
-                
-                // 중복 제거 및 정렬
-                const uniqueLabels = labels.filter((label, index, self) => 
-                  index === self.findIndex(l => l.value === label.value)
-                );
-                
-                return uniqueLabels.map(({ ratio, value, y }) => (
-                  <YAxisLabel
-                    key={ratio}
-                    style={{
-                      top: y - 8,
-                      left: 0,
-                    }}
-                  >
-                    {value > 0 ? `${value}회` : '0'}
-                  </YAxisLabel>
-                ));
-              })()}
+              {yAxisLabels.map(({ ratio, value, y }) => (
+                <YAxisLabel
+                  key={ratio}
+                  style={{
+                    top: y - 8,
+                    left: 0,
+                  }}
+                >
+                  {value > 0 ? `${value}회` : '0'}
+                </YAxisLabel>
+              ))}
             </ChartArea>
           </ChartContainer>
         </ChartCard>
@@ -230,7 +247,11 @@ function UsageCountStatisticsContent() {
               </SummarySubtext>
             </LastYearHeaderLeft>
             <ExpandIcon>
-              {isLastYearExpanded ? '▼' : '▶'}
+              <RemixIcon 
+                name={isLastYearExpanded ? 'ri-arrow-up-s-line' : 'ri-arrow-down-s-line'} 
+                size={20} 
+                color="#666" 
+              />
             </ExpandIcon>
           </LastYearHeader>
           {isLastYearExpanded && pastYearsList.length > 0 && (
@@ -380,9 +401,7 @@ const LastYearHeaderLeft = styled.View`
   flex: 1;
 `;
 
-const ExpandIcon = styled.Text`
-  font-size: 12px;
-  color: #666;
+const ExpandIcon = styled.View`
   margin-left: 12px;
 `;
 
