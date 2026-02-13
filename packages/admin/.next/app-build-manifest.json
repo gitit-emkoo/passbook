@@ -10,15 +10,15 @@
       "static/chunks/main-app.js",
       "static/chunks/app/layout.js"
     ],
-    "/notices/page": [
+    "/login/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/notices/page.js"
+      "static/chunks/app/login/page.js"
     ],
-    "/popups/page": [
+    "/not-found": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/popups/page.js"
+      "static/chunks/app/not-found.js"
     ]
   }
 }
