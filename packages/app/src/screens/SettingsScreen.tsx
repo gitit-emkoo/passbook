@@ -382,7 +382,7 @@ function SettingsContent() {
             <QuickAccessIconWrapper>
               <QuickAccessIconImage source={require('../../assets/b1.png')} resizeMode="contain" />
             </QuickAccessIconWrapper>
-            <QuickAccessLabel>계좌 정보</QuickAccessLabel>
+            <QuickAccessLabel>계좌 저장</QuickAccessLabel>
           </QuickAccessCard>
           <QuickAccessCard onPress={() => navigation.navigate('Statistics' as never)}>
             <QuickAccessIconWrapper>

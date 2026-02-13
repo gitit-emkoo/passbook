@@ -911,7 +911,7 @@ function HomeContent() {
         {/* 1. 오늘 방문 예정인 고객 섹션 */}
         <Section style={{ borderTopWidth: 0, paddingTop: 0 }} onLayout={handleTodaySectionLayout}>
           <SectionHeader>
-            <SectionTitle>오늘 방문 예정인 고객</SectionTitle>
+            <SectionTitle>오늘 방문 예정 고객</SectionTitle>
           </SectionHeader>
           {todayClassesLoading ? (
             <SkeletonContainer>
@@ -1108,7 +1108,7 @@ function HomeContent() {
           <Section>
             <SectionHeader>
             <SectionHeaderLeft>
-              <SectionTitle>신규 계약</SectionTitle>
+              <SectionTitle>신규 이용권 발행</SectionTitle>
               {recentContracts.length > 0 && (
               <Badge>
                 <BadgeText>{recentContracts.length}</BadgeText>
@@ -1117,14 +1117,14 @@ function HomeContent() {
             </SectionHeaderLeft>
             {hasMoreRecentContracts && (
               <ShowMoreButtonInline onPress={handleToggleRecentContracts}>
-                <ShowMoreButtonText>{showAllRecentContracts ? '접기' : '전체 보기'}</ShowMoreButtonText>
+                <ShowMoreButtonText>{showAllRecentContracts ? '요약보기' : '전체 보기'}</ShowMoreButtonText>
               </ShowMoreButtonInline>
             )}
             </SectionHeader>
           {recentContracts.length === 0 ? (
             <EmptyStateContainer>
               <EmptyStateIcon source={recentContractIcon} resizeMode="contain" />
-              <EmptyStateText>이번 달 신규 계약이 없습니다.</EmptyStateText>
+              <EmptyStateText>이번 달 발행된 이용권이 없습니다.</EmptyStateText>
             </EmptyStateContainer>
           ) : (
             <ListContainer>
@@ -1201,7 +1201,7 @@ function HomeContent() {
               ))}
               {hasMoreGuidanceStudents ? (
                 <ShowMoreButton onPress={handleToggleGuidance}>
-                  <ShowMoreButtonText>{showAllGuidanceStudents ? '접기' : '전체 보기'}</ShowMoreButtonText>
+                  <ShowMoreButtonText>{showAllGuidanceStudents ? '닫기기' : '전체 보기'}</ShowMoreButtonText>
                 </ShowMoreButton>
               ) : null}
             </ListContainer>
@@ -1317,7 +1317,7 @@ function HomeContent() {
         onClose={() => setShowFirstTimeBonusModal(false)}
         onExtend={() => {
           // 이벤트 경로: 계약서 작성 화면으로 이동 (isFirstTimeBonus: true로 표시)
-          navigation.navigate('ContractNew', { isFirstTimeBonus: true });
+          homeNavigation.navigate('ContractNew', { isFirstTimeBonus: true });
         }}
       />
 

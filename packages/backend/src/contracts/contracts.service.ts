@@ -183,34 +183,31 @@ export class ContractsService {
    * 오늘 요일과 시간에 맞는 계약서 + 대체 수업(substitute_at)이 오늘인 계약서 반환
    */
   async findTodayClasses(userId: number) {
-    const today = new Date();
-    // UTC 기준으로 오늘 날짜 생성 (시간대 문제 방지)
-    const todayStart = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0));
-    const todayEnd = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999));
+    // 한국 시간대(KST, UTC+9) 기준으로 오늘 날짜 계산
+    // 서버가 UTC 시간대여도 한국 시간 기준으로 정확하게 계산
+    const now = new Date();
+    const kstOffset = 9 * 60 * 60 * 1000; // 9시간을 밀리초로 변환
+    const kstNow = new Date(now.getTime() + kstOffset);
     
-    // 로컬 시간 기준으로도 생성 (비교용)
-    const todayLocalStart = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
-    const todayLocalEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+    // 한국 시간 기준으로 오늘 날짜의 연, 월, 일 추출
+    const todayYear = kstNow.getUTCFullYear();
+    const todayMonth = kstNow.getUTCMonth();
+    const todayDate = kstNow.getUTCDate();
+    
+    // UTC 기준으로 한국 시간 오늘 00:00:00 ~ 23:59:59 범위 생성
+    // (예약은 UTC로 저장되므로 UTC 기준 범위로 조회)
+    const todayStart = new Date(Date.UTC(todayYear, todayMonth, todayDate, 0, 0, 0, 0));
+    const todayEnd = new Date(Date.UTC(todayYear, todayMonth, todayDate, 23, 59, 59, 999));
 
     // 뷰티 앱: 오늘 날짜에 예약된 Reservation 조회
     // reserved_date는 DateTime 타입이지만 날짜만 저장되므로, 날짜만 비교
-    // 두 가지 방식으로 조회 시도 (UTC와 로컬 시간)
+    // 한국 시간 기준으로 계산된 범위로 조회
     const todayReservations = await (this.prisma as any).reservation.findMany({
       where: {
-        OR: [
-          {
-            reserved_date: {
-              gte: todayStart,
-              lte: todayEnd,
-            },
-          },
-          {
-            reserved_date: {
-              gte: todayLocalStart,
-              lte: todayLocalEnd,
-            },
-          },
-        ],
+        reserved_date: {
+          gte: todayStart,
+          lte: todayEnd,
+        },
       },
       select: {
         id: true,
@@ -280,7 +277,7 @@ export class ContractsService {
 
     // 오늘 날짜에 이미 출석 로그가 있는 계약서 조회
     // occurred_at만 확인 (substitute_at은 대체일 정보일 뿐, 해당 날짜의 출결 처리 여부와 무관)
-    // UTC와 로컬 시간 기준으로 두 가지 범위 모두 조회 (시간대 문제 방지)
+    // 한국 시간 기준으로 계산된 범위로 조회
     const contractIds = todayContracts.map((c) => c.id);
     const attendanceLogs = await this.prisma.attendanceLog.findMany({
       where: {
@@ -288,20 +285,10 @@ export class ContractsService {
         contract_id: {
           in: contractIds,
         },
-        OR: [
-          {
-            occurred_at: {
-              gte: todayStart,
-              lte: todayEnd,
-            },
-          },
-          {
-            occurred_at: {
-              gte: todayLocalStart,
-              lte: todayLocalEnd,
-            },
-          },
-        ],
+        occurred_at: {
+          gte: todayStart,
+          lte: todayEnd,
+        },
         voided: false,
       },
       select: {
@@ -1569,7 +1556,7 @@ export class ContractsService {
 <body>
   <div class="container">
     <div class="header">
-      <div class="header-slogan">샵과 고객 모두 만족하는 투명한 이용권 관리</div>
+      <div class="header-slogan">고객과 함께 확인하는 투명한 이용권 관리</div>
       <div class="header-title">Pass Book</div>
       <div class="header-subtitle">이용권 계약서</div>
     </div>

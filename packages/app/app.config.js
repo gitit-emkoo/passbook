@@ -17,7 +17,15 @@ export default ({ config }) => ({
       backgroundColor: '#ffffff',
     },
     ios: {
+      bundleIdentifier: 'com.kimssam.kwcc',
+      buildNumber: '9',
       supportsTablet: true,
+      deploymentTarget: '13.0',
+      googleServicesFile: './GoogleService-Info.plist',
+      infoPlist: {
+        UIBackgroundModes: ['remote-notification'],
+        NSUserTrackingUsageDescription: '앱 사용을 위해 필요한 권한입니다.',
+      },
     },
     android: {
       package: 'com.kimssam.kwcc',
@@ -26,12 +34,12 @@ export default ({ config }) => ({
         foregroundImage: './assets/adaptive-icon.png',
         backgroundColor: '#ffffff',
       },
-      versionCode: 7,
+      versionCode: 9,
       targetSdkVersion: 35,
       useCleartextTraffic:
         process.env.USE_CLEARTEXT_TRAFFIC === 'true' || process.env.NODE_ENV !== 'production', // 환경변수로 제어, 기본값: 개발환경 true, 프로덕션 false
       networkSecurityConfig: './android/app/src/main/res/xml/network_security_config.xml',
-      edgeToEdgeEnabled: true,
+      edgeToEdgeEnabled: false,
       predictiveBackGestureEnabled: false,
     },
     web: {

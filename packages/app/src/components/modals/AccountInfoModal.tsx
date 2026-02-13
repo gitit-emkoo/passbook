@@ -75,8 +75,8 @@ export default function AccountInfoModal({
       <ModalContainer>
         <ModalHeader>
           <HeaderLeft>
-            <ModalTitle>계좌 정보</ModalTitle>
-            <ModalSubtitle>청구서에 안내할 계좌를 등록해 주세요.</ModalSubtitle>
+            <ModalTitle>계좌 번호 저장</ModalTitle>
+            <ModalSubtitle>청구서에 안내할 계좌번호를 입력해 주세요.</ModalSubtitle>
           </HeaderLeft>
           <CloseButton onPress={onClose}>
             <CloseButtonText>닫기</CloseButtonText>

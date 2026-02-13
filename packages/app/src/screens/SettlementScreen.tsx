@@ -496,7 +496,7 @@ function SettlementContent() {
               <MonthlyCard>
                 <MonthlyCardHeader>
                   <MonthlyCardHeaderLeft>
-                    <MonthlyCardTitle>청구 대상</MonthlyCardTitle>
+                    <MonthlyCardTitle>청구서 발송</MonthlyCardTitle>
                     <MonthlyCardSummary>
                       전송할 청구서를 선택하세요.
                     </MonthlyCardSummary>

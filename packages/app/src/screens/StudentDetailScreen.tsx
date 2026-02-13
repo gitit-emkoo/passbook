@@ -367,7 +367,7 @@ const guardianLine = useMemo(() => {
   }, [filteredAttendanceLogs, isAttendanceExpanded]);
 
   const attendanceEmptyDescription = useMemo(() => {
-    return '이용권 사용 기록이 없습니다.';
+    return '이용권 사용 기록이 아직 없습니다.';
   }, []);
 
   const attendanceSectionTitle = useMemo(() => {
@@ -990,7 +990,7 @@ const guardianLine = useMemo(() => {
         {/* 기존 수업/기본 정보 섹션 (원래 구조 유지) */}
         <SectionCard>
           <SectionHeader>
-            <SectionTitle>기본 정보</SectionTitle>
+            <SectionTitle>고객 정보</SectionTitle>
           </SectionHeader>
           <InfoRow label="이름" value={detail.name} />
           <InfoRow label="연락처" value={detail.phone ?? '-'} />
@@ -999,7 +999,7 @@ const guardianLine = useMemo(() => {
 
         <SectionCard>
           <SectionHeader>
-            <SectionTitle>이용권 정보</SectionTitle>
+            <SectionTitle>이용권 계약 정보</SectionTitle>
           </SectionHeader>
           {contractsList.length === 0 ? (
             <EmptyDescription>등록된 계약이 없습니다.</EmptyDescription>
@@ -1076,7 +1076,7 @@ const guardianLine = useMemo(() => {
             <SectionTitle>고객 메모</SectionTitle>
             {!isMemoEditing && (
               <MemoEditButton onPress={handleMemoEditStart}>
-                <MemoEditButtonText>편집</MemoEditButtonText>
+                <RemixIcon name="edit-2-line" size={20} />
               </MemoEditButton>
             )}
           </SectionHeader>
@@ -1109,7 +1109,7 @@ const guardianLine = useMemo(() => {
               {detail?.memo ? (
                 <MemoText>{detail.memo}</MemoText>
               ) : (
-                <MemoEmptyText>메모 없음</MemoEmptyText>
+                <MemoEmptyText>고객의 특이사항, 주의할 점 등을 기록해주세요.</MemoEmptyText>
               )}
             </MemoContent>
           )}
@@ -1288,7 +1288,7 @@ const guardianLine = useMemo(() => {
               {filteredAttendanceLogs.length > 1 && (
                 <AttendanceToggleButton onPress={() => setIsAttendanceExpanded(!isAttendanceExpanded)}>
                   <AttendanceToggleText>
-                    {isAttendanceExpanded ? '접기' : `더보기 (${filteredAttendanceLogs.length - 1}개)`}
+                    {isAttendanceExpanded ? '닫기' : `더보기 (${filteredAttendanceLogs.length - 1}개)`}
                   </AttendanceToggleText>
                 </AttendanceToggleButton>
               )}
@@ -1302,7 +1302,7 @@ const guardianLine = useMemo(() => {
             <SectionTitle>청구서 전송내역</SectionTitle>
           </SectionHeader>
           {sentInvoices.length === 0 ? (
-            <EmptyDescription>전송된 정산서가 없습니다.</EmptyDescription>
+            <EmptyDescription>전송 완료한 청구서가 없습니다.</EmptyDescription>
           ) : (
             <InvoiceList>
               {sentInvoices.map((invoice) => {
@@ -2896,7 +2896,9 @@ const ScheduleTimeSkipText = styled.Text`
 
 // 고객 메모 섹션 스타일
 const MemoEditButton = styled.TouchableOpacity`
-  padding: 0;
+  padding: 4px;
+  align-items: center;
+  justify-content: center;
 `;
 
 const MemoEditButtonText = styled.Text`
@@ -2966,5 +2968,4 @@ const MemoText = styled.Text`
 const MemoEmptyText = styled.Text`
   font-size: 14px;
   color: #999;
-  font-style: italic;
 `;

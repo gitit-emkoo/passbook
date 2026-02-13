@@ -545,7 +545,7 @@ export default function ContractNewScreen() {
           <FormLabel label="연락처" required />
           <TextInput
             value={studentPhone}
-            onChangeText={(text) => setStudentPhone(formatPhone(text))}
+            onChangeText={(text: string) => setStudentPhone(formatPhone(text))}
             placeholder="010-0000-0000"
             keyboardType="phone-pad"
             autoCapitalize="none"
@@ -584,8 +584,8 @@ export default function ContractNewScreen() {
                   const newLessonType = opt.value as 'monthly' | 'sessions';
                   setLessonType(newLessonType);
                   // 확정 개념: 횟수제 계약은 차감 옵션 없음
-                  // 횟수제로 변경 시 차감 옵션이 선택되어 있으면 자동으로 이월로 변경
-                  if (newLessonType === 'sessions' && absencePolicy === 'deduct_next') {
+                  // 횟수제로 변경 시 자동으로 이월로 변경
+                  if (newLessonType === 'sessions') {
                     setAbsencePolicy('carry_over');
                   }
                 }}
@@ -684,7 +684,7 @@ export default function ContractNewScreen() {
               />
               <TextInput
                 value={monthlyAmount}
-                onChangeText={(text) => {
+                onChangeText={(text: string) => {
                   // 디버그 로그 제거
                   lastEditedField.current = 'totalAmount';
                   setMonthlyAmount(text);
@@ -711,7 +711,7 @@ export default function ContractNewScreen() {
               <FormLabel label="금액 (원)" required />
               <TextInput
                 value={sessionsTotalAmount}
-                onChangeText={(text) => {
+                onChangeText={(text: string) => {
                   lastEditedField.current = 'totalAmount';
                   setSessionsTotalAmount(text);
                 }}
@@ -778,7 +778,7 @@ export default function ContractNewScreen() {
               <InputLabel>회차 단가(자동 계산) · 수정 가능</InputLabel>
               <TextInput
                 value={autoPerSessionFromSessions(totalSessions, sessionsTotalAmount, perSessionAmount)}
-                onChangeText={(text) => {
+                onChangeText={(text: string) => {
                   lastEditedField.current = 'perSession';
                   setPerSessionAmount(text);
                   // 단가 입력 시 전체금액 자동 계산
@@ -862,7 +862,7 @@ export default function ContractNewScreen() {
           </CustomerPhoneButton>
           <TextInput
             value={recipientTargets.length > 0 ? recipientTargets[0] : ''}
-            onChangeText={(text) => {
+            onChangeText={(text: string) => {
               const formatted = formatPhone(text);
               setRecipientTargets(formatted.trim() ? [formatted.trim()] : []);
             }}
@@ -871,8 +871,8 @@ export default function ContractNewScreen() {
             autoCapitalize="none"
             maxLength={13}
           />
-          <FormLabel label="계좌 정보" required />
-          <HelperText>설정에서 등록한 계좌가 없다면 여기에서 직접 입력해 주세요.</HelperText>
+          <FormLabel label="청구 계좌 입력" required />
+          <HelperText>마이 페이지에 계좌번호를 저장하면 자동으로 입력됩니다.</HelperText>
           <FormLabel label="은행명" required />
           <TextInput
             value={bankName}
@@ -954,13 +954,13 @@ const PickerOption = styled.TouchableOpacity<{ selected?: boolean }>`
   padding: 16px;
   border-bottom-width: 1px;
   border-bottom-color: #f0f0f0;
-  background-color: ${(props) => (props.selected ? '#eef2ff' : '#ffffff')};
+  background-color: ${(props: { selected?: boolean }) => (props.selected ? '#eef2ff' : '#ffffff')};
 `;
 
 const PickerOptionText = styled.Text<{ selected?: boolean }>`
   font-size: 16px;
-  color: ${(props) => (props.selected ? '#1d42d8' : '#333333')};
-  font-weight: ${(props) => (props.selected ? '600' : '400')};
+  color: ${(props: { selected?: boolean }) => (props.selected ? '#1d42d8' : '#333333')};
+  font-weight: ${(props: { selected?: boolean }) => (props.selected ? '600' : '400')};
   text-align: center;
 `;
 
@@ -1146,8 +1146,8 @@ const DayButton = styled.TouchableOpacity<{ selected: boolean }>`
   height: 32px;
   border-radius: 16px;
   border-width: 1px;
-  border-color: ${(props) => (props.selected ? '#1d42d8' : '#e0e0e0')};
-  background-color: ${(props) => (props.selected ? '#1d42d8' : '#ffffff')};
+  border-color: ${(props: { selected?: boolean }) => (props.selected ? '#1d42d8' : '#e0e0e0')};
+  background-color: ${(props: { selected?: boolean }) => (props.selected ? '#1d42d8' : '#ffffff')};
   align-items: center;
   justify-content: center;
 `;
@@ -1155,7 +1155,7 @@ const DayButton = styled.TouchableOpacity<{ selected: boolean }>`
 const DayButtonText = styled.Text<{ selected: boolean }>`
   font-size: 12px;
   font-weight: 600;
-  color: ${(props) => (props.selected ? '#ffffff' : '#333333')};
+  color: ${(props: { selected?: boolean }) => (props.selected ? '#ffffff' : '#333333')};
 `;
 
 const OptionsContainer = styled.View`
@@ -1169,14 +1169,14 @@ const OptionButton = styled.TouchableOpacity<{ selected: boolean }>`
   padding: 10px 20px;
   border-radius: 8px;
   border-width: 1px;
-  border-color: ${(props) => (props.selected ? '#1d42d8' : '#e0e0e0')};
-  background-color: ${(props) => (props.selected ? '#1d42d8' : '#ffffff')};
+  border-color: ${(props: { selected?: boolean }) => (props.selected ? '#1d42d8' : '#e0e0e0')};
+  background-color: ${(props: { selected?: boolean }) => (props.selected ? '#1d42d8' : '#ffffff')};
 `;
 
 const OptionButtonText = styled.Text<{ selected: boolean }>`
   font-size: 14px;
   font-weight: 600;
-  color: ${(props) => (props.selected ? '#ffffff' : '#333333')};
+  color: ${(props: { selected?: boolean }) => (props.selected ? '#ffffff' : '#333333')};
 `;
 
 const ToggleContainer = styled.View`
@@ -1187,16 +1187,16 @@ const ToggleButton = styled.TouchableOpacity<{ active: boolean }>`
   padding: 10px 20px;
   border-radius: 8px;
   border-width: 1px;
-  border-color: ${(props) => (props.active ? '#1d42d8' : '#e0e0e0')};
-  background-color: ${(props) => (props.active ? '#1d42d8' : '#ffffff')};
+  border-color: ${(props: { active?: boolean }) => (props.active ? '#1d42d8' : '#e0e0e0')};
+  background-color: ${(props: { active?: boolean }) => (props.active ? '#1d42d8' : '#ffffff')};
   align-self: flex-start;
 `;
 
 const ToggleText = styled.Text<{ active: boolean }>`
   font-size: 14px;
   font-weight: 600;
-  color: ${(props) => (props.active ? '#ffffff' : '#333333')};
-`;
+  color: ${(props: { active?: boolean }) => (props.active ? '#ffffff' : '#333333')};
+`;  
 
 const SaveButtonContainer = styled.View`
   padding: 16px;
@@ -1204,7 +1204,7 @@ const SaveButtonContainer = styled.View`
 `;
 
 const SaveButton = styled.TouchableOpacity<{ disabled?: boolean }>`
-  background-color: ${(props) => (props.disabled ? '#cccccc' : '#1d42d8')};
+  background-color: ${(props: { disabled?: boolean }) => (props.disabled ? '#cccccc' : '#1d42d8')};
   border-radius: 12px;
   padding: 16px;
   align-items: center;

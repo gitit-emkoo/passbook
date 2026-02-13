@@ -1240,7 +1240,7 @@ export class AttendanceService {
 <body>
   <div class="container">
     <div class="header">
-      <div class="header-slogan">샵과 고객 모두 만족하는 투명한 이용권 관리</div>
+      <div class="header-slogan">고객과 함께 확인하는 투명한 이용권 관리</div>
       <div class="header-title">Pass Book</div>
       <div class="header-subtitle">이용 안내</div>
     </div>
