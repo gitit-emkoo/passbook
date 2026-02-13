@@ -275,8 +275,7 @@ export class StudentsService {
 				// 수업 정보 문자열
 				class_info: classInfo,
 			};
-		}),
-		);
+		});
 	}
 
 	async detail(id: number, userId: number) {
