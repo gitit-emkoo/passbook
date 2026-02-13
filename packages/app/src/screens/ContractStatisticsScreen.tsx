@@ -50,8 +50,10 @@ function ContractStatisticsContent() {
   // 올해/지난해 누적 이용권 발행 계산
   const currentYear = new Date().getFullYear();
   
-  const thisYearContracts = monthlyData
-    .filter(item => item.year === currentYear)
+  // 현재 연도 데이터만 필터링 (그래프와 카드 일치시키기)
+  const currentYearData = monthlyData.filter(item => item.year === currentYear);
+  
+  const thisYearContracts = currentYearData
     .reduce((sum, item) => sum + item.count, 0);
   
   // 올해가 아닌 모든 연도의 데이터를 그룹화
@@ -85,11 +87,11 @@ function ContractStatisticsContent() {
     return rounded * magnitude;
   };
 
-  // 그래프 데이터 계산
-  const rawMaxCount = Math.max(...monthlyData.map(d => d.count), 0);
+  // 그래프 데이터 계산 (현재 연도 데이터만 사용)
+  const rawMaxCount = Math.max(...currentYearData.map(d => d.count), 0);
   const maxCount = roundToNiceNumber(rawMaxCount);
-  const chartData = monthlyData.map((item, index) => {
-    const x = CHART_PADDING + (index * (CHART_WIDTH - CHART_PADDING * 2)) / (monthlyData.length - 1 || 1);
+  const chartData = currentYearData.map((item, index) => {
+    const x = CHART_PADDING + (index * (CHART_WIDTH - CHART_PADDING * 2)) / (currentYearData.length - 1 || 1);
     // Y축: 값이 클수록 위로 올라가야 함
     // count가 0이면 아래쪽(CHART_HEIGHT - CHART_PADDING), maxCount면 위쪽(CHART_PADDING)
     const ratio = maxCount > 0 ? item.count / maxCount : 0;

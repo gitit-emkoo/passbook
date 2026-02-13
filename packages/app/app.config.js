@@ -60,7 +60,7 @@ export default ({ config }) => ({
       eas: {
         projectId: '2c507d3e-8f4d-40e3-bf66-6fa305400c0f',
       },
-      API_URL: process.env.API_URL || 'http://localhost:3000',
+      API_URL: process.env.API_URL || (process.env.NODE_ENV === 'production' ? 'https://kimssam-backend.fly.dev' : 'http://localhost:3000'),
       API_KEY: process.env.API_KEY || '',
       PUBLIC_URL: process.env.PUBLIC_URL || 'https://passbook.today',
     },
