@@ -316,42 +316,67 @@ export class StudentsService {
 			return null;
 		}
 
-		const contractsWithSessions = await Promise.all(
-			student.contracts.map(async (contract) => {
-				const sessionsUsed = await this.prisma.attendanceLog.count({
-					where: {
-						user_id: userId,
-						contract_id: contract.id,
-						voided: false,
-						status: {
-							in: ['present', 'absent', 'substitute', 'vanish'],
-						},
-					},
-				});
-				// 일정 예외(ScheduleException) 조회
-				const scheduleExceptions = await this.prisma.scheduleException.findMany({
-					where: {
-						user_id: userId,
-						contract_id: contract.id,
-					},
-					select: {
-						id: true,
-						original_date: true,
-						new_date: true,
-						reason: true,
-						created_at: true,
-					},
-					orderBy: {
-						original_date: 'asc',
-					},
-				});
-				return {
-					...contract,
-					sessions_used: sessionsUsed,
-					schedule_exceptions: scheduleExceptions,
-				};
-			}),
-		);
+		// 배치 쿼리 최적화: 모든 contract의 attendanceLog와 scheduleException을 한 번에 조회
+		const contractIds = student.contracts.map((c) => c.id);
+		
+		// 모든 contract의 attendanceLog를 한 번에 조회
+		const allAttendanceLogs = await this.prisma.attendanceLog.findMany({
+			where: {
+				user_id: userId,
+				contract_id: { in: contractIds },
+				voided: false,
+				status: {
+					in: ['present', 'absent', 'substitute', 'vanish'],
+				},
+			},
+			select: {
+				contract_id: true,
+			},
+		});
+
+		// contract별로 출결 기록 카운트
+		const sessionsUsedByContract = new Map<number, number>();
+		allAttendanceLogs.forEach((log) => {
+			const current = sessionsUsedByContract.get(log.contract_id) || 0;
+			sessionsUsedByContract.set(log.contract_id, current + 1);
+		});
+
+		// 모든 contract의 scheduleException을 한 번에 조회
+		const allScheduleExceptions = await this.prisma.scheduleException.findMany({
+			where: {
+				user_id: userId,
+				contract_id: { in: contractIds },
+			},
+			select: {
+				id: true,
+				contract_id: true,
+				original_date: true,
+				new_date: true,
+				reason: true,
+				created_at: true,
+			},
+			orderBy: {
+				original_date: 'asc',
+			},
+		});
+
+		// contract별로 scheduleException 그룹화
+		const scheduleExceptionsByContract = new Map<number, typeof allScheduleExceptions>();
+		allScheduleExceptions.forEach((exception) => {
+			if (!scheduleExceptionsByContract.has(exception.contract_id)) {
+				scheduleExceptionsByContract.set(exception.contract_id, []);
+			}
+			scheduleExceptionsByContract.get(exception.contract_id)!.push(exception);
+		});
+
+		// contract에 sessions_used와 schedule_exceptions 추가
+		const contractsWithSessions = student.contracts.map((contract) => {
+			return {
+				...contract,
+				sessions_used: sessionsUsedByContract.get(contract.id) || 0,
+				schedule_exceptions: scheduleExceptionsByContract.get(contract.id) || [],
+			};
+		});
 
 		// 전송된 정산서의 display_period_start/display_period_end 추출
 		const invoicesWithDisplayPeriod = student.invoices.map((invoice) => {
