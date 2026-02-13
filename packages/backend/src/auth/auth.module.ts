@@ -17,7 +17,10 @@ import { SmsModule } from '../sms/sms.module';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => {
-        const jwtSecret = configService.get<string>('JWT_SECRET') || 'kimssam-secret-key-change-in-production';
+        const jwtSecret = configService.get<string>('JWT_SECRET');
+        if (!jwtSecret) {
+          throw new Error('JWT_SECRET environment variable is required');
+        }
         const jwtExpiresIn = configService.get<string>('JWT_EXPIRES_IN') || '30d';
         
         return {
