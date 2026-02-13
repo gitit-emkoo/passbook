@@ -50,12 +50,11 @@ const DescriptionTitle = styled.h3`
   margin: 0;
 `;
 
-const ToggleIcon = styled.span`
+const ToggleIcon = styled.span<{ $isOpen: boolean }>`
   font-size: 18px;
   color: #0369a1;
   transition: transform 0.2s;
-  transform: ${(props: { $isOpen: boolean }) => 
-    props.$isOpen ? 'rotate(180deg)' : 'rotate(0deg)'};
+  transform: ${({ $isOpen }) => ($isOpen ? 'rotate(180deg)' : 'rotate(0deg)')};
 `;
 
 const DescriptionContent = styled.div<{ $isOpen: boolean }>`
