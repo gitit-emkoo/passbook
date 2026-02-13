@@ -147,9 +147,38 @@ export class StudentsService {
 			orderBy: { id: 'desc' },
 		});
 
+		// 배치 쿼리 최적화: 모든 계약의 출결 기록을 한 번에 조회 (N+1 쿼리 해결)
+		const contractIds = students
+			.map((s) => s.contracts[0]?.id)
+			.filter((id): id is number => id !== undefined);
+
+		let allAttendanceLogs: Array<{ contract_id: number; amount: number | null }> = [];
+		if (contractIds.length > 0) {
+			allAttendanceLogs = await this.prisma.attendanceLog.findMany({
+				where: {
+					user_id: userId,
+					contract_id: { in: contractIds },
+					voided: false,
+					status: { in: ['present', 'absent', 'substitute', 'vanish'] },
+				},
+				select: {
+					contract_id: true,
+					amount: true,
+				},
+			});
+		}
+
+		// 계약별로 출결 기록 그룹화
+		const logsByContract = new Map<number, Array<{ amount: number | null }>>();
+		allAttendanceLogs.forEach((log) => {
+			if (!logsByContract.has(log.contract_id)) {
+				logsByContract.set(log.contract_id, []);
+			}
+			logsByContract.get(log.contract_id)!.push({ amount: log.amount });
+		});
+
 		// 응답 데이터 변환
-		return Promise.all(
-			students.map(async (student) => {
+		return students.map((student) => {
 			const latestContract = student.contracts[0] || null;
 			const thisMonthInvoice = student.invoices[0] || null;
 			const thisMonthAttendance = student.attendance_logs || [];
@@ -162,33 +191,14 @@ export class StudentsService {
 				const isSessionBased = totalSessions > 0; // 횟수권 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
 				const isAmountBased = totalSessions === 0; // 금액권 (ended_at은 표시용일 뿐, 판별에 사용하지 않음)
 				
+				const logs = logsByContract.get(latestContract.id) || [];
+				
 				if (isSessionBased) {
 					// 횟수권: 사용된 횟수 계산
-					sessionsUsed = await this.prisma.attendanceLog.count({
-						where: {
-							user_id: userId,
-							contract_id: latestContract.id,
-							voided: false,
-							status: {
-								in: ['present', 'absent', 'substitute', 'vanish'],
-							},
-						},
-					});
+					sessionsUsed = logs.length;
 				} else if (isAmountBased) {
 					// 금액권: 사용된 금액 합계 계산
-					const attendanceLogsWithAmount = await this.prisma.attendanceLog.findMany({
-						where: {
-							user_id: userId,
-							contract_id: latestContract.id,
-							voided: false,
-							status: { in: ['present', 'absent', 'substitute', 'vanish'] },
-							amount: { not: null },
-						},
-						select: {
-							amount: true,
-						},
-					});
-					amountUsed = attendanceLogsWithAmount.reduce((sum, log) => sum + (log.amount || 0), 0);
+					amountUsed = logs.reduce((sum, log) => sum + (log.amount || 0), 0);
 				}
 			}
 

@@ -972,11 +972,79 @@ export class AttendanceService {
   }
 
   /**
-   * 미처리 출결 개수 조회 (홈 화면용)
+   * 미처리 출결 개수 조회 (홈 화면용) - 최적화 버전
+   * 전체 데이터를 가져오지 않고 직접 count만 수행
    */
   async countUnprocessed(userId: number): Promise<number> {
-    const unprocessed = await this.findUnprocessed(userId);
-    return unprocessed.length;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // 오늘 이전 날짜의 예약 조회 (최소한의 필드만)
+    const pastReservations = await this.prisma.reservation.findMany({
+      where: {
+        contract: {
+          user_id: userId,
+          status: { in: ['confirmed', 'sent'] },
+          student: {
+            is_active: true,
+          },
+        },
+        reserved_date: {
+          lt: today, // 오늘 이전 날짜만
+        },
+      },
+      select: {
+        id: true,
+        contract_id: true,
+        reserved_date: true,
+      },
+    });
+
+    if (pastReservations.length === 0) {
+      return 0;
+    }
+
+    // 계약 ID 목록 추출 (중복 제거)
+    const contractIds = [...new Set(pastReservations.map((r) => r.contract_id))];
+
+    // 해당 계약들의 출결 기록을 한 번에 조회 (N+1 쿼리 해결)
+    const attendanceLogs = await this.prisma.attendanceLog.findMany({
+      where: {
+        user_id: userId,
+        contract_id: {
+          in: contractIds,
+        },
+        voided: false,
+      },
+      select: {
+        contract_id: true,
+        occurred_at: true,
+      },
+    });
+
+    // 출결 기록을 날짜별로 매핑 (메모리에서 빠른 조회)
+    const logMap = new Map<string, boolean>();
+    attendanceLogs.forEach((log) => {
+      const logDate = new Date(log.occurred_at);
+      const dateKey = `${log.contract_id}_${logDate.getFullYear()}-${String(logDate.getMonth() + 1).padStart(2, '0')}-${String(logDate.getDate()).padStart(2, '0')}`;
+      logMap.set(dateKey, true);
+    });
+
+    // 출결 기록이 없는 예약만 카운트
+    let count = 0;
+    for (const reservation of pastReservations) {
+      const reservedDate = reservation.reserved_date instanceof Date 
+        ? reservation.reserved_date 
+        : new Date(reservation.reserved_date);
+      
+      const dateKey = `${reservation.contract_id}_${reservedDate.getFullYear()}-${String(reservedDate.getMonth() + 1).padStart(2, '0')}-${String(reservedDate.getDate()).padStart(2, '0')}`;
+      
+      if (!logMap.has(dateKey)) {
+        count++;
+      }
+    }
+
+    return count;
   }
 
   /**

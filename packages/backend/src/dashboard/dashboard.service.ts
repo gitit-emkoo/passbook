@@ -203,55 +203,68 @@ export class DashboardService {
       },
     });
 
-    // 이용권 사용률 계산 (평균)
+    // 이용권 사용률 계산 (평균) - 최적화: 배치 쿼리 사용
     const contractsWithUsage = await this.prisma.contract.findMany({
       where: {
         user_id: userId,
         status: { in: ['confirmed', 'sent'] },
       },
-      include: {
-        attendance_logs: {
-          where: {
-            voided: false,
-          },
-          select: {
-            id: true,
-          },
-        },
+      select: {
+        id: true,
+        policy_snapshot: true,
+        monthly_amount: true,
+        ended_at: true,
       },
     });
 
     let totalUsageRate = 0;
     let contractsWithRate = 0;
 
-    for (const contract of contractsWithUsage) {
-      const policySnapshot = (contract.policy_snapshot || {}) as any;
-      const totalSessions = policySnapshot.total_sessions || 0;
-      const monthlyAmount = contract.monthly_amount || 0;
+    if (contractsWithUsage.length > 0) {
+      const contractIds = contractsWithUsage.map((c) => c.id);
 
-      if (totalSessions > 0) {
-        // 횟수권: 사용된 횟수 / 총 횟수
-        const usedSessions = contract.attendance_logs.length;
-        const rate = (usedSessions / totalSessions) * 100;
-        totalUsageRate += rate;
-        contractsWithRate++;
-      } else if (monthlyAmount > 0 && contract.ended_at) {
-        // 금액권: 사용된 금액 / 총 금액
-        const attendanceLogsWithAmount = await this.prisma.attendanceLog.aggregate({
-          where: {
-            user_id: userId,
-            contract_id: contract.id,
-            voided: false,
-            amount: { not: null },
-          },
-          _sum: {
-            amount: true,
-          },
-        });
-        const usedAmount = attendanceLogsWithAmount._sum.amount || 0;
-        const rate = (usedAmount / monthlyAmount) * 100;
-        totalUsageRate += rate;
-        contractsWithRate++;
+      // 배치 쿼리: 모든 계약의 출결 기록을 한 번에 조회
+      const allAttendanceLogs = await this.prisma.attendanceLog.findMany({
+        where: {
+          user_id: userId,
+          contract_id: { in: contractIds },
+          voided: false,
+        },
+        select: {
+          contract_id: true,
+          amount: true,
+        },
+      });
+
+      // 계약별로 출결 기록 그룹화
+      const logsByContract = new Map<number, Array<{ amount: number | null }>>();
+      allAttendanceLogs.forEach((log) => {
+        if (!logsByContract.has(log.contract_id)) {
+          logsByContract.set(log.contract_id, []);
+        }
+        logsByContract.get(log.contract_id)!.push({ amount: log.amount });
+      });
+
+      for (const contract of contractsWithUsage) {
+        const policySnapshot = (contract.policy_snapshot || {}) as any;
+        const totalSessions = policySnapshot.total_sessions || 0;
+        const monthlyAmount = contract.monthly_amount || 0;
+
+        if (totalSessions > 0) {
+          // 횟수권: 사용된 횟수 / 총 횟수
+          const logs = logsByContract.get(contract.id) || [];
+          const usedSessions = logs.length;
+          const rate = (usedSessions / totalSessions) * 100;
+          totalUsageRate += rate;
+          contractsWithRate++;
+        } else if (monthlyAmount > 0 && contract.ended_at) {
+          // 금액권: 사용된 금액 / 총 금액
+          const logs = logsByContract.get(contract.id) || [];
+          const usedAmount = logs.reduce((sum, log) => sum + (log.amount || 0), 0);
+          const rate = (usedAmount / monthlyAmount) * 100;
+          totalUsageRate += rate;
+          contractsWithRate++;
+        }
       }
     }
 
@@ -432,6 +445,41 @@ export class DashboardService {
       orderBy: { created_at: 'desc' },
     });
 
+    if (contracts.length === 0) {
+      return [];
+    }
+
+    // student가 null인 계약 제외
+    const validContracts = contracts.filter((c) => c.student !== null);
+    if (validContracts.length === 0) {
+      return [];
+    }
+
+    const contractIds = validContracts.map((c) => c.id);
+
+    // 배치 쿼리: 모든 계약의 출결 기록을 한 번에 조회 (N+1 쿼리 해결)
+    const allAttendanceLogs = await this.prisma.attendanceLog.findMany({
+      where: {
+        user_id: userId,
+        contract_id: { in: contractIds },
+        voided: false,
+        status: { in: ['present', 'absent', 'substitute', 'vanish'] },
+      },
+      select: {
+        contract_id: true,
+        amount: true,
+      },
+    });
+
+    // 계약별로 출결 기록 그룹화
+    const logsByContract = new Map<number, Array<{ amount: number | null }>>();
+    allAttendanceLogs.forEach((log) => {
+      if (!logsByContract.has(log.contract_id)) {
+        logsByContract.set(log.contract_id, []);
+      }
+      logsByContract.get(log.contract_id)!.push({ amount: log.amount });
+    });
+
     const needsAttention: Array<{
       id: number;
       studentId: number;
@@ -442,26 +490,18 @@ export class DashboardService {
       createdAt: string;
     }> = [];
 
-    for (const contract of contracts) {
-      // student가 null이면 건너뛰기
+    for (const contract of validContracts) {
       if (!contract.student) {
         continue;
       }
 
       const snapshot = (contract.policy_snapshot ?? {}) as Record<string, unknown>;
       const totalSessions = typeof snapshot.total_sessions === 'number' ? snapshot.total_sessions : 0;
-      const endedAt = contract.ended_at ? new Date(contract.ended_at) : null;
 
       // 횟수권: 사용된 횟수 계산 (totalSessions > 0, ended_at은 표시용일 뿐, 판별에 사용하지 않음)
       if (totalSessions > 0) {
-        const usedSessions = await this.prisma.attendanceLog.count({
-          where: {
-            user_id: userId,
-            contract_id: contract.id,
-            voided: false,
-            status: { in: ['present', 'absent', 'substitute', 'vanish'] },
-          },
-        });
+        const logs = logsByContract.get(contract.id) || [];
+        const usedSessions = logs.length;
 
         const remainingSessions = totalSessions - usedSessions;
         // 3회 미만 (remainingSessions < 3, 즉 remainingSessions <= 2)
@@ -480,19 +520,8 @@ export class DashboardService {
 
       // 금액권: 잔여금액 계산 (totalSessions === 0, ended_at은 표시용일 뿐, 판별에 사용하지 않음, 뷰티앱: 잔여금액 20,000원 이하)
       if (totalSessions === 0) {
-        // 사용된 금액 계산
-        const attendanceLogsWithAmount = await this.prisma.attendanceLog.findMany({
-          where: {
-            user_id: userId,
-            contract_id: contract.id,
-            voided: false,
-            status: { in: ['present', 'absent', 'substitute', 'vanish'] },
-          },
-          select: {
-            amount: true,
-          },
-        });
-        const amountUsed = attendanceLogsWithAmount.reduce((sum, log) => sum + (log.amount || 0), 0);
+        const logs = logsByContract.get(contract.id) || [];
+        const amountUsed = logs.reduce((sum, log) => sum + (log.amount || 0), 0);
         const totalAmount = contract.monthly_amount || 0;
         const remainingAmount = Math.max(totalAmount - amountUsed, 0);
         
